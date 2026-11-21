@@ -5621,8 +5621,9 @@ html.as-dragging .as-nudge {
 .as-sfp-select option { background: #14141f; color: #fff; }
 .as-sfp-dir { flex: none; width: 140px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 40px; padding: 0 12px; border-radius: 10px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); color: #fff; font-size: 13px; font-weight: 600; white-space: nowrap; }
 .as-sfp-dir:hover { background: rgba(255,255,255,.09); }
-.as-sfp-tiles { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, 128px); }
-@media (max-width: 480px) { .as-sfp-tiles { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); } }
+/* Les quatre saisons sur toute la largeur de la section (21/11/2026, Luc). */
+.as-sfp-tiles { display: grid; gap: 8px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 480px) { .as-sfp-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .as-sfp-tile { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 6px; border-radius: 12px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); color: #e6e6ea; transition: background .13s, border-color .13s, color .13s; }
 .as-sfp-tile:hover { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.16); }
 .as-sfp-tile-l { font-size: 13px; font-weight: 700; text-align: center; }
@@ -5639,7 +5640,7 @@ html.as-dragging .as-nudge {
 .as-sfp-tile.is-zero, .as-sfp-air.is-zero, .as-sfp-chip.is-zero { background: none; border-style: dashed; border-color: rgba(255,255,255,.14); color: #6f6f7c; }
 .as-sfp-rv { font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; color: rgba(255,255,255,.45); font-variant-numeric: tabular-nums; }
 .as-sfp-rv.is-set { font-weight: 700; color: #ffb3c0; }
-.as-sfp-hist { display: flex; align-items: flex-end; gap: 1px; height: 44px; padding: 0 11px; margin-bottom: 10px; }
+.as-sfp-hist { display: flex; align-items: flex-end; gap: 1px; height: 44px; padding: 0 11px; margin-bottom: 10px; cursor: pointer; }
 .as-sfp-hist span { flex: 1; min-width: 0; border-radius: 2px 2px 0 0; background: rgba(255,255,255,.12); }
 .as-sfp-hist span.is-in { background: rgba(233,69,96,.55); }
 .as-sfp-of { margin-left: 6px; font-weight: 600; opacity: .75; }
@@ -5667,8 +5668,10 @@ html.as-dragging .as-nudge {
 .as-sfp-more:hover { background: rgba(233,69,96,.12); border-color: rgba(233,69,96,.45); color: #ff8fa3; }
 .as-sfp-more:focus:not(:focus-visible) { outline: none; }
 .as-sfp-more:focus-visible { outline: 2px solid rgba(255,255,255,.35); outline-offset: 2px; }
-.as-sfp-active .as-sfp-chip { padding: 5px 10px; font-size: 12px; box-shadow: none; }
-.as-sfp-active .as-sfp-chip svg { opacity: .7; }
+/* Outfit dessine ses lettres trop bas dans la ligne : le texte remonte de 1 px
+   (padding 4/6 au lieu de 5/5), la croix reste au milieu de la pastille. */
+.as-sfp-active .as-sfp-chip { padding: 4px 10px 6px; font-size: 12px; box-shadow: none; }
+.as-sfp-active .as-sfp-chip svg { opacity: .7; transform: translateY(1px); }
 .as-sfp-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 6px 0 4px; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.15) transparent; }
 .as-sfp-sec { padding: 14px 18px 12px; }
 .as-sfp-sec.is-tight { padding: 5px 18px; }
@@ -5696,7 +5699,7 @@ html.as-dragging .as-nudge {
 .as-sfp-dual { display: flex; align-items: center; gap: 10px; }
 .as-sfp-num { width: 58px; flex: none; padding: 6px 4px; border-radius: 8px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); color: rgba(255,255,255,.85); font-size: 12px; font-weight: 700; text-align: center; outline: none; font-variant-numeric: tabular-nums; }
 .as-sfp-num:focus { border-color: rgba(233,69,96,.55); background: rgba(233,69,96,.08); }
-.as-sfp-slider { flex: 1; position: relative; height: 32px; min-width: 0; }
+.as-sfp-slider { flex: 1; position: relative; height: 32px; min-width: 0; cursor: pointer; }
 .as-sfp-track { position: absolute; left: 11px; right: 11px; top: 50%; transform: translateY(-50%); height: 5px; border-radius: 3px; background: rgba(255,255,255,.12); pointer-events: none; }
 .as-sfp-fill { position: absolute; top: 50%; transform: translateY(-50%); height: 5px; border-radius: 3px; background: var(--brand-primary, #E94560); box-shadow: 0 0 6px rgba(233,69,96,.35); pointer-events: none; }
 .as-sfp-range { position: absolute; inset: 0; width: 100%; height: 32px; margin: 0; background: none; -webkit-appearance: none; appearance: none; pointer-events: none; outline: none; }
@@ -5725,7 +5728,9 @@ html.as-dragging .as-nudge {
 /* ENTRÉE / SORTIE DES DÉPLIANTS (20/11/2026, Luc) : la hauteur s'ouvre et se
    referme (grille 0fr ↔ 1fr), le contenu en fondu. ListSortFilter garde le
    panneau monté 220 ms le temps de la sortie. */
-.as-sfp-ddwrap { display: grid; grid-template-rows: 1fr; animation: as-sfp-dd-open .26s cubic-bezier(.22,1,.36,1); }
+/* Courbe régulière (21/11/2026) : l'ancienne (.22,1,.36,1) faisait 75 % de la
+   hauteur en 80 ms puis traînait, ce qui se voyait comme une cassure. */
+.as-sfp-ddwrap { display: grid; grid-template-rows: 1fr; animation: as-sfp-dd-open .28s cubic-bezier(.4,0,.2,1); }
 .as-sfp-ddwrap > div { min-height: 0; overflow: hidden; }
 .as-sfp-ddwrap.is-leaving { pointer-events: none; animation: as-sfp-dd-close .22s cubic-bezier(.4,0,.6,1) forwards; }
 @keyframes as-sfp-dd-open { from { grid-template-rows: 0fr; opacity: 0; } }
@@ -5744,7 +5749,7 @@ html.as-dragging .as-nudge {
 .as-sfp-dds-search input::placeholder { color: rgba(255,255,255,.35); }
 .as-sfp-dds-search button { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; color: rgba(255,255,255,.5); }
 .as-sfp-dds-search button:hover { color: #fff; background: rgba(255,255,255,.1); }
-.as-sfp-ddscroll { max-height: 220px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.15) transparent; }
+.as-sfp-ddscroll { contain: layout paint; max-height: 220px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.15) transparent; }
 .as-sfp-ddscroll .as-sfp-chip { max-width: 100%; }
 .as-sfp-chipn { font-size: 10.5px; font-weight: 700; opacity: .45; font-variant-numeric: tabular-nums; }
 /* Les pastilles compactes (21/11/2026, Luc, proposition 02). Un peu plus
@@ -5772,6 +5777,10 @@ html.as-dragging .as-nudge {
 .as-sfp-apply { flex: 1; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #fff; font-size: 14px; font-weight: 700; letter-spacing: .02em; background: linear-gradient(135deg, #E94560 0%, #c73652 100%); box-shadow: 0 6px 22px rgba(233,69,96,.32); transition: box-shadow .3s; }
 /* Au survol, seule l'ombre rose s'intensifie (20/11/2026, Luc). */
 .as-sfp-apply:hover { box-shadow: 0 8px 26px rgba(233,69,96,.45); } /* adouci le 20/11 (Luc : « trop », puis sans grossissement) */
+/* « Tout effacer » de la liste vide : le survol de « Personnaliser le profil »
+   et de « Regarder » (21/11/2026, Luc). */
+.as-sfp-apply.as-list-clear { transition: transform .3s, box-shadow .3s; }
+.as-sfp-apply.as-list-clear:hover { transform: scale(1.05); box-shadow: 0 0 34px 6px color-mix(in srgb, var(--brand-primary, #E94560) 55%, transparent); }
 .as-sfp-count { min-width: 26px; height: 22px; padding: 0 7px; border-radius: 11px; background: rgba(255,255,255,.22); font-size: 12px; font-weight: 800; display: inline-grid; place-items: center; font-variant-numeric: tabular-nums; }
 /* Plus de coupure sous prefers-reduced-motion (20/11/2026) : le Chrome de Luc
    répond `reduce`, les feuilles apparaissaient et disparaissaient sèchement.

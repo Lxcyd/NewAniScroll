@@ -1,7 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { useSheetPresence } from "./useSheetPresence";
+import { useScrollLock, useSheetPresence } from "./useSheetPresence";
 import { countryLabel, prettyFormat, prettySource, statusLabel } from "@/components/anime/v2/helpers";
 import {
   AIR_STATUSES,
@@ -12,6 +12,7 @@ import {
   SOURCES,
   activeCount,
   applyFilters,
+  episodesOf,
   freshFilters,
   rangeIsFull,
   valueCounts,
@@ -61,6 +62,8 @@ export default function ListSortFilter({
   bounds,
   onChange,
   pool,
+  search = "",
+  onClearSearch,
   onRandom,
   onRandomPrepare,
 }: {
@@ -72,6 +75,9 @@ export default function ListSortFilter({
   onChange: (f: ListFilters) => void;
   /** La sélection courante (statut, liste, recherche) avant tri & filtres. */
   pool: ProfileEntry[];
+  /** La recherche en cours de la liste, montrée avec les filtres actifs. */
+  search?: string;
+  onClearSearch?: () => void;
   /** Applique `f`, tire un titre parmi ses résultats ; son nom, ou null s'il n'y en a aucun. */
   onRandom: (f: ListFilters) => string | null;
   /** Prépare (et précharge) le tirage avant le clic : survol ou focus du dé. */
@@ -80,8 +86,8 @@ export default function ListSortFilter({
   const { t } = useTranslation();
   /* UN BROUILLON (20/11/2026, Luc : « ne l'applique pas sur la page derrière,
      attends le bouton Voir N résultats ») : repris des filtres appliqués à
-     chaque ouverture, rendu à la liste seulement par ce bouton. Fermer
-     autrement (croix, Échap, clic dehors) l'abandonne. */
+     chaque ouverture, rendu à la liste à la SORTIE du panneau, quelle qu'elle
+     soit : bouton, croix, Échap, clic dehors, tirage (21/11/2026, Luc). */
   const [draft, setDraft] = useState(filters);
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
@@ -98,19 +104,34 @@ export default function ListSortFilter({
   const [openDd, setOpenDd] = useState<Partial<Record<SetKey, true | "leaving">>>({});
   const ddTimers = useRef<Partial<Record<SetKey, ReturnType<typeof setTimeout>>>>({});
   useEffect(() => () => Object.values(ddTimers.current).forEach((id) => clearTimeout(id)), []);
+  /* Studio monte 588 puces : pendant l'ouverture, seules celles qui remplissent
+     la boîte sont créées, le reste arrive une fois l'animation finie (21/11). */
+  const [ddFull, setDdFull] = useState<Partial<Record<SetKey, true>>>({});
   const toggleDd = (k: SetKey) => {
     clearTimeout(ddTimers.current[k]);
     if (openDd[k] === true) {
       setOpenDd((o) => ({ ...o, [k]: "leaving" }));
-      ddTimers.current[k] = setTimeout(() => setOpenDd((o) => {
-        const n = { ...o };
-        delete n[k];
-        return n;
-      }), 220);
+      ddTimers.current[k] = setTimeout(() => {
+        setOpenDd((o) => {
+          const n = { ...o };
+          delete n[k];
+          return n;
+        });
+        setDdFull((o) => {
+          const n = { ...o };
+          delete n[k];
+          return n;
+        });
+      }, 220);
     } else {
       setOpenDd((o) => ({ ...o, [k]: true }));
+      // Un délai, pas `animationend` : il ne part pas en reduced-motion.
+      ddTimers.current[k] = setTimeout(() => startTransition(() => setDdFull((o) => ({ ...o, [k]: true }))), 300);
     }
   };
+  /* Les comptes ne changent qu'avec la liste ou le brouillon : ouvrir un
+     dépliant ne les recalcule plus. */
+  const countsMemo = useRef<{ entries: ProfileEntry[]; draft: ListFilters; bounds: Bounds; whole: Map<SetKey, Map<string, number>>; facet: Map<SetKey, Map<string, number>> } | null>(null);
   const [ddScopes, setDdScopes] = useState<Partial<Record<SetKey, DdScope>>>({});
   const showAdult = useShowAdult();
   const [ddQueries, setDdQueries] = useState<Partial<Record<SetKey, string>>>({});
@@ -132,8 +153,11 @@ export default function ListSortFilter({
      hasard (qui fait rendre le parent) relançait cet effet, et `setPick(null)`
      effaçait le titre tiré aussitôt affiché (20/11/2026, Luc : « le bouton
      random ne marche pas »). Remis à zéro à l'OUVERTURE seulement. */
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  const leaveRef = useRef(onClose);
+  leaveRef.current = () => {
+    if (JSON.stringify(draft) !== JSON.stringify(filters)) onChange(draft);
+    onClose();
+  };
   useEffect(() => {
     if (!open) return;
     setPick(null);
@@ -142,31 +166,20 @@ export default function ListSortFilter({
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (sortOpenRef.current) setSortOpen(false);
-      else onCloseRef.current();
+      else leaveRef.current();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
-  /* C'est <html> qui défile, pas <body> (cf. ListManager, 20/11/2026) ; la
-     largeur de la barre disparue est rendue en marge. Tenu jusqu'à la fin de
-     l'animation de fermeture (`shown`), sinon la page bouge pendant. */
+  /* Page figée jusqu'à la fin de l'animation de fermeture (`shown`), sinon
+     elle bouge pendant. */
   const { shown, closing } = useSheetPresence(open);
-  useEffect(() => {
-    if (!shown) return;
-    const html = document.documentElement;
-    const bar = window.innerWidth - html.clientWidth;
-    const prev = [html.style.overflow, html.style.paddingRight];
-    html.style.overflow = "hidden";
-    if (bar > 0) html.style.paddingRight = `${bar}px`;
-    return () => {
-      [html.style.overflow, html.style.paddingRight] = prev;
-    };
-  }, [shown]);
+  useScrollLock(shown);
 
   /* Combien de filtres actifs tiennent sur la ligne : on cache le surplus par
      la fin jusqu'à ce que « Voir plus » rentre sur la première ligne. */
-  const draftKey = JSON.stringify(draft);
+  const draftKey = JSON.stringify(draft) + search;
   useIsoLayoutEffect(() => {
     const box = pillsRef.current;
     if (!box) return;
@@ -233,24 +246,33 @@ export default function ListSortFilter({
   });
   const active = activeCount(f, bounds);
   const hasYear = entries.some((e) => e.year);
-  const hasTotal = entries.some((e) => e.total);
+  const hasTotal = entries.some((e) => episodesOf(e));
 
   /* LES COMPTES D'UNE SECTION : ceux de toute la liste (`whole`, pour savoir
      quelles valeurs existent) et ceux que donnerait chaque valeur avec TOUS
      LES AUTRES filtres appliqués (`facet`), le sien exclu. */
-  const wholeCache = new Map<SetKey, Map<string, number>>();
+  let memo = countsMemo.current;
+  if (!memo || memo.entries !== entries || memo.draft !== f || memo.bounds !== bounds) {
+    memo = { entries, draft: f, bounds, whole: memo?.entries === entries ? memo.whole : new Map(), facet: new Map() };
+    countsMemo.current = memo;
+  }
+  const { whole: wholeCache, facet: facetCache } = memo;
   const whole = (k: SetKey) => {
     let m = wholeCache.get(k);
     if (!m) wholeCache.set(k, (m = valueCounts(entries, k)));
     return m;
   };
-  const facet = (k: SetKey) => valueCounts(applyFilters(entries, { ...f, sets: { ...f.sets, [k]: [] } }, bounds), k);
+  const wholeOf = whole;
+  const facet = (k: SetKey) => {
+    let m = facetCache.get(k);
+    if (!m) facetCache.set(k, (m = valueCounts(applyFilters(entries, { ...f, sets: { ...f.sets, [k]: [] } }, bounds), k)));
+    return m;
+  };
 
   /* Les tuiles (Format, Saison) : icône, nom, nombre de titres. Une valeur
      absente de toute la liste n'a pas de tuile ; présente mais à zéro avec les
      autres filtres, elle est en pointillés (et reste cliquable). */
-  /* Tuiles de LARGEUR FIXE (14/11, Luc) : un panneau plus large en met plus
-     par ligne au lieu de les étirer. */
+  /* Quatre colonnes égales sur toute la largeur (21/11, Luc). */
   const tiles = (k: SetKey, values: string[], label: (v: string) => React.ReactNode, icons: Record<string, string>) => {
     const n = facet(k);
     return (
@@ -319,13 +341,28 @@ export default function ListSortFilter({
       const next: [number, number] = i === 0 ? [v, b] : [a, v];
       set({ ranges: { ...f.ranges, [k]: next } });
     };
+    /* CLIC SUR LA BARRE OU L'HISTOGRAMME (21/11/2026, Luc) : dans la moitié
+       droite de la plage choisie on déplace la borne droite, sinon la gauche. */
+    const pickAt = (raw: number) => {
+      const v = lo + Math.round((raw - lo) / step) * step;
+      setAt(v > (a + b) / 2 ? 1 : 0, v);
+    };
     return (
       <Section
         label={label}
         extra={<span className={full ? "as-sfp-rv" : "as-sfp-rv is-set"}>{full ? t("listMenu.all") : `${a} – ${b}`}</span>}
       >
         {hist ? (
-          <div className="as-sfp-hist" aria-hidden="true">
+          <div
+            className="as-sfp-hist"
+            aria-hidden="true"
+            onClick={(e) => {
+              // Sur toute la colonne, pas seulement sur la barre : les petites années restent cliquables.
+              const r = e.currentTarget.getBoundingClientRect();
+              const i = Math.floor(((e.clientX - r.left - 11) / (r.width - 22)) * bars.length);
+              pickAt(lo + Math.min(bars.length - 1, Math.max(0, i)));
+            }}
+          >
             {bars.map((x) => (
               <span
                 key={x.y}
@@ -338,7 +375,17 @@ export default function ListSortFilter({
         ) : null}
         <div className="as-sfp-dual">
           <NumBox value={a} onCommit={(v) => setAt(0, v)} label={`${label} min`} />
-          <div className="as-sfp-slider">
+          <div
+            className="as-sfp-slider"
+            // Un glissé de poignée relâché sur la barre finit aussi en clic ici : on l'écarte.
+            onPointerDown={(e) => { e.currentTarget.dataset.track = e.target instanceof HTMLInputElement ? "" : "1"; }}
+            onClick={(e) => {
+              if (!e.currentTarget.dataset.track) return;
+              const r = e.currentTarget.getBoundingClientRect();
+              const ratio = Math.min(1, Math.max(0, (e.clientX - r.left - 11) / (r.width - 22)));
+              pickAt(lo + ratio * span);
+            }}
+          >
             <div className="as-sfp-track" />
             <div
               className="as-sfp-fill"
@@ -377,7 +424,7 @@ export default function ListSortFilter({
      titres la portent. Une puce cochée reste affichée même à zéro, pour
      pouvoir la décocher. */
   const dropdown = ({ k, label, icon }: { k: SetKey; label: string; icon: React.ReactNode }) => {
-    const whole = valueCounts(entries, k);
+    const whole = wholeOf(k);
     if (!whole.size) return null;
     const isOpen = openDd[k] === true;
     const shown = !!openDd[k];
@@ -431,7 +478,7 @@ export default function ListSortFilter({
           <div className="as-sfp-ddscroll">
             {values.length ? (
               <div className="as-sfp-chips">
-                {values.map(([v, n]) => (
+                {(ddFull[k] || q ? values : values.slice(0, 60)).map(([v, n]) => (
                   <Chip key={v} on={sel.includes(v)} zero={!n} onClick={() => toggle(k, v)}>
                     {v}
                     <span className="as-sfp-chipn">{n}</span>
@@ -488,6 +535,9 @@ export default function ListSortFilter({
   };
   const rangeLabel: Record<RangeKey, string> = { year: t("listMenu.year"), score: t("listMenu.myScore"), episodes: t("listMenu.episodes") };
   const pills: { key: string; label: string; off: () => void }[] = [];
+  /* La recherche de la liste (21/11/2026, Luc) : elle réduit déjà les résultats,
+     elle se voit donc ici et s'enlève d'un clic, tout de suite. */
+  if (search && onClearSearch) pills.push({ key: "search", label: `« ${search} »`, off: onClearSearch });
   for (const k of ["format", "season", "air", "genres", "tags", "studio", "source", "country"] as SetKey[]) {
     for (const v of f.sets[k]) pills.push({ key: `${k}:${v}`, label: setLabel[k](v), off: () => toggle(k, v) });
   }
@@ -508,7 +558,7 @@ export default function ListSortFilter({
   pills.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
 
   return createPortal(
-    <div className={`as-sfp-overlay${closing ? " is-closing" : ""}`} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className={`as-sfp-overlay${closing ? " is-closing" : ""}`} onMouseDown={(e) => e.target === e.currentTarget && leaveRef.current()}>
       <div className="as-sfp" role="dialog" aria-modal="true" aria-label={t("listMenu.sortFilter")}>
         <div className="as-sfp-head has-pills">
           <div className="as-sfp-hl">
@@ -535,7 +585,7 @@ export default function ListSortFilter({
             <button type="button" className="as-sfp-reset" onClick={() => set({ ...freshFilters(bounds), sort: f.sort, desc: f.desc })}>
               {t("listMenu.reset")}
             </button>
-            <button type="button" className="as-sfp-x" onClick={onClose} aria-label={t("listMenu.close")}>
+            <button type="button" className="as-sfp-x" onClick={() => leaveRef.current()} aria-label={t("listMenu.close")}>
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
             </button>
           </div>
@@ -649,7 +699,7 @@ export default function ListSortFilter({
               /* Un titre tiré : le panneau se ferme et la liste va dessus
                  (20/11/2026, Luc). Aucun : le message reste dans le panneau. */
               const name = onRandom(f);
-              if (name) onClose();
+              if (name) leaveRef.current();
               else setPick(t("listMenu.randomNone"));
               /* Le badge « Au hasard » : jusqu'ici aucun bouton ne le levait. */
               if (name) void import("@/lib/badges/facts").then((f) => f.recordFlag("random")).catch(() => {});

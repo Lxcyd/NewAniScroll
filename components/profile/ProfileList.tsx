@@ -144,12 +144,16 @@ export default function ProfileList({
   /* LES MENUS STATUT / LISTES (20/11/2026, Luc) : vers le bas s'il y a la
      place sous le champ ; sinon vers le haut, si la place y est entre le champ
      et la barre de navigation fixe (64 px). Décidé au montage, avant
-     l'affichage. */
+     l'affichage. Les deux menus partent TOUJOURS du même côté (21/11, Luc) :
+     la place se juge sur le plus long des deux, plafonné à 320 px en CSS. */
   const placeMenu = (el: HTMLDivElement | null) => {
     if (!el) return;
     const field = el.parentElement?.getBoundingClientRect();
     if (!field) return;
-    const h = el.offsetHeight + 12;
+    const statuses = (editable ? reg.statusOrder : STATUS_ORDER).filter((s) => statusCounts[s] || customStatusOf(s)).length;
+    const rows = 1 + Math.max(statuses, localLists.length + anilistLists.length);
+    const row = ((el.firstElementChild as HTMLElement | null)?.offsetHeight ?? 35) + 2;
+    const h = Math.min(320, rows * row + 14) + 12;
     const below = window.innerHeight - field.bottom >= h;
     el.classList.toggle("is-up", !below && field.top - 64 >= h);
   };
@@ -290,12 +294,11 @@ export default function ProfileList({
           (activeCustomStatus ? activeCustomStatus.ids.includes(e.mediaId) : (e.status || "PLANNING") === status)) &&
         (!activeList ||
           (activeLocal ? activeLocal.ids.includes(e.mediaId) : e.customLists?.includes(activeList))) &&
-        (!q ||
-          [e.title?.english, e.title?.romaji, e.title?.native, e.title?.userPreferred].some((x) =>
-            x?.toLowerCase().includes(q),
-          )),
+        /* Seul le titre AFFICHÉ, selon le réglage de langue (21/11/2026, Luc) :
+           « juui » ne doit pas sortir Lookism par son romaji caché. */
+        (!q || titleOf(e).toLowerCase().includes(q)),
     );
-  }, [base, status, activeCustomStatus, activeList, activeLocal, query]);
+  }, [base, status, activeCustomStatus, activeList, activeLocal, query, titleOf]);
   const shown = useMemo(
     () => sortEntries(applyFilters(pre, filters, bounds), filters, titleOf, statusOrder),
     [pre, filters, bounds, titleOf, statusOrder],
@@ -638,16 +641,21 @@ view === "grid" ? (
       </div>
 
       {shown.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 py-16 text-center">
-          <p className="font-bold text-white/70">
-            {score != null && base.length === 0
-              ? t("myList.noneAtScore", { score: String(score).replace(".", ",") })
-              : t("listMenu.nothing")}
-          </p>
-          <p className="text-sm text-white/40">{t("listMenu.nothingHint")}</p>
-          <button type="button" onClick={clearAll} className="mt-3 rounded-lg px-4 py-2 text-sm ring-1 ring-action transition-colors hover:bg-action/10">
-            {t("listMenu.clearAll")}
-          </button>
+        /* Sur la plaque des cartes (21/11/2026, Luc) : posé à nu, le texte
+           devenait illisible sur un fond de profil clair ou chargé. */
+        <div className="flex justify-center py-10">
+          <div className="as-stat-card flex w-full max-w-md flex-col items-center gap-2 rounded-[14px] border border-white/[0.12] px-6 py-7 text-center">
+            <p className="font-bold text-white">
+              {score != null && base.length === 0
+                ? t("myList.noneAtScore", { score: String(score).replace(".", ",") })
+                : t("listMenu.nothing")}
+            </p>
+            <p className="text-sm text-white/75">{t("listMenu.nothingHint")}</p>
+            {/* Le dégradé de « Voir N résultats », le survol de « Regarder ». */}
+            <button type="button" onClick={clearAll} className="as-sfp-apply as-list-clear mt-3 px-6" style={{ flex: "none" }}>
+              {t("listMenu.clearAll")}
+            </button>
+          </div>
         </div>
       ) : (
         /* CHANGEMENT DE DISPOSITION SANS VIDE (20/11/2026, Luc) : plus de
@@ -679,6 +687,8 @@ view === "grid" ? (
         bounds={bounds}
         onChange={changeFilters}
         pool={pre}
+        search={query.trim()}
+        onClearSearch={() => setQuery("")}
         onRandomPrepare={(f) => {
           const res = applyFilters(pre, f, bounds);
           if (prepared.current && res.some((x) => x.mediaId === prepared.current!.mediaId)) return;

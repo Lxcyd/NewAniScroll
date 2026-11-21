@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { prettyFormat } from "@/components/anime/v2/helpers";
 import { animeHref } from "@/lib/prefs/clickTarget";
 import type { ProfileEntry } from "@/lib/profile/types";
-import { useSheetPresence } from "./useSheetPresence";
+import { useScrollLock, useSheetPresence } from "./useSheetPresence";
 
 /**
  * LA FICHE DU TITRE TIRÉ AU HASARD (20/11/2026, Luc, proposition 01 de
@@ -48,18 +48,7 @@ export default function RandomReveal({
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
-  // Même blocage du défilement que les autres feuilles (c'est <html> qui défile).
-  useEffect(() => {
-    if (!shown) return;
-    const html = document.documentElement;
-    const bar = window.innerWidth - html.clientWidth;
-    const prev = [html.style.overflow, html.style.paddingRight];
-    html.style.overflow = "hidden";
-    if (bar > 0) html.style.paddingRight = `${bar}px`;
-    return () => {
-      [html.style.overflow, html.style.paddingRight] = prev;
-    };
-  }, [shown]);
+  useScrollLock(shown);
 
   const v = last.current;
   if (!shown || !mounted || !v) return null;

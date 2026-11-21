@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { customListColor, LIST_COLORS, STATUS_TO_LIST } from "@/components/anime/v2/helpers";
 import ColorPicker from "@/components/shared/ColorPicker";
-import { useSheetPresence } from "./useSheetPresence";
+import { useScrollLock, useSheetPresence } from "./useSheetPresence";
 import {
   CUSTOM_STATUS,
   getListRegistry,
@@ -108,21 +108,8 @@ export default function ListManager({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose, palette, leaving, confirm, confirmLeaving]);
 
-  /* PAGE FIGÉE DERRIÈRE (20/11/2026, Luc) : c'est <html> qui défile ici, pas
-     <body> — l'ancien `body.overflow = hidden` laissait la molette passer. La
-     largeur de la barre disparue est rendue en marge, la page ne bouge pas. */
-  /* Tenue jusqu'à la fin de l'animation de fermeture (`shown`). */
-  useEffect(() => {
-    if (!shown) return;
-    const html = document.documentElement;
-    const bar = window.innerWidth - html.clientWidth;
-    const prev = [html.style.overflow, html.style.paddingRight];
-    html.style.overflow = "hidden";
-    if (bar > 0) html.style.paddingRight = `${bar}px`;
-    return () => {
-      [html.style.overflow, html.style.paddingRight] = prev;
-    };
-  }, [shown]);
+  /* Page figée derrière, jusqu'à la fin de l'animation de fermeture (`shown`). */
+  useScrollLock(shown);
 
   /* RÉORDONNER COMME LES WIDGETS (08/11, Luc : « ça se TP au lieu de suivre le
      curseur ») : la ligne tenue SUIT le pointeur (translate), bloquée entre le

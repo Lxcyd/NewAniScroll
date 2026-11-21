@@ -19,7 +19,8 @@ export const FORMATS = ["TV", "MOVIE", "OVA", "ONA", "TV_SHORT", "SPECIAL", "MUS
 export const SEASONS = ["WINTER", "SPRING", "SUMMER", "FALL"];
 export const SOURCES = [
   "ORIGINAL", "MANGA", "LIGHT_NOVEL", "VISUAL_NOVEL", "WEB_NOVEL", "NOVEL",
-  "VIDEO_GAME", "GAME", "COMIC", "PICTURE_BOOK", "MULTIMEDIA_PROJECT", "OTHER",
+  "VIDEO_GAME", "GAME", "COMIC", "DOUJINSHI", "PICTURE_BOOK", "ANIME", "LIVE_ACTION",
+  "MULTIMEDIA_PROJECT", "OTHER",
 ];
 export const COUNTRIES = ["JP", "CN", "KR", "TW"];
 
@@ -38,10 +39,16 @@ export type Bounds = Record<RangeKey, [number, number]>;
 
 const THIS_YEAR = new Date().getFullYear();
 
+/** Le nombre d'épisodes d'un titre. AniList n'a pas de total pour une série en
+ *  cours (One Piece) : on prend alors les épisodes sortis, ou ce qui a été vu. */
+export function episodesOf(e: ProfileEntry): number | null {
+  return e.total || Math.max(e.aired || 0, e.progress || 0) || null;
+}
+
 /** Les bornes des curseurs. Épisodes : jusqu'au plus long titre de la liste. */
 export function boundsOf(entries: ProfileEntry[]): Bounds {
   let ep = 1;
-  for (const e of entries) if (e.total && e.total > ep) ep = e.total;
+  for (const e of entries) ep = Math.max(ep, episodesOf(e) || 0);
   return { year: [1940, THIS_YEAR + 1], score: [0, 10], episodes: [1, ep] };
 }
 
@@ -111,7 +118,7 @@ export function applyFilters(entries: ProfileEntry[], f: ListFilters, b: Bounds)
     return (
       inRange(e.year, f, b, "year") &&
       inRange(e.score ?? 0, f, b, "score") &&
-      inRange(e.total, f, b, "episodes")
+      inRange(episodesOf(e), f, b, "episodes")
     );
   });
 }
@@ -144,7 +151,7 @@ export function sortEntries(
       case "favourites": return (e.favourite ? 1e15 : 0) + (e.updatedAt ?? 0);
       case "score": return e.score ?? null;
       case "rating": return e.rating ?? null;
-      case "episodes": return e.total ?? null;
+      case "episodes": return episodesOf(e);
       case "year": return e.year ?? null;
       default: return null;
     }

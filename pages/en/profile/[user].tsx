@@ -780,7 +780,9 @@ const ANILIST_QUERY = `
             # Même requête, aucun aller-retour de plus.
             status
             season
-            source
+            # version 3 : sans elle AniList range Web Novel, Comic, Game… sous
+            # d'anciennes valeurs (Other, Light Novel…).
+            source(version: 3)
             countryOfOrigin
             isAdult
             tags { name rank isMediaSpoiler }
@@ -870,7 +872,9 @@ const RECENTE_MS = PARTAGE_TTL_S * 1000;
 /* v5 (12/11/2026) : TOUS les studios de chaque titre (`studios { edges }`) pour
    le filtre Studio ; une copie v4 ne porte que le principal, et le panneau
    comptait 83 studios là où AniList en compte 308. */
-const partageKey = (name: string) => `anilist:list:v5:${name.toLowerCase()}`;
+/* v6 (21/11/2026) : `source(version: 3)` ; une copie v5 porte les anciennes
+   valeurs et le filtre Source n'affichait ni Web Novel, ni Comic, ni Game. */
+const partageKey = (name: string) => `anilist:list:v6:${name.toLowerCase()}`;
 
 /** Ce qu'Upstash range : l'heure de la réponse, et la liste gzip + base64. */
 type ListePartagee = { at: number; z: string };
