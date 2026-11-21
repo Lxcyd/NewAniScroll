@@ -1507,9 +1507,12 @@ export default function BannerStudio({
      que pour cette ref : elle est tenue à la main, vraie du clic jusqu'au
      rendu du nouveau menu (effet sur `scope`), avec un filet de 2 s. */
   const menuPendingRef = useRef(false);
+  const menuPendingTimer = useRef<number | undefined>(undefined);
   const startMenu = useCallback((fn: () => void) => {
     menuPendingRef.current = true;
-    window.setTimeout(() => (menuPendingRef.current = false), 2000);
+    // Un seul filet à la fois : celui d'un clic précédent coupait le suivant.
+    window.clearTimeout(menuPendingTimer.current);
+    menuPendingTimer.current = window.setTimeout(() => (menuPendingRef.current = false), 2000);
     startTransition(fn);
   }, []);
   /* PENDANT QUE LA CARTE GLISSE (pied du menu ↔ barre, 500 ms), les rails ne
@@ -4377,12 +4380,15 @@ export default function BannerStudio({
       }
       for (const s of gal) s.panel = true;
       const titre = t(`profile.studioKind_${scope}`);
-      if (at < 0) out.push(...gal, { title: titre, rows: liste.map(ligne) });
+      /* Un `id` et non le titre comme clé (21/11/2026) : le titre change entre
+         Image et Bannière, et les ~700 lignes étaient jetées puis recréées à
+         chaque changement d'onglet. */
+      if (at < 0) out.push(...gal, { id: "alist", title: titre, rows: liste.map(ligne) });
       else
         out.push(
-          { title: titre, rows: liste.slice(0, at).map(ligne), heading: true },
+          { id: "alist", title: titre, rows: liste.slice(0, at).map(ligne), heading: true },
           ...gal,
-          { title: "", rows: liste.slice(at + 1).map(ligne) },
+          { id: "alist-suite", title: "", rows: liste.slice(at + 1).map(ligne) },
         );
     }
 
@@ -6558,10 +6564,14 @@ export default function BannerStudio({
                         ) : null}
                         </div>
                       ) : null}
-                      {s.grid ? null : s.rows.map((row) => {
-                        index += 1;
+                      {s.grid ? null : (() => {
+                        /* L'index clavier de chaque ligne ne dépend plus de
+                           celles réellement montées (liste fenêtrée). */
+                        const base = index;
+                        index += s.rows.length;
+                        const ligne = (row: Row, j: number) => {
                         if (s.panel) rang += 1;
-                        const active = clavier && index === cursor;
+                        const active = clavier && base + j + 1 === cursor;
                         const Icon = row.icon;
                         /* En édition, la ligne porte un champ : un <div>, on
                            n'écrit pas dans un bouton. */
@@ -6720,7 +6730,13 @@ export default function BannerStudio({
                             ) : null}
                           </Line>
                         );
-                      })}
+                        };
+                        return !s.panel && s.rows.length > WINDOW_FROM && s.rows.every((r) => r.cover) ? (
+                          <WindowedRows rows={s.rows} root={scrollerRef} pinKey={anchor.current?.key} render={ligne} />
+                        ) : (
+                          s.rows.map(ligne)
+                        );
+                      })()}
                     </div>
                   ))
                 )}
@@ -8382,6 +8398,76 @@ function AnimeHead({
  * rendu (la page arrivée le repousse plus bas), donc rien ne part en boucle :
  * un repère resté visible attend que `onVisible` change.
  */
+/**
+ * LES LONGUES LISTES D'ANIMÉS NE MONTENT QUE CE QUI EST VISIBLE (21/11/2026,
+ * Luc : « c'est très laggy »). Recréer ~700 lignes gelait l'affichage 320 ms
+ * à chaque changement d'onglet (1,5 s en CPU ×4). Toutes font 72 px (affiche
+ * h-14 + py-2) : deux cales gardent la hauteur totale, donc la barre de
+ * défilement, la mémoire de position et l'accordéon ne voient aucune différence.
+ * `pinKey` garde montée la ligne que `holdAnchor` doit retrouver.
+ */
+const WINDOW_FROM = 40;
+const WINDOW_ROW = 72;
+const WINDOW_EXTRA = 10;
+function WindowedRows({
+  rows,
+  root,
+  pinKey,
+  render,
+}: {
+  rows: Row[];
+  root: React.RefObject<HTMLDivElement | null>;
+  pinKey?: string;
+  render: (row: Row, index: number) => React.ReactNode;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState({ first: 0, count: 30 });
+  const measure = useRef<() => void>(() => {});
+  measure.current = () => {
+    const sc = root.current;
+    const el = box.current;
+    if (!sc || !el) return;
+    const top = el.getBoundingClientRect().top - sc.getBoundingClientRect().top;
+    const first = Math.max(0, Math.floor(-top / WINDOW_ROW) - WINDOW_EXTRA);
+    const count = Math.ceil(sc.clientHeight / WINDOW_ROW) + WINDOW_EXTRA * 2;
+    setView((v) => (v.first === first && v.count === count ? v : { first, count }));
+  };
+  // À chaque rendu : ce qui est au-dessus (une galerie qui arrive) a pu bouger.
+  useBeforePaint(() => measure.current());
+  useEffect(() => {
+    const sc = root.current;
+    if (!sc) return;
+    let raf = 0;
+    const onMove = () => {
+      raf ||= requestAnimationFrame(() => {
+        raf = 0;
+        measure.current();
+      });
+    };
+    sc.addEventListener("scroll", onMove, { passive: true });
+    const ro = new ResizeObserver(onMove);
+    ro.observe(sc);
+    return () => {
+      cancelAnimationFrame(raf);
+      sc.removeEventListener("scroll", onMove);
+      ro.disconnect();
+    };
+  }, [root]);
+  let first = Math.min(view.first, Math.max(0, rows.length - view.count));
+  if (pinKey) {
+    const at = rows.findIndex((r) => r.key === pinKey);
+    if (at >= 0 && (at < first || at >= first + view.count)) first = Math.max(0, at - WINDOW_EXTRA);
+  }
+  const end = Math.min(rows.length, first + view.count);
+  return (
+    <div ref={box}>
+      {first > 0 ? <div aria-hidden style={{ height: first * WINDOW_ROW }} /> : null}
+      {rows.slice(first, end).map((row, i) => render(row, first + i))}
+      {end < rows.length ? <div aria-hidden style={{ height: (rows.length - end) * WINDOW_ROW }} /> : null}
+    </div>
+  );
+}
+
 function Suite({
   onVisible,
   root,
