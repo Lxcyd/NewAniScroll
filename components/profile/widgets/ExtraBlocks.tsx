@@ -2528,7 +2528,7 @@ function CommonTitles({
   if (typeof document === "undefined") return null;
   return createPortal(
     <div className="fixed inset-0 z-[10060] flex items-start justify-center px-4 pt-[8vh]" role="dialog" aria-modal="true" aria-label={t("profile.blocks.affinity.commonWith", { name })}>
-      <button type="button" aria-label={t("common.close", { defaultValue: "Close" })} onClick={onClose} className="absolute inset-0 cursor-default bg-[rgba(5,5,10,.62)] backdrop-blur-[6px]" />
+      <button type="button" aria-label={t("common.close", { defaultValue: "Close" })} onClick={onClose} className="absolute inset-0 cursor-default bg-[rgba(5,5,10,.62)] backdrop-blur-[10px]" />
       <div className="relative flex max-h-[84vh] w-full max-w-xl flex-col overflow-hidden rounded-[22px] as-menu-bg shadow-[0_28px_80px_rgba(0,0,0,.7)] ring-1 ring-white/[0.08]">
         <div className="flex items-start gap-3 px-5 pb-3 pt-5">
           <div className="min-w-0 flex-1">

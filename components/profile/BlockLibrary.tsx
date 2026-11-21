@@ -53,7 +53,7 @@ export default function BlockLibrary({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-[rgba(5,5,10,.62)] p-4 backdrop-blur-[6px] sm:p-7"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-[rgba(5,5,10,.62)] p-4 backdrop-blur-[10px] sm:p-7"
       onClick={onClose}
     >
       <div

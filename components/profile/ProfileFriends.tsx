@@ -394,7 +394,7 @@ function AddDialog({ onClose }: { onClose: () => void }) {
         type="button"
         aria-label={t("common.close", { defaultValue: "Close" })}
         onClick={onClose}
-        className="absolute inset-0 cursor-default bg-[rgba(5,5,10,.62)] backdrop-blur-[6px]"
+        className="absolute inset-0 cursor-default bg-[rgba(5,5,10,.62)] backdrop-blur-[10px]"
       />
       <div
         className={`relative w-full max-w-md overflow-hidden rounded-[22px] as-menu-bg shadow-[0_28px_80px_rgba(0,0,0,.7)] ring-1 ring-white/[0.08] transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
