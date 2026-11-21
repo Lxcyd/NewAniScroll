@@ -53,11 +53,11 @@ export default function BlockLibrary({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm sm:p-7"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-[rgba(5,5,10,.62)] p-4 backdrop-blur-[6px] sm:p-7"
       onClick={onClose}
     >
       <div
-        className="max-h-[82vh] w-full max-w-3xl overflow-auto rounded-3xl bg-[#14141f] p-6 ring-1 ring-white/10 shadow-[0_40px_90px_rgba(0,0,0,0.7)]"
+        className="max-h-[82vh] w-full max-w-3xl overflow-auto rounded-3xl as-menu-bg p-6 ring-1 ring-white/[0.08] shadow-[0_40px_90px_rgba(0,0,0,0.7)]"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"

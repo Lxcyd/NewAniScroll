@@ -541,7 +541,7 @@ function PreviewButton() {
             <div
               ref={panneau}
               style={{ top: pos.top, right: pos.right }}
-              className="fixed z-[1000] flex max-h-[70vh] w-[300px] flex-col overflow-hidden rounded-xl border border-white/10 bg-[#14141f] shadow-2xl"
+              className="fixed z-[1000] flex max-h-[70vh] w-[300px] flex-col overflow-hidden rounded-xl border border-white/10 as-menu-bg shadow-2xl"
             >
           <div className="border-b border-white/10 p-2">
             <input
@@ -666,7 +666,7 @@ function BadgeRow({
       style={
         unlocked
           ? ({
-              background: `linear-gradient(90deg, ${R.ic}26, transparent 60%), linear-gradient(145deg, rgba(20,20,31,var(--as-plate-a1,.72)), rgba(20,20,31,var(--as-plate-a2,.58)))`,
+              background: `linear-gradient(90deg, ${R.ic}26, transparent 60%), linear-gradient(145deg, rgba(20,22,28,var(--as-plate-a1,.72)), rgba(12,13,16,var(--as-plate-a2,.58)))`,
               "--tw-ring-color": `${R.ic}61`,
             } as CSSProperties)
           : { background: "transparent" }

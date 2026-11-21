@@ -3635,7 +3635,7 @@ export default function BannerStudio({
                   <div className="sticky top-[34%] flex justify-center px-3 py-6">
                   {/* Un `border` et pas un `ring` : le ring prenait ici une
                       teinte bleue (08/11/2026, Luc). */}
-                  <div ref={lockMessageIn} className="max-w-[20rem] rounded-2xl border border-solid border-[rgba(255,255,255,0.15)] bg-[#1c1c2a] px-6 py-5 text-center shadow-[0_16px_40px_rgba(0,0,0,0.6)] outline-none">
+                  <div ref={lockMessageIn} className="max-w-[20rem] rounded-2xl border border-solid border-[rgba(255,255,255,0.15)] as-menu-bg px-6 py-5 text-center shadow-[0_16px_40px_rgba(0,0,0,0.6)] outline-none">
                       <WidgetAddIcon className="mx-auto mb-2.5 h-8 w-8 text-white/50" />
                       <p className="font-outfit text-lg font-bold leading-snug text-white">
                         {t("profile.studioWidgetsOffTabTitle")}
@@ -3861,7 +3861,7 @@ export default function BannerStudio({
                     patch({ kind: "color", color: c, url: null, source: null, animeId: null, title: null })
                   }
                   className={`aspect-square w-full max-w-9 justify-self-center rounded-full transition-transform hover:scale-110 ${
-                    on ? "ring-2 ring-white ring-offset-2 ring-offset-[#14141f]" : ""
+                    on ? "ring-2 ring-white ring-offset-2 ring-offset-[#14161c]" : ""
                   }`}
                   style={{ background: c }}
                 />
@@ -5910,7 +5910,7 @@ export default function BannerStudio({
             role="dialog"
             aria-modal
             aria-labelledby="as-sound-tip"
-            className="as-pop-card w-full max-w-sm rounded-2xl bg-[#14141f] p-5 shadow-[0_28px_70px_rgba(0,0,0,.75)] ring-1 ring-white/10"
+            className="as-pop-card w-full max-w-sm rounded-2xl as-menu-bg p-5 shadow-[0_28px_70px_rgba(0,0,0,.75)] ring-1 ring-white/10"
           >
             <h2 id="as-sound-tip" className="font-outfit text-[17px] font-bold text-white">
               {t("profile.studioSoundTipTitle", { defaultValue: "La musique passe en premier" })}
@@ -5967,9 +5967,9 @@ export default function BannerStudio({
             }
           >
             <div
-              className={`pointer-events-auto relative w-full overflow-hidden rounded-2xl bg-[#14141f] shadow-[0_28px_70px_rgba(0,0,0,.75)] ring-1 ring-white/10 ${
+              className={`pointer-events-auto relative w-full overflow-hidden rounded-2xl as-menu-bg shadow-[0_28px_70px_rgba(0,0,0,.75)] ring-1 ring-white/10 ${
                 inColumn
-                  ? "flex flex-col bg-[#14141f]"
+                  ? "flex flex-col"
                   : galerieOuverte
                     ? "max-w-6xl"
                     : scope === "frame" || scope === "avatar"
@@ -6104,7 +6104,7 @@ export default function BannerStudio({
                             <ul
                               role="listbox"
                               aria-label={t("profile.studioFrameSortLabel")}
-                              className="absolute right-0 top-full z-30 mt-1.5 min-w-[11rem] rounded-xl bg-[#14141f] p-1 shadow-xl ring-1 ring-white/10"
+                              className="absolute right-0 top-full z-30 mt-1.5 min-w-[11rem] rounded-xl as-menu-bg p-1 shadow-xl ring-1 ring-white/10"
                             >
                               {FRAME_SORTS.map((s) => (
                                 <li key={s}>
@@ -6571,7 +6571,7 @@ export default function BannerStudio({
                               s.bande ? "h-14" : densite === 1 ? "h-40" : densite === 2 ? "h-28" : "h-20"
                             }`}
                             style={{
-                              background: `linear-gradient(to bottom, transparent, color-mix(in srgb, ${accent} 7%, #14141f) 92%)`,
+                              background: `linear-gradient(to bottom, transparent, color-mix(in srgb, ${accent} 7%, #14161c) 92%)`,
                             }}
                           >
                             <button
@@ -6790,13 +6790,13 @@ export default function BannerStudio({
                   /* Pas de transition CSS : le glissement est calculé avec
                      celui de la barre (voir `barMusic`). */
                   /* La teinte des cartes du Mur d'animés (`card`, blanc à 3 %),
-                     rendue OPAQUE (#1c1c2a sur le fond du panneau) puisque la
+                     rendue OPAQUE (#1c1d24 sur le fond du panneau) puisque la
                      liste passe dessous (16/10/2026). */
                   /* La hauteur EXACTE de la barre du bas : le passage de l'une
                      à l'autre est une animation, une carte plus haute la cassait
                      (18/10/2026). Étroite, la carte se resserre (`as-mf`). */
                   style={barH ? { height: barH } : undefined}
-                  className={`absolute inset-x-0 bottom-0 z-20 flex select-none items-center gap-3 border-t border-white/[0.07] bg-[#1c1c2a] px-4 ${barH ? "" : "py-3"} ${
+                  className={`absolute inset-x-0 bottom-0 z-20 flex select-none items-center gap-3 border-t border-white/[0.07] bg-[#1c1d24] px-4 ${barH ? "" : "py-3"} ${
                     barMusic ? "pointer-events-none translate-x-[110%]" : "translate-x-0"
                   }`}
                 >
@@ -7024,7 +7024,7 @@ export default function BannerStudio({
           globals.css (`--as-scene-dock-*`) : 27 vw à gauche, 2 vw à droite. */}
       {mini ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-3">
-          <div className="as-scene-pill pointer-events-auto flex max-w-full items-center gap-2 rounded-full bg-[#14141f]/90 py-1.5 pl-3 pr-1.5 shadow-[0_18px_44px_rgba(0,0,0,0.6)] ring-1 ring-white/10 backdrop-blur-xl">
+          <div className="as-scene-pill pointer-events-auto flex max-w-full items-center gap-2 rounded-full bg-[rgba(20,22,28,.9)] py-1.5 pl-3 pr-1.5 shadow-[0_18px_44px_rgba(0,0,0,0.6)] ring-1 ring-white/10 backdrop-blur-xl">
             <span className="font-outfit text-sm font-bold">{t("profile.studioTitle")}</span>
             <span className="w-2" />
             {cancelButton}
@@ -7052,7 +7052,7 @@ export default function BannerStudio({
           <div className="as-scene-ui as-scene-ui-bottom pointer-events-none absolute bottom-[22px] left-[var(--as-scene-frame-left)] right-[var(--as-scene-frame-right)] top-[var(--as-scene-frame-bottom)] z-30 flex items-stretch pt-3.5">
           {/* Hauteur imposée par la scène (BOTTOM_BAR) : le bas du bandeau tombe
               au même niveau que le bas de la colonne de gauche (22 px). */}
-          <div className="pointer-events-auto relative h-full w-full overflow-hidden rounded-2xl bg-[#14141f] shadow-[0_18px_44px_rgba(0,0,0,0.5)] ring-1 ring-white/10">
+          <div className="pointer-events-auto relative h-full w-full overflow-hidden rounded-2xl as-menu-bg shadow-[0_18px_44px_rgba(0,0,0,0.5)] ring-1 ring-white/10">
           <div
             ref={barLayerEl}
             aria-hidden={!showMusic}
@@ -7766,7 +7766,7 @@ function WallPanel({
             {menu ? (
               <div
                 role="menu"
-                className="as-acc-in absolute left-0 right-0 top-full z-30 mt-1.5 max-h-[22rem] overflow-y-auto rounded-xl bg-[#1c1c2a] p-1.5 shadow-[0_18px_44px_rgba(0,0,0,.6)] ring-1 ring-white/10 as-scroller"
+                className="as-acc-in absolute left-0 right-0 top-full z-30 mt-1.5 max-h-[22rem] overflow-y-auto rounded-xl as-menu-bg p-1.5 shadow-[0_18px_44px_rgba(0,0,0,.6)] ring-1 ring-white/10 as-scroller"
               >
                 <button
                   type="button"
@@ -8266,7 +8266,7 @@ function TrimRail({
             else return;
             e.preventDefault();
           }}
-          className="absolute top-1/2 h-4 w-[7px] -translate-x-1/2 -translate-y-1/2 cursor-ew-resize touch-none rounded-full bg-[#facc15] shadow-[0_1px_4px_rgba(0,0,0,.6)] outline-none ring-offset-2 ring-offset-[#14141f] focus-visible:ring-2 focus-visible:ring-[#facc15]"
+          className="absolute top-1/2 h-4 w-[7px] -translate-x-1/2 -translate-y-1/2 cursor-ew-resize touch-none rounded-full bg-[#facc15] shadow-[0_1px_4px_rgba(0,0,0,.6)] outline-none ring-offset-2 ring-offset-[#14161c] focus-visible:ring-2 focus-visible:ring-[#facc15]"
           style={{ left: `${pct(value)}%` }}
         />
       ))}
@@ -8622,7 +8622,7 @@ function ServerMenu({
           role="listbox"
           aria-label={t("profile.studioServer")}
           style={{ position: "fixed", left: box.left, bottom: window.innerHeight - box.top + 6 }}
-          className="pointer-events-auto z-[10010] min-w-[11rem] rounded-xl bg-[#14141f] p-1 shadow-xl ring-1 ring-white/10"
+          className="pointer-events-auto z-[10010] min-w-[11rem] rounded-xl as-menu-bg p-1 shadow-xl ring-1 ring-white/10"
         >
           {ids.map((id) => (
             <li key={id}>

@@ -2528,8 +2528,8 @@ function CommonTitles({
   if (typeof document === "undefined") return null;
   return createPortal(
     <div className="fixed inset-0 z-[10060] flex items-start justify-center px-4 pt-[8vh]" role="dialog" aria-modal="true" aria-label={t("profile.blocks.affinity.commonWith", { name })}>
-      <button type="button" aria-label={t("common.close", { defaultValue: "Close" })} onClick={onClose} className="absolute inset-0 cursor-default bg-black/60 backdrop-blur-sm" />
-      <div className="relative flex max-h-[84vh] w-full max-w-xl flex-col overflow-hidden rounded-[22px] bg-[#14141f] shadow-[0_28px_80px_rgba(0,0,0,.7)] ring-1 ring-white/10">
+      <button type="button" aria-label={t("common.close", { defaultValue: "Close" })} onClick={onClose} className="absolute inset-0 cursor-default bg-[rgba(5,5,10,.62)] backdrop-blur-[6px]" />
+      <div className="relative flex max-h-[84vh] w-full max-w-xl flex-col overflow-hidden rounded-[22px] as-menu-bg shadow-[0_28px_80px_rgba(0,0,0,.7)] ring-1 ring-white/[0.08]">
         <div className="flex items-start gap-3 px-5 pb-3 pt-5">
           <div className="min-w-0 flex-1">
             <h3 className="truncate font-outfit text-[18px] font-bold text-white">{t("profile.blocks.affinity.commonWith", { name })}</h3>
@@ -2545,7 +2545,7 @@ function CommonTitles({
           </button>
         </div>
         <div className="flex items-center gap-2 px-5 pb-2.5">
-          <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-xl bg-white/[0.06] px-3 ring-1 ring-inset ring-white/[0.08] focus-within:ring-white/25">
+          <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-xl bg-white/[0.05] px-3 ring-1 ring-inset ring-white/10 focus-within:ring-[rgba(233,69,96,.55)]">
             <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4 shrink-0 text-white/40" aria-hidden><path d="M9.5,16q-2.72,0-4.61-1.89Q3,12.23 3,9.5Q3,6.77 4.89,4.89T9.5,3t4.61,1.89T16,9.5q0,1.1-0.35,2.07T14.7,13.3l5.6,5.6q0.28,0.28 0.28,0.7q0,0.42-0.28,0.7q-0.27,0.27-0.7,0.27T18.9,20.3l-5.6-5.6q-0.75,0.6-1.72,0.95T9.5,16Zm0-2q1.88,0 3.19-1.31T14,9.5T12.69,6.31T9.5,5T6.31,6.31T5,9.5t1.31,3.19T9.5,14Z" /></svg>
             <input
               id="common-search"
@@ -2561,7 +2561,7 @@ function CommonTitles({
             onClick={cycleSize}
             aria-label={t("profile.blocks.affinity.cardSize")}
             title={t("profile.blocks.affinity.cardSize")}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/[0.06] text-white/70 ring-1 ring-inset ring-white/[0.08] transition-colors hover:bg-white/[0.1] hover:text-white"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/[0.05] text-white/70 ring-1 ring-inset ring-white/10 transition-colors hover:bg-white/[0.09] hover:text-white"
           >
             <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden>
               {/* 3×3 = petites, 2×2 = normales, un carré = grandes (04/11/2026, Luc). */}
@@ -2576,7 +2576,7 @@ function CommonTitles({
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-2 px-5 pb-2">
-          <div role="radiogroup" className="relative flex rounded-full bg-white/[0.06] p-0.5 ring-1 ring-inset ring-white/[0.08]">
+          <div role="radiogroup" className="relative flex rounded-full bg-white/[0.05] p-0.5 ring-1 ring-inset ring-white/10">
             <span
               aria-hidden
               className={`absolute bottom-0.5 top-0.5 w-[calc(50%-2px)] rounded-full bg-action transition-[left] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
@@ -2604,9 +2604,7 @@ function CommonTitles({
               key={v}
               type="button"
               onClick={() => setFilter(v)}
-              className={`rounded-full px-3 py-1 font-karla text-[12px] font-bold transition-colors ${
-                filter === v ? "bg-white text-black" : "bg-white/[0.06] text-white/60 hover:text-white"
-              }`}
+              className={`as-sfp-chip font-karla ${filter === v ? "is-on" : ""}`}
             >
               {t(v === "rated" ? "profile.blocks.affinity.filterRated" : v === "fav" ? "profile.blocks.affinity.filterFav" : "profile.blocks.affinity.filterAll")}
             </button>
@@ -2617,7 +2615,7 @@ function CommonTitles({
               « pas alignés ») : la barre de défilement réduit la liste, il faut
               qu'elle réduise l'en-tête de la même largeur. Mêmes bords que les
               lignes (px-2) et mêmes colonnes (w-10, gap-3). */}
-          <div className="sticky top-0 z-[1] flex justify-end bg-[#14141f] px-2 pb-1 pt-1.5">
+          <div className="sticky top-0 z-[1] flex justify-end bg-[#13141a] px-2 pb-1 pt-1.5">
             <span className="grid grid-cols-2 gap-3 font-karla text-[10px] font-bold uppercase tracking-wider text-white/40">
               <span className="w-16 text-center">{t("profile.blocks.affinity.you")}</span>
               <span className="w-16 truncate text-center">{name}</span>

@@ -373,7 +373,7 @@ export default function StudioTour({
         role="dialog"
         aria-modal="false"
         aria-labelledby="as-tour-title"
-        className={`as-tour-card relative rounded-2xl bg-[#14141f] p-4 text-white shadow-[0_12px_32px_rgba(0,0,0,.55)] ring-1 ring-white/10 ${
+        className={`as-tour-card relative rounded-2xl as-menu-bg p-4 text-white shadow-[0_12px_32px_rgba(0,0,0,.55)] ring-1 ring-white/10 ${
           leaving ? "is-leaving" : ""
         }`}
       >
@@ -382,7 +382,7 @@ export default function StudioTour({
             aria-hidden
             /* LOSANGE ARRONDI (10/11, Luc, choix 1 sur 10) : la pointe est
                arrondie, le liseré ne suit que les deux bords extérieurs. */
-            className={`absolute left-0 h-3.5 w-3.5 bg-[#14141f] ${
+            className={`absolute left-0 h-3.5 w-3.5 bg-[#14161c] ${
               pos.below
                 ? "-top-[7px] rounded-tl-[4px] shadow-[-1px_-1px_0_rgba(255,255,255,.1)]"
                 : "-bottom-[7px] rounded-br-[4px] shadow-[1px_1px_0_rgba(255,255,255,.1)]"

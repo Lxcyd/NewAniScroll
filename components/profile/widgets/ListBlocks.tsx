@@ -1926,7 +1926,7 @@ function YearTip({
       {/* FOND SOMBRE ET OPAQUE, celui du panneau de réglages (25/10/2026, Luc :
           « plus lisible ») : la carte translucide d'avant laissait passer la
           courbe et le papier peint sous le texte. */}
-      <div className="as-preview-root rounded-xl border border-[#2c2d36] bg-[#14141f] px-3.5 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.55)]">
+      <div className="as-preview-root rounded-xl border border-[#2c2d36] as-menu-bg px-3.5 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.55)]">
         <p className="mb-2 font-outfit text-[13px] font-bold text-white">
           {t("profile.blocks.years.tipTitle", { year: stat.label })}
         </p>

@@ -414,7 +414,7 @@ export function MultiDropdown({
           {shown.slice(0, 4).map((c) => (
             <span
               key={c.value}
-              className="le-dd-dot ring-1 ring-[#14141f]"
+              className="le-dd-dot ring-1 ring-[#14161c]"
               style={{ background: c.color || "rgba(255,255,255,0.25)" }}
             />
           ))}
@@ -681,7 +681,7 @@ export default function WidgetSettings({ options, onOption, onClose }: Props) {
     /* PAS d'`overflow-hidden` ici : le menu déroulant des listes s'ouvre en
        absolu sous son bouton et serait coupé au bord du panneau. Rien d'autre
        ne dépassait de toute façon. */
-    <div className="rounded-2xl border-2 border-[#2c2d36] bg-[#14141f] shadow-[0_18px_44px_rgba(0,0,0,0.6)]">
+    <div className="rounded-2xl border-2 border-[#2c2d36] as-menu-bg shadow-[0_18px_44px_rgba(0,0,0,0.6)]">
       {/* MÊMES BORDS QUE LES RÉGLAGES (02/11/2026, Luc) : px-5 = p-2 + px-3 du
           contenu, et la croix recule de 10 px : son icône fait 14 px dans un
           bouton de 28 (7 px) et le trait s'arrête 3 px avant le bord de
