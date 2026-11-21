@@ -1,5 +1,6 @@
 # Usage Monitor — history
 
+- **2026-11-21** — DBSIZE 2,368, top prefix `anime:` 1,962
 - **2026-11-20** — DBSIZE 2,347, top prefix `anime:` 1,920
 - **2026-11-19** — DBSIZE 2,236, top prefix `anime:` 1,850
 - **2026-11-18** — DBSIZE 2,210, top prefix `anime:` 1,793
