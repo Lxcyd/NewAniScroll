@@ -3064,16 +3064,6 @@
     "reveal": {
       "watch": "Watch",
       "reroll": "Reroll"
-    },
-    "chosen_one": "{{count}} selected",
-    "chosen_other": "{{count}} selected",
-    "clearSection": "Clear",
-    "help": {
-      "format": "What kind of show? TV series, movie, OVA… Nothing checked = all.",
-      "air": "Where is the anime at? Its airing status, not your progress.",
-      "source": "Adapted from what? Manga, light novel, game… or an original.",
-      "country": "Made where? The main studio's country.",
-      "season": "Released in which season? Winter = January to March."
     }
   }
 }

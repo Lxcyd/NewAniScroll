@@ -292,32 +292,9 @@ export default function ListSortFilter({
       </div>
     );
   };
-  /* L'en-tête d'une section à choix : ce qui est choisi (« 2 choisis · 602
-     titres », sinon « Tout ») et « Effacer » ; dessous, une phrase qui dit ce
-     que la section filtre. */
-  const choiceSection = (k: SetKey, label: string, body: React.ReactNode) => {
-    const picked = f.sets[k];
-    const n = facet(k);
-    const titles = picked.reduce((a, v) => a + (n.get(v) || 0), 0);
-    return (
-      <Section
-        label={label}
-        extra={
-          <span className="as-sfp-sum">
-            {picked.length ? `${t("listMenu.chosen", { count: picked.length })} · ${t("listMenu.titles", { count: titles })}` : t("listMenu.all")}
-            {picked.length ? (
-              <button type="button" className="as-sfp-clear" onClick={() => set({ sets: { ...f.sets, [k]: [] } })}>
-                {t("listMenu.clearSection")}
-              </button>
-            ) : null}
-          </span>
-        }
-      >
-        <p className="as-sfp-help">{t(`listMenu.help.${k}`)}</p>
-        {body}
-      </Section>
-    );
-  };
+  /* Une section à choix : son titre seul (21/11/2026, Luc : résumé, « Effacer »
+     et phrase d'aide retirés). */
+  const choiceSection = (_k: SetKey, label: string, body: React.ReactNode) => <Section label={label}>{body}</Section>;
 
   const slider = ({ k, label, step = 1, hist }: { k: RangeKey; label: string; step?: number; hist?: boolean }) => {
     const [lo, hi] = bounds[k];

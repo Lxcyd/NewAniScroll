@@ -3064,16 +3064,6 @@
     "reveal": {
       "watch": "Regarder",
       "reroll": "Relancer"
-    },
-    "chosen_one": "{{count}} choisi",
-    "chosen_other": "{{count}} choisis",
-    "clearSection": "Effacer",
-    "help": {
-      "format": "Quel type d'œuvre ? Série TV, film, OVA… Rien de coché = tout.",
-      "air": "Où en est l'anime ? Son état de diffusion, pas ta progression.",
-      "source": "Adapté de quoi ? Manga, light novel, jeu… ou création originale.",
-      "country": "Produit où ? Le pays du studio principal.",
-      "season": "Sorti à quelle saison ? Hiver = janvier à mars."
     }
   }
 }
