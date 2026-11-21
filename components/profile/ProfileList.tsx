@@ -384,7 +384,7 @@ view === "grid" ? (
             <Link
               key={e.mediaId}
               href={animeHref(e.mediaId, clickTarget)}
-              className="group flex min-w-0 flex-col gap-1.5"
+              className="as-list-card group flex min-w-0 flex-col gap-1.5"
             >
               {/* Le cœur hors du cadre de l'affiche, qui coupe ce qui dépasse. */}
               <span className="relative block">

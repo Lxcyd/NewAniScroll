@@ -887,6 +887,8 @@ const LIGNE: Record<TailleLigne, { cover: string; sizes: string; text: string }>
   2: { cover: "h-16 w-[46px]", sizes: "46px", text: "text-[13.5px]" },
   3: { cover: "h-28 w-20", sizes: "80px", text: "text-[15px]" },
 };
+/** La hauteur d'une ligne du choix des animés : h-9, h-16 ou h-28, + `py-1`. */
+const LIGNE_H: Record<TailleLigne, number> = { 1: 44, 2: 72, 3: 120 };
 /** L'icône d'une taille : la FORME de la liste qu'elle donne — des lignes
     serrées, une liste à vignettes, des cartes empilées. (Une loupe disait
     « zoom » sans dire sur quoi.) */
@@ -1073,7 +1075,6 @@ export default function BannerStudio({
      morts (transition : un clic ou une frappe passe devant). */
   const FRAME_FIRST = 48;
   const [frameBudget, setFrameBudget] = useState(FRAME_FIRST);
-  const frameTotal = frames?.reduce((n, c) => n + c.frames.length, 0) ?? 0;
   /* Remis à zéro PENDANT le rendu : dans un effet, quitter Cadres rendait tout
      le menu d'arrivée une seconde fois. */
   const frameKey = `${scope}|${query}|${frameSort}|${frameSeed}`;
@@ -1082,10 +1083,9 @@ export default function BannerStudio({
     setFrameKeySeen(frameKey);
     setFrameBudget(FRAME_FIRST);
   }
-  useEffect(() => {
-    if (scope !== "frame" || !frameTotal || frameBudget >= frameTotal) return;
-    return whenIdle(() => startTransition(() => setFrameBudget((b) => b + 120)), 300);
-  }, [scope, frameTotal, frameBudget]);
+  /* Le lot suivant à l'APPROCHE du bas (21/11/2026) : montés d'office dans les
+     temps morts, les 688 cadres finissaient tous dans la page. */
+  const moreFrames = useCallback(() => startTransition(() => setFrameBudget((b) => b + 96)), []);
   /** La densité du menu Badges, au bouton de la galerie : 1 = un par ligne
       (en liste), 2 = 3, 3 = 5. */
   const [badgeDens, setBadgeDens] = useState<Densite>(2);
@@ -2978,7 +2978,7 @@ export default function BannerStudio({
               {/* Un <img> nu et non un <Image> Next : la même URL ×688, chargée
                   une fois par le navigateur, sans 688 composants à monter. */}
               {draft.avatar || identity.avatar ? (
-                <MediaThumb src={draft.avatar || identity.avatar!} className="absolute inset-0 h-full w-full object-cover" style={cropStyle(draft.avatarCrop)} />
+                <MediaThumb src={draft.avatar || identity.avatar!} lazy className="absolute inset-0 h-full w-full object-cover" style={cropStyle(draft.avatarCrop)} />
               ) : null}
             </span>
             {/* La case « aucun cadre » n'a plus de croix : l'avatar nu dit déjà
@@ -3010,9 +3010,11 @@ export default function BannerStudio({
       /* Le lot monté jusqu'ici (cf. frameBudget) : les sections suivantes
          arrivent aux prochains temps morts. */
       let left = frameBudget;
+      let more = false;
       const take = <T,>(list: T[]) => {
         const kept = list.slice(0, Math.max(0, left));
         left -= kept.length;
+        if (kept.length < list.length) more = true;
         return kept;
       };
       const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
@@ -3036,10 +3038,15 @@ export default function BannerStudio({
         for (const c of cols) {
           const hit = match(c.name) ? c.frames : c.frames.filter((f) => match(f.name));
           if (!hit.length) continue;
-          if (left <= 0) break;
+          if (left <= 0) {
+            more = true;
+            break;
+          }
           out.push({ title: c.name, rows: [], node: grid(take(hit).map((f) => tile(f.asset, f.name))) });
         }
       }
+      // La clé change à chaque lot : la sentinelle repart, même restée à l'écran.
+      if (more) out.push({ id: `frames-more-${frameBudget}`, title: "", rows: [], suite: moreFrames });
       if (!out.length) out.push({ title: t("profile.studioNoResult"), rows: [], node: <span /> });
       return out;
     }
@@ -3109,7 +3116,14 @@ export default function BannerStudio({
           {children}
         </div>
       );
-      const charTiles = (list: AvatarChar[]) => grid(list.map((c) => tile(c.image, c.name, `av-${c.id}`, undefined, c.thumb)));
+      /* Par lots à l'approche du bas : One Piece, c'est 811 personnages. */
+      const charTiles = (list: AvatarChar[]) => (
+        <GrowTiles
+          list={list}
+          root={scrollerRef}
+          render={(part) => grid(part.map((c) => tile(c.image, c.name, `av-${c.id}`, undefined, c.thumb)))}
+        />
+      );
       const wait = (title: string): Section => ({
         title,
         rows: [],
@@ -6432,6 +6446,7 @@ export default function BannerStudio({
                           {s.node}
                         </div>
                       ) : null}
+                      {s.suite && !s.grid ? <Suite onVisible={s.suite} root={scrollerRef} /> : null}
                       {s.grid ? (
                         /* LA GRILLE D'ILLUSTRATIONS. Les mêmes `rows`, donc le
                            même curseur clavier et la même coche que partout
@@ -6744,7 +6759,7 @@ export default function BannerStudio({
                         );
                         };
                         return !s.panel && s.rows.length > WINDOW_FROM && s.rows.every((r) => r.cover) ? (
-                          <WindowedRows rows={s.rows} root={scrollerRef} pinKey={anchor.current?.key} render={ligne} />
+                          <WindowedRows rows={s.rows} rowH={WINDOW_ROW} keyOf={(r) => r.key} root={scrollerRef} pinKey={anchor.current?.key} render={ligne} />
                         ) : (
                           s.rows.map(ligne)
                         );
@@ -7388,6 +7403,7 @@ function WallPanel({
   const candidats = useMemo(() => wallCandidates(entries, wall), [entries, wall]);
   const exclus = useMemo(() => new Set(wall.excluded ?? []), [wall.excluded]);
   const [choix, setChoix] = useState(false);
+  const choixScroll = useRef<HTMLDivElement | null>(null);
   const [cherche, setCherche] = useState("");
   const [taille, setTaille] = useState<TailleLigne>(() => readTailleLigne());
   /* La liste du sélecteur : par titre, pas dans l'ordre mélangé du mur — on y
@@ -7660,13 +7676,14 @@ function WallPanel({
             <p className="px-3 pb-1.5 font-karla text-[11px] text-white/40">
               {t("profile.studioWallPickHelp")}
             </p>
-            <div className="as-scroller min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5">
+            <div ref={choixScroll} className="as-scroller min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5">
               {trouves.length === 0 ? (
                 <p className="px-3 py-6 text-center font-karla text-[13px] text-white/40">
                   {t("profile.studioNoResult")}
                 </p>
               ) : (
-                trouves.map(({ e, titre }) => {
+                /* Hauteur d'une ligne : l'affiche de la taille choisie + `py-1`. */
+                <WindowedRows rows={trouves} rowH={LIGNE_H[taille]} root={choixScroll} render={({ e, titre }) => {
                   const on = !exclus.has(e.mediaId);
                   return (
                     <button
@@ -7700,7 +7717,7 @@ function WallPanel({
                       </span>
                     </button>
                   );
-                })
+                }} />
               )}
             </div>
           </div>
@@ -8421,16 +8438,21 @@ function AnimeHead({
 const WINDOW_FROM = 40;
 const WINDOW_ROW = 72;
 const WINDOW_EXTRA = 10;
-function WindowedRows({
+function WindowedRows<T>({
   rows,
+  rowH,
+  keyOf,
   root,
   pinKey,
   render,
 }: {
-  rows: Row[];
+  rows: T[];
+  /** La hauteur exacte d'une ligne, en px. */
+  rowH: number;
+  keyOf?: (row: T) => string;
   root: React.RefObject<HTMLDivElement | null>;
   pinKey?: string;
-  render: (row: Row, index: number) => React.ReactNode;
+  render: (row: T, index: number) => React.ReactNode;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ first: 0, count: 30 });
@@ -8440,8 +8462,8 @@ function WindowedRows({
     const el = box.current;
     if (!sc || !el) return;
     const top = el.getBoundingClientRect().top - sc.getBoundingClientRect().top;
-    const first = Math.max(0, Math.floor(-top / WINDOW_ROW) - WINDOW_EXTRA);
-    const count = Math.ceil(sc.clientHeight / WINDOW_ROW) + WINDOW_EXTRA * 2;
+    const first = Math.max(0, Math.floor(-top / rowH) - WINDOW_EXTRA);
+    const count = Math.ceil(sc.clientHeight / rowH) + WINDOW_EXTRA * 2;
     setView((v) => (v.first === first && v.count === count ? v : { first, count }));
   };
   // À chaque rendu : ce qui est au-dessus (une galerie qui arrive) a pu bouger.
@@ -8466,17 +8488,42 @@ function WindowedRows({
     };
   }, [root]);
   let first = Math.min(view.first, Math.max(0, rows.length - view.count));
-  if (pinKey) {
-    const at = rows.findIndex((r) => r.key === pinKey);
+  if (pinKey && keyOf) {
+    const at = rows.findIndex((r) => keyOf(r) === pinKey);
     if (at >= 0 && (at < first || at >= first + view.count)) first = Math.max(0, at - WINDOW_EXTRA);
   }
   const end = Math.min(rows.length, first + view.count);
   return (
     <div ref={box}>
-      {first > 0 ? <div aria-hidden style={{ height: first * WINDOW_ROW }} /> : null}
+      {first > 0 ? <div aria-hidden style={{ height: first * rowH }} /> : null}
       {rows.slice(first, end).map((row, i) => render(row, first + i))}
-      {end < rows.length ? <div aria-hidden style={{ height: (rows.length - end) * WINDOW_ROW }} /> : null}
+      {end < rows.length ? <div aria-hidden style={{ height: (rows.length - end) * rowH }} /> : null}
     </div>
+  );
+}
+
+/** Une grille montée par lots, le suivant à l'approche du bas. Une nouvelle
+ *  liste repart du premier lot. */
+function GrowTiles<T>({
+  list,
+  root,
+  render,
+}: {
+  list: T[];
+  root: React.RefObject<HTMLDivElement | null>;
+  render: (part: T[]) => React.ReactNode;
+}) {
+  const [grown, setGrown] = useState({ list, n: 60 });
+  const n = grown.list === list ? grown.n : 60;
+  const more = useCallback(
+    () => startTransition(() => setGrown({ list, n: n + 96 })),
+    [list, n],
+  );
+  return (
+    <>
+      {render(list.length > n ? list.slice(0, n) : list)}
+      {list.length > n ? <Suite key={n} onVisible={more} root={root} /> : null}
+    </>
   );
 }
 
