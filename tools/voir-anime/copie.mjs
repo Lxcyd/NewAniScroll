@@ -16,7 +16,7 @@
  *
  * Tout en direct (voir-anime et voembed repondent aux IP ordinaires ; le Worker
  * du site n'est pas sollicite). Chaque nuit : seules les pages dont le sitemap
- * annonce un changement sont relues, seules les pages d'episode nouvelles (ou
+ * annonce un changement, ou d'un titre pas termine, sont relues, seules les pages d'episode nouvelles (ou
  * dont le lien est mort) sont relues, les liens a tour de role.
  *
  *   node tools/voir-anime/copie.mjs --slugs=sousou-no-frieren,…   pages donnees
@@ -328,13 +328,17 @@ if (!args["sans-vie"]) {
   }
 }
 
-/* 1. Pages a relire : nouvelles, ou annoncees modifiees par le sitemap. */
+/* 1. Pages a relire : nouvelles, annoncees modifiees par le sitemap, ou d'un titre
+   pas termine. Le `lastmod` de voir-anime ne bouge PAS quand un episode sort :
+   Firefly Wedding y restait au 09/10 avec 7 episodes en ligne et 5 dans la copie
+   (22/11/2026). */
+const SUIVIS = new Set(["EN COURS", "PROCHAINEMENT"]);
 const bilan = { pages: 0, relues: 0, erreurs: 0, sansAncre: 0, episodes: 0, avecMyTV: 0, liens: 0, vivants: 0, morts: 0, traitement: 0, inconnus: 0, nonControles: 0, pagesEpisodeLues: 0 };
 const pages = new Map();
 let illisibles = 0, lues = 0;
 await Promise.all([...cibles].map(async ([slug, lastmod]) => {
   const avant = connus.get(slug);
-  if (avant && lastmod && avant.lastmod === lastmod && !args.slugs) {
+  if (avant && lastmod && avant.lastmod === lastmod && !args.slugs && !SUIVIS.has(avant.statut)) {
     pages.set(slug, { ...avant, lastmod, relue: false });
     return;
   }

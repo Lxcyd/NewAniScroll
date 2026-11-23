@@ -1255,6 +1255,20 @@ async function resolveAnimeSamaHeuristically(
     const isMovie = meta?.format === "MOVIE";
     const filmSeason = seasons.find((s) => s.isFilm);
 
+    /* UN FILM NE TOMBE PAS SUR LA SAISON D'UNE AUTRE OEUVRE (22/11/2026).
+       « Mahoutsukai no Yoru » (film de 129 min, pas encore chez anime-sama)
+       partageait un mot avec `mahoutsukai-reimeiki` : sans panneau Film, le
+       lecteur servait l'episode 1 de cette serie. La fiche affiche l'id AniList
+       de son oeuvre : s'il n'est ni ce film ni une oeuvre liee, ce n'est pas lui. */
+    if (isMovie && !filmSeason) {
+      const fiche = Number(detailHtml.match(/anilist\.co\/anime\/(\d+)/)?.[1]) || null;
+      const liee = (meta?.relations?.edges || []).some((e) => Number(e?.node?.id) === fiche);
+      if (fiche && fiche !== Number(aniId) && !liee) {
+        dlog(`[anime-sama] film ${aniId} : ${slug} est l'oeuvre ${fiche}, refuse`);
+        return null;
+      }
+    }
+
     dlog(`[anime-sama] Seasons: ${seasons.map((s) => `${s.ordinal}=${s.dir}${s.year ? `(${s.year})` : ""}`).join(", ")}`);
 
     // 3.5. YEAR MATCHING â€” if multiple seasons have explicit years and AniList
