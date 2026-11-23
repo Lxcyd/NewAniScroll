@@ -405,7 +405,7 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
   });
   /* « Par la fin » : le dernier épisode, et aucun autre. */
   check("seul le dernier épisode vu → obtenu",
-    m("by-the-end", snap({ list: { 1: entry({ status: "CURRENT" }) }, progress: Object.fromEntries([ep(1, 12, local(2026, 9, 10, 20))]) })), [1, 1]);
+    m("by-the-end", snap({ list: { 1: entry({ status: "CURRENT", startedAt: { year: 2026, month: 9, day: 10 } }) }, progress: Object.fromEntries([ep(1, 12, local(2026, 9, 10, 20))]) })), [1, 1]);
   check("les épisodes 1 et 12 → pas « par la fin »",
     m("by-the-end", snap({ list: { 1: entry({ status: "CURRENT" }) }, progress: Object.fromEntries([ep(1, 1, local(2026, 9, 10, 19)), ep(1, 12, local(2026, 9, 10, 20))]) })), [0, 1]);
   check("le seul épisode d'un one-shot ne compte pas",
@@ -451,7 +451,7 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
   check("un anime repris après 40 jours dans le fil → Repris en main",
     m("comeback", snap({ feedEvents: [[t0 - 40 * 86400, 7, 1], [t0, 7, 2]] })), [1, 1]);
   check("le premier et le dernier épisode le même jour → D'un coup",
-    m("one-sitting", snap({ list: { 7: entry({ mediaId: 7 }) }, feedEvents: [[t0, 7, 1], [t0 + 3600, 7, 12]] })), [1, 1]);
+    m("one-sitting", snap({ list: { 7: entry({ mediaId: 7 }) }, feedEvents: fil(12, 1500) })), [1, 1]);
 
   /* « Premier pas » : une entrée dans la liste suffit, quel que soit le statut. */
   check("liste vide → 0 / 1", m("first-add", snap()), [0, 1]);
@@ -719,6 +719,141 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
   }
   ok("pas de vocabulaire, pas de détail des genres",
     !detailKind(all.find((b) => b.metric.k === "allGenres"), derive(snap())));
+}
+
+/* ── Les cas piégés (24/11/2026) : ce que de vraies données ont fait tomber ── */
+{
+  const { mergeBadgeState } = await load("lib/badges/store.ts");
+  const en = (id, over = {}) => ({
+    mediaId: id, status: "COMPLETED", score: 8, progress: 12, total: 12,
+    startedAt: null, completedAt: null, notes: null, updatedAt: 1, ...over,
+  });
+  const t = Math.floor(local(2026, 3, 10, 12) / 1000);
+  const jour = { year: 2026, month: 3, day: 10 };
+  const serie = (n, pas, id = 7, debut = t) => Array.from({ length: n }, (_, i) => [debut + i * pas, id, i + 1]);
+  const lu = (id, ...eps) => Object.fromEntries(eps.map((n, i) => ep(id, n, local(2026, 3, 10, 12) + i * 1800_000)));
+
+  /* Spoilé */
+  check("spoilé : 12 épisodes vus avant dans le fil → non",
+    m("by-the-end", snap({ list: { 7: en(7, { startedAt: jour }) }, progress: lu(7, 12), feedEvents: serie(11, 1500, 7, t - 86400) })), [0, 1]);
+  check("spoilé : commencé des mois avant → non",
+    m("by-the-end", snap({ list: { 7: en(7, { startedAt: { year: 2025, month: 8, day: 28 } }) }, progress: lu(7, 12) })), [0, 1]);
+  check("spoilé : liste importée sans date → non",
+    m("by-the-end", snap({ list: { 7: en(7) }, progress: lu(7, 12) })), [0, 1]);
+  check("spoilé : total inconnu → non",
+    m("by-the-end", snap({ list: { 7: en(7, { total: null, startedAt: jour }) }, progress: lu(7, 12) })), [0, 1]);
+
+  /* Jamais sans l'opening */
+  check("opening : 1 épisode lu sur 12 → non", m("never-op", snap({ list: { 7: en(7) }, progress: lu(7, 12) })), [0, 1]);
+  check("opening : un épisode du milieu manque → non",
+    m("never-op", snap({ list: { 7: en(7, { total: 3, progress: 3 }) }, progress: lu(7, 1, 3) })), [0, 1]);
+  check("opening : total inconnu → non",
+    m("never-op", snap({ list: { 7: en(7, { total: null }) }, progress: lu(7, 1, 2) })), [0, 1]);
+  check("opening : un film lu en entier → oui",
+    m("never-op", snap({ list: { 7: en(7, { total: 1, progress: 1 }) }, progress: lu(7, 1) })), [1, 1]);
+
+  /* Repris en main */
+  check("reprise : relecture 40 jours après → non", m("comeback", snap({ feedEvents: [[t - 40 * 86400, 7, 12], [t, 7, 1]] })), [0, 1]);
+  check("reprise : 29 jours d'écart → non", m("comeback", snap({ feedEvents: [[t - 29 * 86400, 7, 1], [t, 7, 2]] })), [0, 1]);
+  check("reprise : anime déjà au bout → non",
+    m("comeback", snap({ list: { 7: en(7, { total: 2 }) }, feedEvents: [[t - 40 * 86400, 7, 2], [t, 7, 3]] })), [0, 1]);
+  check("reprise : ancien drapeau démenti par le fil → non",
+    m("comeback", snap({ feedEvents: serie(3, 1500), facts: { ...EMPTY_FACTS, flags: { comeback: local(2026, 2, 1) } } })), [0, 1]);
+  check("reprise : ancien drapeau sans fil → gardé",
+    m("comeback", snap({ facts: { ...EMPTY_FACTS, flags: { comeback: local(2026, 2, 1) } } })), [1, 1]);
+
+  /* D'un coup */
+  check("d'un coup : seuls le 1 et le 12 ce jour-là → non",
+    m("one-sitting", snap({ list: { 7: en(7) }, feedEvents: [[t, 7, 1], [t + 3600, 7, 12]] })), [0, 1]);
+  check("d'un coup : 12 épisodes cochés en une minute → non",
+    m("one-sitting", snap({ list: { 7: en(7) }, feedEvents: serie(12, 5) })), [0, 1]);
+  check("d'un coup : dates de liste, mais épisodes vus avant dans le fil → non",
+    m("one-sitting", snap({ list: { 7: en(7, { startedAt: jour, completedAt: jour }) }, feedEvents: serie(3, 1500, 7, t - 5 * 86400) })), [0, 1]);
+  check("d'un coup : dates de liste, cochés d'un coup ce jour-là → non",
+    m("one-sitting", snap({ list: { 7: en(7, { startedAt: jour, completedAt: jour }) }, feedEvents: serie(12, 5) })), [0, 1]);
+  check("d'un coup : relecture un autre jour ne l'efface pas",
+    m("one-sitting", snap({ list: { 7: en(7) }, feedEvents: [...serie(12, 1500), [t + 40 * 86400, 7, 1]] })), [1, 1]);
+
+  /* Notes */
+  check("une note sur un titre planifié ne compte pas",
+    m("first-rating", snap({ list: { 7: en(7, { status: "PLANNING", progress: 0 }) } })), [0, 1]);
+  check("une note sur un titre abandonné en cours compte",
+    m("first-rating", snap({ list: { 7: en(7, { status: "DROPPED", progress: 2 }) } })), [1, 1]);
+
+  /* Le fil abîmé */
+  for (const [nom, feedEvents] of [
+    ["lignes illisibles", [null, [], ["x", 1, 2], [t], [t, -1, 2], [t, 7, 0], [NaN, 7, 1], [t, 7, 1.5], "texte", 42]],
+    ["fil vide", []],
+  ]) check(`fil abîmé (${nom}) : aucun plantage`, m("burst-20", snap({ feedEvents })), [0, 20]);
+  check("les bonnes lignes survivent aux mauvaises", m("burst-20", snap({ feedEvents: [null, [t, 7, 1], "x"] })), [1, 20]);
+  check("le même épisode répété le même jour compte une fois",
+    m("burst-20", snap({ feedEvents: Array.from({ length: 30 }, (_, i) => [t + i * 1800, 7, 1]) })), [1, 20]);
+  check("le même épisode revu deux jours après compte encore",
+    m("burst-50", snap({ feedEvents: [[t, 7, 1], [t + 2 * 86400, 7, 1]] })), [2, 50]);
+  check("un fil daté du futur ne compte pas",
+    m("burst-20", snap({ feedEvents: serie(30, 1800, 7, Math.floor(local(2026, 12, 1) / 1000)) })), [0, 20]);
+  check("un épisode lu ici et sur AniList compte une fois",
+    m("burst-20", snap({ progress: lu(7, 1), feedEvents: [[t + 600, 7, 1]] })), [1, 20]);
+
+  /* Heures et calendrier */
+  check("changement d'heure : 20 épisodes sur la nuit du 29/03",
+    m("burst-20", snap({ feedEvents: serie(20, 4000, 7, Math.floor(local(2026, 3, 28, 14) / 1000)) })), [20, 20]);
+  const vendredi = Math.floor(local(2026, 3, 13, 18) / 1000);
+  check("séance du vendredi au samedi : pas un marathon de week-end",
+    m("session-12h", snap({ feedEvents: serie(26, 1700, 7, vendredi) })), [0, 12]);
+  check("une séance coupée par 3 h de trou n'est pas continue",
+    m("night-12", snap({ feedEvents: [...serie(6, 1500), ...serie(6, 1500, 8, t + 6 * 1500 + 3 * 3600)] })), [6, 12]);
+
+  /* Valeurs absurdes de la liste */
+  check("progression négative ou NaN : zéro épisode",
+    m("ep-25", snap({ list: { 1: en(1, { progress: -5 }), 2: en(2, { progress: NaN }) } })), [0, 25]);
+  check("liste vide : aucun plantage", m("fin-1", snap()), [0, 1]);
+
+  /* Fusion entre appareils */
+  const neuf = { v: 1, got: { a: 1, b: 500 }, redated: true, regraded: true };
+  const vieux = { v: 1, got: { a: 900, b: 300, retire: 700 } };
+  const tri = (s) => JSON.stringify(Object.entries(s.got).sort());
+  check("fusion ancienne/nouvelle commutative", tri(mergeBadgeState(neuf, vieux)), tri(mergeBadgeState(vieux, neuf)));
+  check("une vieille copie ne remet pas une fausse date", mergeBadgeState(neuf, vieux).got.a, 1);
+  ok("une vieille copie relance la correction", !mergeBadgeState(neuf, vieux).regraded);
+  ok("deux copies corrigées le restent", !!mergeBadgeState(neuf, neuf).regraded);
+
+  /* Les faits ne s'écrasent plus d'un appareil à l'autre */
+  {
+    const { mergeFacts } = await load("lib/badges/facts.ts");
+    const base = { v: 1, flags: {}, counters: {}, hosts: [], noPause: [], opSkipped: [], bothLangs: [], seen: [] };
+    const pc = { ...base, flags: { a: 500 }, counters: { c: { n: 3, at: 10 } }, hosts: ["ansembed"], bothLangs: [7] };
+    const tel = { ...base, flags: { a: 200, b: 900 }, counters: { c: { n: 8, at: 20 } }, hosts: ["frembed"], opSkipped: ["1:2"] };
+    const f = mergeFacts(pc, tel);
+    check("faits : les lecteurs des deux appareils restent", f.hosts, ["ansembed", "frembed"]);
+    check("faits : la date la plus ancienne reste", f.flags.a, 200);
+    check("faits : le plus grand compteur reste", f.counters.c.n, 8);
+    check("faits : fusion commutative", JSON.stringify(mergeFacts(tel, pc)), JSON.stringify(f));
+    check("faits : fusion idempotente", JSON.stringify(mergeFacts(f, f)), JSON.stringify(f));
+  }
+
+  check("une liste personnalisée déjà créée sur AniList compte",
+    m("custom-list", snap({ facts: { ...EMPTY_FACTS, flags: { customListAniList: local(2026, 3, 1) } } })), [1, 1]);
+  {
+    const { detailOf } = await load("lib/badges/detail.ts");
+    const det = detailOf(BY_ID.thrice, derive(snap({ list: { 1: en(1, { repeat: 1 }), 2: en(2, { repeat: 2 }) } })));
+    check("« trois fois » ne liste pas un titre vu deux fois", det.items.map((e) => e.mediaId), [2]);
+  }
+
+  /* Le compte le plus lourd autorisé */
+  const lourd = {};
+  for (let i = 1; i <= 20000; i++) {
+    lourd[i] = en(i, {
+      genres: ["Action", "Drama"], tags: ["a", "b", "c"], year: 1970 + (i % 57), format: "TV",
+      studio: `S${i % 300}`, relIds: [i + 1], title: { romaji: `Titre ${i}` },
+    });
+  }
+  const filLourd = Array.from({ length: 40000 }, (_, i) => [t - i * 700, 1 + (i % 20000), 1 + (i % 24)]);
+  const debut = performance.now();
+  derive(snap({ list: lourd, feedEvents: filLourd }));
+  const ms = performance.now() - debut;
+  console.log(`  compte lourd (20 000 titres, 40 000 lignes) : ${Math.round(ms)} ms`);
+  ok(`compte lourd calculé en moins de 1,5 s (${Math.round(ms)} ms)`, ms < 1500);
 }
 
 /* ── Verdict ──────────────────────────────────────────────────────────────── */

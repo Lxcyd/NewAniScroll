@@ -268,6 +268,7 @@ function BadgesBootstrap() {
          a pas : le badge reste « pas encore mesurable » plutôt que d'être
          compté depuis une date inventée. */
       badges.setAccountCreatedAt(createdAt ?? null);
+      badges.setSignedIn(status === "authenticated");
       /* « Compte lie » se LIT sur la session : il n'y a aucun geste a
          intercepter, et le lire ici le rend retroactif pour tous ceux qui
          avaient deja lie leur compte avant que les badges existent. */

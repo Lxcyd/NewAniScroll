@@ -195,14 +195,21 @@ export function measure(def: BadgeDef, d: Derived, state: BadgeState): Progress 
 export const isBonusFormat = (e: { format?: string | null }) =>
   e.format === "OVA" || e.format === "SPECIAL";
 
+/** Avant ce jour, « Repris en main » se levait aussi sur une relecture. */
+export const RULES_CUTOFF = Date.UTC(2026, 10, 25);
+
 export function flagUp(d: Derived, name: string): boolean {
+  if (name === "comeback") {
+    const at = d.facts.flags.comeback;
+    return d.comebackAt != null || (at != null && (!d.hasFeed || at >= RULES_CUTOFF));
+  }
   if (d.facts.flags[name] != null) return true;
+  if (name === "customList") return d.facts.flags.customListAniList != null;
   if (name === "noPause") return d.facts.noPause.length > 0;
   if (name === "bothLangs") return d.facts.bothLangs.length > 0;
   /* Le lecteur ne leve ce drapeau qu'a la fin d'un episode : les OAV deja dans
      la liste (vus avant les badges, ou ailleurs) ne comptaient jamais. */
   if (name === "oav") return d.seen.some(isBonusFormat);
-  if (name === "comeback") return d.comebackAt != null;
   return false;
 }
 

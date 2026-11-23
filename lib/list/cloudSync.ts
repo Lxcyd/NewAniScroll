@@ -20,6 +20,7 @@ import { QUEUE_EVENT } from "./queue";
 import { HISTORY_EVENT } from "../profile/history";
 import { DATA_KINDS, type DataKind } from "../auth/userData";
 import { mergeIntoLocal } from "../badges/store";
+import { mergeFactsIntoLocal } from "../badges/facts";
 
 const ENDPOINT = "/api/v2/account/sync";
 /** Coalesce bursts: finishing an episode touches three stores at once. */
@@ -74,17 +75,10 @@ const MERGERS: Partial<Record<DataKind, (payload: unknown) => boolean>> = {
     if (typeof p["aniscroll:badges"] === "string") {
       touched = mergeIntoLocal(p["aniscroll:badges"] as string) || touched;
     }
-    /* Les FAITS, eux, s'écrasent comme avant : ce sont des compteurs de gestes
-       propres à l'appareil, et le badge qu'ils ont produit est déjà dans
-       `aniscroll:badges`, qui lui est fusionné. Perdre un compteur intermédiaire
-       ne retire donc aucun badge acquis. */
+    /* Les FAITS se fusionnent aussi : écrasés, les lecteurs utilisés sur un
+       appareil disparaissaient au passage du suivant (cf. mergeFacts). */
     if (typeof p["aniscroll:badgeFacts"] === "string") {
-      try {
-        localStorage.setItem("aniscroll:badgeFacts", p["aniscroll:badgeFacts"] as string);
-        touched = true;
-      } catch {
-        /* best-effort */
-      }
+      touched = mergeFactsIntoLocal(p["aniscroll:badgeFacts"] as string) || touched;
     }
     return touched;
   },
@@ -357,6 +351,12 @@ export async function pullAll(options?: { force?: boolean }): Promise<PullResult
        ferait défiler en rafale la semaine passée devant l'autre écran.
        Cf. lib/badges/evaluate.ts. */
     window.dispatchEvent(new CustomEvent("aniscroll:cloudPull"));
+  }
+  /* Même sans changement : les données du compte sont maintenant à jour ici.
+     Sauf conflit, où l'utilisateur n'a pas encore choisi quelle copie garder. */
+  if (!result.conflicts.length) {
+    (window as Window & { __aniscrollCloudPulled?: boolean }).__aniscrollCloudPulled = true;
+    window.dispatchEvent(new CustomEvent("aniscroll:cloudPullDone"));
   }
   return result;
 }

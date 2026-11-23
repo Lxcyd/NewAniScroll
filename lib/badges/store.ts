@@ -52,6 +52,8 @@ export type BadgeState = {
    * Une copie sans ce drapeau ne peut plus les réimposer à la fusion.
    */
   redated?: true;
+  /** Les badges accordés par d'anciennes règles fausses ont été retirés (24/11/2026). */
+  regraded?: true;
 };
 
 const EMPTY: BadgeState = { v: 1, got: {} };
@@ -81,6 +83,7 @@ function parse(raw: string | null): BadgeState {
       got,
       ...(p?.backfilled ? { backfilled: true as const } : {}),
       ...(p?.redated ? { redated: true as const } : {}),
+      ...(p?.regraded ? { regraded: true as const } : {}),
     };
   } catch {
     return EMPTY;
@@ -145,15 +148,21 @@ export function grant(
       got,
       ...(markBackfilled ? { backfilled: true as const } : {}),
       ...(state.redated ? { redated: true as const } : {}),
+      ...(state.regraded ? { regraded: true as const } : {}),
     });
   }
   return fresh;
 }
 
-/** Remplace les dates une fois pour toutes (cf. `redated`). Aucun badge ne se perd. */
-export function applyRedate(dates: Record<string, number>): void {
+/**
+ * LA SEULE EXCEPTION à l'invariant 1, et elle ne joue qu'une fois : retirer ce
+ * qu'une règle fausse a accordé, quand la règle corrigée prouve le contraire.
+ */
+export function applyCorrection(dates: Record<string, number>, wrong: string[]): void {
   const state = getBadgeState();
-  write({ ...state, got: { ...state.got, ...dates }, redated: true });
+  const got = { ...state.got, ...dates };
+  for (const id of wrong) delete got[id];
+  write({ ...state, got, redated: true, regraded: true });
 }
 
 /**
@@ -171,19 +180,22 @@ export function mergeBadgeState(a: BadgeState, b: BadgeState): BadgeState {
   const got: Record<string, number> = { ...a.got };
   for (const [id, at] of Object.entries(b.got)) {
     if (got[id] == null) got[id] = at;
-    else if (a.redated && !b.redated) continue;
-    else if (b.redated && !a.redated) got[id] = at;
+    else if (a.regraded && !b.regraded) continue;
+    else if (b.regraded && !a.regraded) got[id] = at;
     else got[id] = earliest(got[id], at);
   }
   const backfilled = a.backfilled || b.backfilled;
   /* ET, pas OU : si une copie ancienne vient d'apporter des badges, leurs dates
      n'ont pas été corrigées. L'évaluateur repasse sur l'ensemble. */
   const redated = a.redated && b.redated;
+  /* Même logique : une copie ancienne peut ramener un badge retiré. */
+  const regraded = a.regraded && b.regraded;
   return {
     v: 1,
     got,
     ...(backfilled ? { backfilled: true as const } : {}),
     ...(redated ? { redated: true as const } : {}),
+    ...(regraded ? { regraded: true as const } : {}),
   };
 }
 

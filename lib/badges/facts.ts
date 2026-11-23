@@ -130,6 +130,51 @@ function update(fn: (f: Facts) => Facts): boolean {
   return true;
 }
 
+/**
+ * LA FUSION DES FAITS ENTRE APPAREILS (24/11/2026).
+ *
+ * Ils s'écrasaient : le dernier appareil à écrire effaçait les lecteurs, les
+ * drapeaux et les compteurs des autres. « Tous les lecteurs » restait ainsi à 0.
+ * Union des ensembles, plus ancienne date par drapeau, plus grand compteur.
+ * Commutative et idempotente, comme la fusion des badges.
+ */
+export function mergeFacts(a: Facts, b: Facts): Facts {
+  const flags = { ...a.flags };
+  for (const [k, at] of Object.entries(b.flags)) flags[k] = flags[k] == null ? at : Math.min(flags[k], at);
+  const counters = { ...a.counters };
+  for (const [k, c] of Object.entries(b.counters)) {
+    const cur = counters[k];
+    if (!cur || c.n > cur.n || (c.n === cur.n && c.at < cur.at)) counters[k] = c;
+  }
+  const union = <T extends string | number>(x: T[], y: T[], cap: number) =>
+    [...new Set([...x, ...y])].sort().slice(-cap);
+  return {
+    v: 1,
+    flags,
+    counters,
+    hosts: union(a.hosts, b.hosts, 64),
+    noPause: union(a.noPause, b.noPause, EPISODE_SET_CAP),
+    opSkipped: union(a.opSkipped, b.opSkipped, EPISODE_SET_CAP),
+    bothLangs: union(a.bothLangs, b.bothLangs, EPISODE_SET_CAP),
+    seen: union(a.seen ?? [], b.seen ?? [], 200),
+  };
+}
+
+/** Fusionne la copie du compte dans l'appareil. Rend `true` si ça a bougé. */
+export function mergeFactsIntoLocal(raw: string | null): boolean {
+  if (typeof window === "undefined") return false;
+  let current: string | null = null;
+  try {
+    current = window.localStorage.getItem(KEY);
+    const next = JSON.stringify(mergeFacts(parse(current), parse(raw)));
+    if (next === JSON.stringify(parse(current))) return false;
+    window.localStorage.setItem(KEY, next);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Lève un drapeau, une fois pour toutes. Sans effet s'il l'est déjà. */
 export function recordFlag(name: string, at = Date.now()): boolean {
   return update((f) =>

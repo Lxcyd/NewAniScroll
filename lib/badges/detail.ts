@@ -19,7 +19,7 @@
  */
 
 import type { BadgeDef } from "./catalog";
-import { fuzzyDay, initialsOf, isCompletedNow, titleOf, type Derived } from "./derive";
+import { initialsOf, isCompletedNow, titleOf, type Derived } from "./derive";
 import { isBonusFormat } from "./measure";
 import { WORKS } from "./works";
 import type { LocalEntry } from "../list/localList";
@@ -226,22 +226,12 @@ export function detailOf(def: BadgeDef, d: Derived): Detail | null {
     case "sameDayFinish":
       return {
         kind: "list",
-        items: done
-          .filter((e) => {
-            const a = fuzzyDay(e.startedAt);
-            return d.sameDayIds.has(e.mediaId) || (!!a && a === fuzzyDay(e.completedAt) && (e.total ?? 0) > 1);
-          })
-          .sort(byTitle),
+        items: done.filter((e) => d.sameDayAt.has(e.mediaId)).sort(byTitle),
       };
     case "onlyLastEpisode":
       return {
         kind: "list",
-        items: d.entries
-          .filter((e) => {
-            const eps = d.perAnime.get(e.mediaId);
-            return !!eps && eps.size === 1 && !!e.total && e.total >= 2 && eps.has(String(e.total));
-          })
-          .sort(byTitle),
+        items: d.entries.filter((e) => d.onlyLastIds.has(e.mediaId)).sort(byTitle),
       };
     case "planningUnaired":
       return {
@@ -252,8 +242,9 @@ export function detailOf(def: BadgeDef, d: Derived): Detail | null {
     case "repeatSame":
       return {
         kind: "list",
+        /* Vu N fois = N - 1 revisionnages : « trois fois » ne liste pas ceux vus deux fois. */
         items: d.entries
-          .filter((e) => (e.repeat ?? 0) >= 1)
+          .filter((e) => (e.repeat ?? 0) + 1 >= Number(m.times))
           .sort((a, b) => (b.repeat ?? 0) - (a.repeat ?? 0) || byTitle(a, b)),
       };
     case "listSize":
@@ -282,20 +273,8 @@ export function detailOf(def: BadgeDef, d: Derived): Detail | null {
     }
     /* « Jamais sans l'opening » : les anime terminés dont tout ce qu'on a lu
        ici a gardé son opening — la même règle que derive.ts. */
-    case "neverSkipOp": {
-      const skipped = new Set(d.facts.opSkipped);
-      return {
-        kind: "list",
-        items: done
-          .filter((e) => {
-            const eps = d.perAnime.get(e.mediaId);
-            if (!eps?.size) return false;
-            for (const ep of eps) if (skipped.has(`${e.mediaId}:${ep}`)) return false;
-            return true;
-          })
-          .sort(byTitle),
-      };
-    }
+    case "neverSkipOp":
+      return { kind: "list", items: done.filter((e) => d.neverSkippedIds.has(e.mediaId)).sort(byTitle) };
     case "count":
       switch (String(m.of)) {
         /* Les saisons de bingo jouées, chacune avec son meilleur score. */
@@ -314,7 +293,7 @@ export function detailOf(def: BadgeDef, d: Derived): Detail | null {
         }
         case "completed": return { kind: "list", items: done.filter(isCompletedNow).sort(byTitle) };
         case "rated":
-          return { kind: "list", items: d.entries.filter((e) => (e.score ?? 0) > 0).sort(byTitle) };
+          return { kind: "list", items: d.seen.filter((e) => (e.score ?? 0) > 0).sort(byTitle) };
         case "rewatched":
           return { kind: "list", items: d.entries.filter((e) => (e.repeat ?? 0) >= 1).sort(byTitle) };
         default: return null;

@@ -223,6 +223,7 @@ const USERNAME_QUERY = `
   query ($userName: String) {
     MediaListCollection(userName: $userName, type: ANIME) {
       lists {
+        isCustomList
         entries {
           status
           score(format: POINT_10_DECIMAL)
@@ -260,6 +261,9 @@ export async function importFromAniListUsername(
     throw new Error("user-not-found");
   }
   const lists = json?.data?.MediaListCollection?.lists || [];
+  if (lists.some((l: any) => l?.isCustomList && l?.entries?.length)) {
+    import("../badges/facts").then((f) => f.recordFlag("customListAniList")).catch(() => {});
+  }
   const byId = new Map<number, LocalEntry>();
   const now = Date.now();
   for (const list of lists) {

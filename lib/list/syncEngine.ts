@@ -111,7 +111,7 @@ async function fetchAniListListMap(
     body: JSON.stringify({
       query: `query ($userName: String) {
         MediaListCollection(userName: $userName, type: ANIME) {
-          lists { entries {
+          lists { isCustomList entries {
             id status score(format: POINT_10_DECIMAL) progress repeat updatedAt
             startedAt { year month day } completedAt { year month day } notes
             media { id episodes title { english romaji native userPreferred } coverImage { large } }
@@ -125,6 +125,10 @@ async function fetchAniListListMap(
   const json = await res.json();
   if (json?.errors?.length) return null;
   const lists = json?.data?.MediaListCollection?.lists || [];
+  /* « Liste sur mesure » : une liste personnalisée déjà créée sur AniList compte. */
+  if (lists.some((l: any) => l?.isCustomList && l?.entries?.length)) {
+    import("../badges/facts").then((f) => f.recordFlag("customListAniList")).catch(() => {});
+  }
   const byId = new Map<number, LocalEntry>();
   const now = Date.now();
   for (const list of lists) {
@@ -692,7 +696,9 @@ export async function onEpisodeFinished(
      se donnerait a chaque import. La distinction est deja documentee sur le
      champ lui-meme (lib/list/localList.ts). */
   const lastActivity = prev?.activityAt ?? null;
-  if (lastActivity && Date.now() - lastActivity > 30 * 86_400_000) {
+  /* Un épisode qui CONTINUE : une relecture d'un anime fini n'est pas une reprise. */
+  const continues = episode > (prev?.progress ?? 0) && prev?.status !== "COMPLETED" && prev?.status !== "REPEATING";
+  if (continues && lastActivity && Date.now() - lastActivity > 30 * 86_400_000) {
     import("../badges/facts").then((f) => f.recordFlag("comeback")).catch(() => {});
   }
   const totalEp = Number.isFinite(total as number) && (total as number) > 0 ? (total as number) : null;

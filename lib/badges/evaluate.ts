@@ -27,17 +27,22 @@ import { DISPLAYED_HOSTS } from "../hostRegistry";
 import { getLocalList, LOCAL_LIST_BULK_EVENT } from "../list/localList";
 import { readProgressMap } from "../watch/progress";
 import { BADGES, BY_ID, type BadgeDef } from "./catalog";
-import { derive, fuzzyDay, isCompletedNow, type Derived, type Snapshot } from "./derive";
+import { derive, isCompletedNow, type Derived, type Snapshot } from "./derive";
 import { clusters, inHourWindow, monthDay } from "./localtime";
 import { getFacts } from "./facts";
 import { dayKey, sane } from "./localtime";
 import { isBonusFormat, measure } from "./measure";
-import { applyRedate, getBadgeState, grant, NO_DATE } from "./store";
+import { applyCorrection, getBadgeState, grant, NO_DATE } from "./store";
 import { readVocab } from "./metaBackfill";
 import { announce } from "./achievementStore";
 
 /** Le compte, quand il y en a un. Posé par le bootstrap, lu à chaque passage. */
 let accountCreatedAt: number | null = null;
+let signedIn = false;
+export function setSignedIn(v: boolean): void {
+  signedIn = v;
+}
+
 export function setAccountCreatedAt(at: number | null): void {
   accountCreatedAt = sane(at ?? 0) ?? null;
 }
@@ -115,14 +120,14 @@ function dateFor(def: BadgeDef, d: Derived): number | null {
   const m = def.metric;
 
   if (m.k === "flag") {
+    if (m.name === "comeback" && d.comebackAt != null) return d.comebackAt;
     const at = d.facts.flags[String(m.name)];
     if (at != null) return at;
-    if (m.name === "comeback") return d.comebackAt;
     if (m.name !== "oav") return null;
     /* Accorde depuis la liste : la plus ancienne date connue d'un OAV vu. */
     const dates = d.seen
       .filter(isBonusFormat)
-      .map((e) => fuzzyToMs(e.completedAt) ?? e.activityAt)
+      .map((e) => fuzzyToMs(e.completedAt))
       .filter((t): t is number => !!t);
     return dates.length ? Math.min(...dates) : null;
   }
@@ -132,16 +137,16 @@ function dateFor(def: BadgeDef, d: Derived): number | null {
      horodatages sont triés, donc `stamps[n - 1]` EST le moment du
      franchissement. */
   if (m.k === "count" && m.of === "episodes") {
-    return d.stamps[m.n - 1] ?? null;
+    return nthProven(d.stamps, m.n, Math.max(0, d.episodes - d.stamps.length));
   }
   /* Les anime terminés : la date de complétion du n-ième, dans l'ordre. */
   if (m.k === "count" && m.of === "completed") {
     const dates = d.completed
       .filter(isCompletedNow)
-      .map((e) => fuzzyToMs(e.completedAt) ?? e.activityAt)
+      .map((e) => fuzzyToMs(e.completedAt))
       .filter((t): t is number => !!t)
       .sort((a, b) => a - b);
-    return dates[m.n - 1] ?? null;
+    return nthProven(dates, m.n, Math.max(0, d.completedCount - dates.length));
   }
   /* Les badges de rythme : le moment où le fil ou le site les a franchis. */
   if (m.k === "window") {
@@ -165,11 +170,7 @@ function dateFor(def: BadgeDef, d: Derived): number | null {
   }
   /* Deux badges tiennent à une date écrite dans la liste ou le fil. */
   if (m.k === "sameDayFinish") {
-    const dates = d.completed
-      .filter((e) => (e.total ?? 0) > 1 && !!fuzzyDay(e.startedAt) && fuzzyDay(e.startedAt) === fuzzyDay(e.completedAt))
-      .map((e) => fuzzyToMs(e.completedAt))
-      .filter((t): t is number => !!t);
-    return dates.length ? Math.min(...dates) : null;
+    return d.sameDayAt.size ? Math.min(...d.sameDayAt.values()) : null;
   }
   if (m.k === "onDate") {
     const ok = new Set(
@@ -195,8 +196,21 @@ function dateFor(def: BadgeDef, d: Derived): number | null {
   return null;
 }
 
+/**
+ * La date du n-ième, seulement si elle est CERTAINE. Avec des éléments sans date,
+ * le n-ième réel se trouve entre deux rangs : « 1 000 épisodes » n'a de date que
+ * si ces deux rangs tombent le même jour.
+ */
+function nthProven(sorted: number[], n: number, undated: number): number | null {
+  const hi = sorted[n - 1];
+  if (hi == null) return null;
+  if (!undated) return hi;
+  const lo = sorted[n - 1 - undated];
+  return lo != null && dayKey(lo) === dayKey(hi) ? hi : null;
+}
+
 /** Quand le cumul de minutes a franchi `target`, `null` s'il n'est pas daté. */
-function minutesCrossing(s: Snapshot, target: number): number | null {
+function minutesCrossing(s: Snapshot, target: number, d: Derived): number | null {
   const rows: { at: number; minutes: number }[] = [];
   for (const [, entry] of Object.entries(s.progress)) {
     if (!entry || entry.duration <= 0) continue;
@@ -204,6 +218,8 @@ function minutesCrossing(s: Snapshot, target: number): number | null {
     const at = sane(entry.updatedAt, s.now);
     if (at) rows.push({ at, minutes: entry.duration / 60 });
   }
+  /* Des minutes venues de la liste n'ont pas de date : le cumul daté ment. */
+  if (d.minutes > rows.reduce((m, r) => m + r.minutes, 0) + 1) return null;
   rows.sort((a, b) => a.at - b.at);
   let sum = 0;
   for (const r of rows) {
@@ -224,6 +240,18 @@ const KEEPS_ITS_DATE = new Set(["flag", "counter", "granted", "accountAge"]);
 /** Après ce jour, une date vient de la règle actuelle : rien à corriger. */
 const REDATE_CUTOFF = Date.UTC(2026, 10, 25);
 let lastDataKey = "";
+
+/** Les badges dont la règle a été corrigée le 24/11/2026. */
+const REVISED_RULES = ["by-the-end", "never-op", "comeback", "one-sitting", "first-rating", "rated-50", "rated-200"];
+
+function accountDataReady(s: Snapshot, d: Derived): boolean {
+  if (!d.entries.length) return false;
+  /* Connecté : attendre que la copie du compte soit arrivée sur cet appareil. */
+  const w = window as Window & { __aniscrollCloudPulled?: boolean };
+  if (signedIn && !w.__aniscrollCloudPulled) return false;
+  /* Compte AniList lié : attendre son fil, qui seul prouve certaines règles. */
+  return s.facts.flags.anilistLinked == null || s.feedEvents !== undefined;
+}
 
 export type EvaluateResult = {
   /** Badges débloqués à ce passage, dans l'ordre du catalogue. */
@@ -249,20 +277,26 @@ export function evaluate(opts?: { silent?: boolean; now?: number }): EvaluateRes
 
   const proofOf = (def: BadgeDef) =>
     def.metric.k === "count" && def.metric.of === "minutes"
-      ? minutesCrossing(snap, def.metric.n)
+      ? minutesCrossing(snap, def.metric.n, d)
       : dateFor(def, d);
 
-  /* UNE FOIS : les dates posées par les anciens rattrapages étaient l'heure du
-     passage ou la dernière activité. On garde les gestes, datés à l'instant où
-     ils ont eu lieu, et on repart de la preuve pour tout le reste. */
-  if (!state.redated) {
+  /* UNE FOIS, et seulement quand toutes les données du compte sont là : sur un
+     appareil pas encore synchronisé, une liste partielle ferait retirer un badge
+     valide ou poserait une date fausse. Les gestes gardent leur date ; tout le
+     reste repart de sa preuve. Une mesure indisponible ne retire jamais rien. */
+  if (!state.regraded && accountDataReady(snap, d)) {
     const dates: Record<string, number> = {};
     for (const [id, was] of Object.entries(state.got)) {
       const def = BY_ID[id];
       if (!def || KEEPS_ITS_DATE.has(def.metric.k) || was >= REDATE_CUTOFF) continue;
       dates[id] = proofOf(def) ?? NO_DATE;
     }
-    applyRedate(dates);
+    const wrong = REVISED_RULES.filter((id) => {
+      if (state.got[id] == null) return false;
+      const p = measure(BY_ID[id], d, state);
+      return !!p && p[0] < p[1];
+    });
+    applyCorrection(dates, wrong);
     state = getBadgeState();
   }
 
@@ -431,6 +465,7 @@ export function start(): () => void {
   window.addEventListener("aniscroll:cloudPull", onPull);
   /* Un import : les badges sont accordés, on les trouve dans l'onglet. */
   window.addEventListener(LOCAL_LIST_BULK_EVENT, onPull);
+  window.addEventListener("aniscroll:cloudPullDone", onPull);
   /* Le dernier changement d'une session doit survivre : le débounce mourrait
      avec la page. Même garde que cloudSync. */
   const onLeave = () => flush();
@@ -447,6 +482,7 @@ export function start(): () => void {
     for (const e of events) window.removeEventListener(e, on);
     window.removeEventListener("aniscroll:cloudPull", onPull);
     window.removeEventListener(LOCAL_LIST_BULK_EVENT, onPull);
+    window.removeEventListener("aniscroll:cloudPullDone", onPull);
     window.removeEventListener("pagehide", onLeave);
     started = false;
   };

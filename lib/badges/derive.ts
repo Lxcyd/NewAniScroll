@@ -62,8 +62,14 @@ export type Derived = {
   timeline: { aniId: number; at: number }[];
   /** Quand une séance a atteint `hours` pour la première fois. */
   sessionReachedAt: (hours: number, weekend: boolean) => number | null;
-  /** Anime dont le fil montre le premier et le dernier épisode le même jour. */
-  sameDayIds: Set<number>;
+  /** Anime commencés et finis le même jour → ce jour-là (ms). */
+  sameDayAt: Map<number, number>;
+  /** Anime dont seul le dernier épisode a été vu. */
+  onlyLastIds: Set<number>;
+  /** Anime lus ici en entier sans jamais passer l'opening. */
+  neverSkippedIds: Set<number>;
+  /** Le compte a un fil AniList chargé. */
+  hasFeed: boolean;
   /** La première reprise d'un anime après plus de 30 jours, d'après le fil. */
   comebackAt: number | null;
   /** Jours locaux où au moins un épisode a été terminé. */
@@ -231,6 +237,39 @@ export function initialsOf(e: LocalEntry): string[] {
   return [...out];
 }
 
+/** Le fil vient du stockage du navigateur : une ligne illisible est ignorée. */
+const validFeedRow = (r: unknown): r is [number, number, number] =>
+  Array.isArray(r) &&
+  r.length >= 3 &&
+  Number.isFinite(r[0]) &&
+  r[0] > 0 &&
+  Number.isInteger(r[1]) &&
+  r[1] > 0 &&
+  Number.isInteger(r[2]) &&
+  r[2] > 0;
+
+/** Moins de 5 min par épisode : cochés d'un coup, pas regardés. */
+const tooFast = (first: number, last: number, total: number) =>
+  last - first < (total - 1) * 5 * 60_000;
+
+/** Le jour où le fil montre TOUS les épisodes de 1 à `total`, à un rythme possible. */
+function feedSameDay(rows: { at: number; ep: number }[], total: number): number | null {
+  const byDay = new Map<string, { at: number; ep: number }[]>();
+  for (const r of rows) {
+    const k = dayKey(r.at);
+    const day = byDay.get(k);
+    if (day) day.push(r);
+    else byDay.set(k, [r]);
+  }
+  for (const day of byDay.values()) {
+    const eps = new Set(day.map((r) => r.ep));
+    let all = true;
+    for (let i = 1; i <= total && all; i++) all = eps.has(i);
+    if (all && !tooFast(day[0].at, day[day.length - 1].at, total)) return day[day.length - 1].at;
+  }
+  return null;
+}
+
 export function derive(s: Snapshot): Derived {
   const now = s.now;
 
@@ -265,7 +304,8 @@ export function derive(s: Snapshot): Derived {
        - un épisode déjà lu ici dans les 12 h : AniList en a reçu une copie. */
   const here = new Map<string, number>();
   for (const w of watched) if (w.at) here.set(`${w.aniId}:${w.episode}`, w.at);
-  const feedSorted = [...(s.feedEvents ?? [])].sort((a, b) => a[0] - b[0]);
+  const feedSorted = (s.feedEvents ?? []).filter(validFeedRow).sort((a, b) => a[0] - b[0]);
+  const lastSameEpisode = new Map<string, number>();
   const feedRows: { aniId: number; at: number; minutes: number }[] = [];
   let previous = -Infinity;
   for (const [sec, aniId, ep] of feedSorted) {
@@ -274,6 +314,10 @@ export function derive(s: Snapshot): Derived {
     const chained = at - previous < 60_000;
     previous = at;
     if (chained) continue;
+    /* Le même épisode remarqué dans la journée ne compte qu'une fois. */
+    const before = lastSameEpisode.get(`${aniId}:${ep}`);
+    lastSameEpisode.set(`${aniId}:${ep}`, at);
+    if (before != null && at - before < 86_400_000) continue;
     const mine = here.get(`${aniId}:${ep}`);
     if (mine != null && Math.abs(mine - at) < 12 * 3_600_000) continue;
     feedRows.push({ aniId, at, minutes: s.list[aniId]?.duration || 24 });
@@ -337,13 +381,14 @@ export function derive(s: Snapshot): Derived {
   /* ── La liste ───────────────────────────────────────────────────────────── */
   const entries = Object.values(s.list);
   const completed = entries.filter((e) => FINISHED.has(String(e.status ?? "").toUpperCase()));
-  const rated = entries.filter((e) => (e.score ?? 0) > 0).length;
   const seen = entries.filter(
     (e) =>
       FINISHED.has(String(e.status ?? "").toUpperCase()) ||
       ((e.progress ?? 0) > 0 && String(e.status ?? "").toUpperCase() !== "PLANNING") ||
       perAnime.has(e.mediaId),
   );
+  /* Une note sur un titre seulement planifié n'est pas un avis sur ce qu'on a vu. */
+  const rated = seen.filter((e) => (e.score ?? 0) > 0).length;
   const rewatched = entries.filter((e) => (e.repeat ?? 0) >= 1).length;
 
   /* Ce que le fil dit, anime par anime : commencé et fini le même jour, et
@@ -356,20 +401,38 @@ export function derive(s: Snapshot): Derived {
     if (!rows) feedByAnime.set(aniId, (rows = []));
     rows.push({ at, ep });
   }
-  const sameDayIds = new Set<number>();
+  /* « Repris en main » : un épisode qui CONTINUE après trente jours. Une relecture
+     repart en arrière, et un anime déjà au bout n'était pas laissé de côté. */
   let comebackAt: number | null = null;
   for (const [aniId, rows] of feedByAnime) {
+    const total = s.list[aniId]?.total ?? Infinity;
     for (let i = 1; i < rows.length; i++) {
-      if (rows[i].at - rows[i - 1].at > 30 * 86_400_000 && (comebackAt == null || rows[i].at < comebackAt)) {
-        comebackAt = rows[i].at;
+      const [a, b] = [rows[i - 1], rows[i]];
+      if (b.at - a.at > 30 * 86_400_000 && b.ep > a.ep && a.ep < total && (comebackAt == null || b.at < comebackAt)) {
+        comebackAt = b.at;
       }
     }
-    const total = s.list[aniId]?.total ?? 0;
-    const status = String(s.list[aniId]?.status ?? "").toUpperCase();
-    if (total < 2 || !FINISHED.has(status)) continue;
-    const first = rows.find((r) => r.ep === 1);
-    const last = first && rows.find((r) => r.ep === total && r.at >= first.at);
-    if (first && last && dayKey(first.at) === dayKey(last.at)) sameDayIds.add(aniId);
+  }
+
+  /* « D'un coup » : la date de la liste, sauf si le fil la contredit (des épisodes
+     vus avant, ou tous cochés en quelques secondes), ou le fil seul. */
+  const sameDayAt = new Map<number, number>();
+  for (const e of completed) {
+    const total = e.total ?? 0;
+    if (total < 2) continue;
+    const rows = feedByAnime.get(e.mediaId) ?? [];
+    const fromFeed = feedSameDay(rows, total);
+    if (fromFeed != null) {
+      sameDayAt.set(e.mediaId, fromFeed);
+      continue;
+    }
+    const a = fuzzyDay(e.startedAt);
+    if (!a || a !== fuzzyDay(e.completedAt)) continue;
+    const d = e.completedAt!;
+    const start = new Date(d.year!, d.month! - 1, d.day!).getTime();
+    const thatDay = rows.filter((r) => dayKey(r.at) === dayKey(start));
+    const checked = thatDay.length >= total && tooFast(thatDay[0].at, thatDay[thatDay.length - 1].at, total);
+    if (!checked && !rows.some((r) => r.at < start)) sameDayAt.set(e.mediaId, start);
   }
 
   /* ── LE COMPTE D'ÉPISODES, ET POURQUOI IL NE PEUT PAS VENIR DE LA SEULE
@@ -515,12 +578,31 @@ export function derive(s: Snapshot): Derived {
   /* « Jamais l'opening » : un anime terminé dont AUCUN épisode connu n'a vu son
      opening sauté. On exige au moins un épisode enregistré, sans quoi un anime
      importé — dont on n'a regardé aucun épisode ici — donnerait le badge. */
-  const neverSkippedOp = completed.some((e) => {
+  const neverSkippedIds = new Set<number>();
+  for (const e of completed) {
+    /* TOUS les épisodes lus ici : avec un seul, « jamais » ne prouve rien. */
     const eps = perAnime.get(e.mediaId);
-    if (!eps || !eps.size) return false;
-    for (const ep of eps) if (opSkipped.has(`${e.mediaId}:${ep}`)) return false;
-    return true;
-  });
+    const total = e.total ?? 0;
+    if (!eps || total < 1) continue;
+    let ok = true;
+    for (let i = 1; i <= total && ok; i++) {
+      ok = eps.has(String(i)) && !opSkipped.has(`${e.mediaId}:${i}`);
+    }
+    if (ok) neverSkippedIds.add(e.mediaId);
+  }
+
+  /* « Spoilé » : le dernier épisode seul. La table ne connaît que ce qui a été lu
+     ICI : le fil ne doit montrer aucun autre épisode, et l'anime doit avoir été
+     commencé le jour de cette lecture. */
+  const onlyLastIds = new Set<number>();
+  for (const e of entries) {
+    const eps = perAnime.get(e.mediaId);
+    const seenAt = lastSeenAt.get(e.mediaId);
+    if (!eps || eps.size !== 1 || !seenAt || !e.total || e.total < 2 || !eps.has(String(e.total))) continue;
+    if ((feedByAnime.get(e.mediaId) ?? []).some((r) => r.ep !== e.total)) continue;
+    const x = new Date(seenAt);
+    if (fuzzyDay(e.startedAt) === `${x.getFullYear()}-${x.getMonth() + 1}-${x.getDate()}`) onlyLastIds.add(e.mediaId);
+  }
 
   let onDate: Map<string, Set<number>> | null = null;
   return {
@@ -533,7 +615,10 @@ export function derive(s: Snapshot): Derived {
     timeline,
     sessionReachedAt: (target, weekend) =>
       sessions.find((r) => r.hours >= target && (!weekend || r.weekend))?.end ?? null,
-    sameDayIds,
+    sameDayAt,
+    onlyLastIds,
+    neverSkippedIds,
+    hasFeed: s.feedEvents !== undefined,
     comebackAt,
     days,
     streak: currentRun(days, dayKey(now)),
@@ -590,15 +675,7 @@ export function derive(s: Snapshot): Derived {
     seen,
     listSize: entries.length,
 
-    /* « Par la fin » : le dernier épisode d'un anime, et aucun autre. On lit la
-       table de progression, pas la liste — c'est le seul endroit qui sache
-       QUELS épisodes ont été vus, là où la liste ne connaît qu'un compteur.
-       Il faut connaître le total, sans quoi « le dernier » n'a pas de sens. */
-    onlyLastEpisode: entries.some((e) => {
-      const eps = perAnime.get(e.mediaId);
-      if (!eps || eps.size !== 1 || !e.total || e.total < 2) return false;
-      return eps.has(String(e.total));
-    }),
+    onlyLastEpisode: onlyLastIds.size > 0,
 
     /* « Liste d'attente » : un titre AJOUTÉ alors qu'il n'est pas encore sorti.
        Les deux statuts se ressemblent et ne parlent pas de la même chose :
@@ -613,11 +690,7 @@ export function derive(s: Snapshot): Derived {
        Les deux dates sont sur l'entrée de liste, posées par le moteur de
        synchro ; une série d'un seul épisode ne compte pas — ce serait un film,
        et le badge parle de dévorer une série. */
-    sameDayFinish: sameDayIds.size > 0 || completed.some((e) => {
-      const a = fuzzyDay(e.startedAt);
-      const b = fuzzyDay(e.completedAt);
-      return !!a && a === b && (e.total ?? 0) > 1;
-    }),
+    sameDayFinish: sameDayAt.size > 0,
     rated,
     rewatched,
     mostRepeats,
@@ -669,7 +742,7 @@ export function derive(s: Snapshot): Derived {
     facts: s.facts,
     hostsUsed: hostSet.size,
     hostsTotal: s.displayedHosts.length,
-    neverSkippedOp,
+    neverSkippedOp: neverSkippedIds.size > 0,
     accountAgeDays:
       s.accountCreatedAt == null
         ? null
@@ -700,6 +773,13 @@ function completedFranchises(entries: LocalEntry[], finished: Set<string>): numb
   const find = (x: number): number => {
     let r = x;
     while (parent.get(r) !== undefined && parent.get(r) !== r) r = parent.get(r)!;
+    /* Compression : sans elle, une longue chaîne de suites devient quadratique. */
+    let c = x;
+    while (c !== r) {
+      const next = parent.get(c)!;
+      parent.set(c, r);
+      c = next;
+    }
     return r;
   };
   const union = (a: number, b: number) => {
