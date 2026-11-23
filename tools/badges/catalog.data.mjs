@@ -253,8 +253,8 @@ export const CATALOG = {
        compte les ANNÉES, de 1970 à l'année en cours, cible calculée à
        l'exécution (n: 0). */
     ["decades", "l", "timeline", "", { k: "years", from: 1970, n: 0 },
-      "Toutes les années", "Termine un anime sorti chaque année, de 1970 à aujourd'hui.",
-      "Every year", "Finish an anime from every year, from 1970 to today."],
+      "Toutes les années", "Regarde un anime sorti chaque année, de 1970 à aujourd'hui.",
+      "Every year", "Watch an anime from every year, from 1970 to today."],
     /* Un épisode suffit (demande du 24/09/2026) : `worksEpisodes` somme les
        épisodes vus sur les trois œuvres. */
     ["big-three", "u", "three", "", worksEpisodes("bigThree", 1),
@@ -283,7 +283,7 @@ export const CATALOG = {
     ["thrice", "e", "again3", "3", { k: "repeatSame", times: 3, n: 1 },
       "Jamais deux sans trois", "Termine le même anime trois fois.",
       "Third time's the charm", "Finish the same anime three times."],
-    ["comeback", "u", "flame", "", flag("comeback"),
+    ["comeback", "u", "loop3", "", flag("comeback"),
       "Repris en main", "Reprends un anime laissé de côté plus de 30 jours.",
       "Back on track", "Pick an anime back up after more than 30 days away."],
     ["day-one", "r", "dayD", "", flag("dayOne"),
@@ -291,7 +291,7 @@ export const CATALOG = {
       "Finale on day one", "Watch an anime's final episode on the day it airs."],
     /* Commence et termine le meme jour : les deux dates sont sur l'entree de
        liste, il n'y a rien a observer en direct. */
-    ["one-sitting", "r", "flame", "", { k: "sameDayFinish", n: 1 },
+    ["one-sitting", "e", "crosshair", "", { k: "sameDayFinish", n: 1 },
       "D'un coup", "Commence et termine un anime le même jour.",
       "One Shot", "Start and finish an anime on the same day."],
     ["movies-30", "e", "cinema", "30", format("MOVIE", 30),
@@ -398,7 +398,7 @@ export const CATALOG = {
      La série de jours consécutifs. Jours CALENDAIRES locaux : elle survit au
      changement d'heure et au voyage (cf. lib/badges/localtime.ts). */
   regularity: [
-    ["streak-7", "u", "calendarCheck", "7 J", count("streak", 7),
+    ["streak-7", "c", "calendarCheck", "7 J", count("streak", 7),
       "Une semaine d'affilée", "Regarde au moins un épisode 7 jours de suite.",
       "One-week streak", "Watch at least one episode 7 days in a row."],
     ["streak-30", "u", "calendarCheck", "30 J", count("streak", 30),
@@ -453,22 +453,22 @@ export const CATALOG = {
        saison (meilleur score de chaque saison, grille non retouchée). Il
        remplace « Carton plein » (`bingo-full`). Repères : une grille pleine
        vaut 300 points en 3×3, 410 en 4×4, 540 en 5×5. */
-    ["bingo-50", "c", "gridFull", "50", count("bingoPoints", 50),
+    ["bingo-50", "c", "ticketStar", "50", count("bingoPoints", 50),
       "Premier bingo", "Cumule 50 points sur les bingos officiels de la saison.",
       "First bingo", "Score 50 points across the official season bingos."],
-    ["bingo-200", "u", "gridFull", "200", count("bingoPoints", 200),
+    ["bingo-200", "u", "ticketStar", "200", count("bingoPoints", 200),
       "Joueur de bingo", "Cumule 200 points sur les bingos officiels de la saison.",
       "Bingo player", "Score 200 points across the official season bingos."],
-    ["bingo-500", "r", "gridFull", "500", count("bingoPoints", 500),
+    ["bingo-500", "r", "ticketStar", "500", count("bingoPoints", 500),
       "Habitué du bingo", "Cumule 500 points sur les bingos officiels de la saison.",
       "Bingo regular", "Score 500 points across the official season bingos."],
-    ["bingo-1000", "e", "gridFull", "1 000", count("bingoPoints", 1000),
+    ["bingo-1000", "e", "ticketStar", "1 000", count("bingoPoints", 1000),
       "Stratège du bingo", "Cumule 1 000 points sur les bingos officiels de la saison.",
       "Bingo strategist", "Score 1,000 points across the official season bingos."],
-    ["bingo-2000", "l", "gridFull", "2 000", count("bingoPoints", 2000),
+    ["bingo-2000", "l", "ticketStar", "2 000", count("bingoPoints", 2000),
       "Champion du bingo", "Cumule 2 000 points sur les bingos officiels de la saison.",
       "Bingo champion", "Score 2,000 points across the official season bingos."],
-    ["bingo-3500", "m", "gridFull", "3 500", count("bingoPoints", 3500),
+    ["bingo-3500", "m", "ticketStar", "3 500", count("bingoPoints", 3500),
       "Légende du bingo", "Cumule 3 500 points sur les bingos officiels de la saison.",
       "Bingo legend", "Score 3,500 points across the official season bingos."],
     ["one-year-here", "r", "cake", "", { k: "accountAge", days: 365, n: 365 },

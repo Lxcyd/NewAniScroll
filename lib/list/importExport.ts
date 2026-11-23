@@ -23,6 +23,7 @@ import {
   ImportMode,
 } from "./localList";
 import type { Status, FuzzyDate } from "./types";
+import { MEDIA_META_FIELDS, metaPatch, type MediaRow } from "../badges/metaBackfill";
 import { sleep } from "@/utils/sleep";
 
 const ENDPOINT = "https://graphql.anilist.co/";
@@ -57,30 +58,45 @@ function xmlEscape(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** Map AniList ids → MAL ids in batches (aliased `Media(id:) { idMal }`). The
- *  XML format is keyed by MAL id, so AniList entries without a MAL mapping
- *  can't be represented and are skipped. */
-async function mapAniToMal(aniIds: number[]): Promise<Map<number, number>> {
-  const out = new Map<number, number>();
-  for (let i = 0; i < aniIds.length; i += MAL_BATCH) {
-    const chunk = aniIds.slice(i, i + MAL_BATCH);
-    const fields = chunk
-      .map((id, j) => `m${j}: Media(id: ${id}, type: ANIME) { id idMal }`)
-      .join("\n");
+/**
+ * One `Page` of media for a batch of ids.
+ *
+ * NEVER ONE ALIAS PER TITLE: since 23/11/2026 AniList bills every aliased root
+ * query against the rate limit (measured: 3 aliases = 3 of the 30 points), so
+ * the old 25-alias batches burned the whole minute in about one second.
+ * `id_in` / `idMal_in` fetch 50 titles for one point.
+ */
+async function mediaPage<T>(filter: "id_in" | "idMal_in", ids: number[], fields: string): Promise<T[]> {
+  const query = `query ($ids: [Int]) { Page(perPage: ${MAL_BATCH}) { media(${filter}: $ids, type: ANIME) { ${fields} } } }`;
+  for (let tries = 0; tries < 4; tries++) {
     try {
       const res = await fetch(ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: `query { ${fields} }` }),
+        body: JSON.stringify({ query, variables: { ids } }),
       });
-      const json = await res.json();
-      const data = json?.data || {};
-      for (const key of Object.keys(data)) {
-        const m = data[key];
-        if (m?.id && m?.idMal) out.set(Number(m.id), Number(m.idMal));
+      if (res.status === 429) {
+        await sleep((Number(res.headers.get("retry-after")) || 60) * 1000);
+        continue;
       }
+      const json = await res.json();
+      return json?.data?.Page?.media ?? [];
     } catch {
-      /* skip this batch on failure */
+      return [];
+    }
+  }
+  return [];
+}
+
+/** Map AniList ids → MAL ids in batches. The XML format is keyed by MAL id, so
+ *  AniList entries without a MAL mapping can't be represented and are skipped. */
+async function mapAniToMal(aniIds: number[]): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  for (let i = 0; i < aniIds.length; i += MAL_BATCH) {
+    const chunk = aniIds.slice(i, i + MAL_BATCH);
+    const media = await mediaPage<{ id: number; idMal: number | null }>("id_in", chunk, "id idMal");
+    for (const m of media) {
+      if (m?.id && m?.idMal) out.set(Number(m.id), Number(m.idMal));
     }
     if (i + MAL_BATCH < aniIds.length) await sleep(MAL_BATCH_DELAY_MS);
   }
@@ -124,6 +140,7 @@ export async function downloadExportXml(
       score: e.score ? Math.round(e.score) : 0,
       start: fuzzyToMalDate(e.startedAt),
       finish: fuzzyToMalDate(e.completedAt),
+      repeat: e.repeat ?? 0,
     });
   }
   triggerDownload(buildMalXml(rows), "xml");
@@ -139,6 +156,7 @@ type MalExportRow = {
   score: number;
   start: string;
   finish: string;
+  repeat: number;
 };
 
 /** Assemble the MAL export XML document from mapped rows. */
@@ -154,7 +172,7 @@ function buildMalXml(rows: MalExportRow[]): string {
     <my_finish_date>${r.finish}</my_finish_date>
     <my_score>${r.score}</my_score>
     <my_status>${xmlEscape(r.status)}</my_status>
-    <my_times_watched>0</my_times_watched>
+    <my_times_watched>${r.repeat}</my_times_watched>
     <update_on_import>1</update_on_import>
   </anime>`,
     )
@@ -209,6 +227,7 @@ const USERNAME_QUERY = `
           status
           score(format: POINT_10_DECIMAL)
           progress
+          repeat
           startedAt { year month day }
           completedAt { year month day }
           notes
@@ -258,6 +277,7 @@ export async function importFromAniListUsername(
         startedAt: emptyFuzzy(e.startedAt),
         completedAt: emptyFuzzy(e.completedAt),
         notes: e.notes || null,
+        repeat: Number(e.repeat) || 0,
         updatedAt: now,
       });
     }
@@ -282,7 +302,16 @@ type MalRow = {
   status: Status | null;
   progress: number;
   score: number | null;
+  startedAt: FuzzyDate | null;
+  completedAt: FuzzyDate | null;
+  repeat: number;
 };
+
+/** MAL "YYYY-MM-DD" ("0000-00-00" = unset) → FuzzyDate. */
+function malDate(raw?: string | null): FuzzyDate | null {
+  const [year, month, day] = (raw || "").trim().split("-").map(Number);
+  return emptyFuzzy({ year: year || null, month: month || null, day: day || null });
+}
 
 /** Parse a MAL export XML string into raw rows (still keyed by MAL id). */
 function parseMalXml(xml: string): MalRow[] {
@@ -302,52 +331,38 @@ function parseMalXml(xml: string): MalRow[] {
       status: MAL_STATUS_MAP[statusRaw] ?? null,
       progress,
       score: scoreRaw > 0 ? scoreRaw : null,
+      startedAt: malDate(node.querySelector("my_start_date")?.textContent),
+      completedAt: malDate(node.querySelector("my_finish_date")?.textContent),
+      repeat: Number(node.querySelector("my_times_watched")?.textContent || "0") || 0,
     });
   });
   return rows;
 }
 
-/** Map a batch of MAL ids → AniList media (id/episodes/title/cover) in one
- *  request using aliased `Media(idMal:)` fields. AniList rejects huge queries,
- *  so callers should chunk; we use 25 per request. */
-async function mapMalBatch(
-  malIds: number[],
-): Promise<Map<number, { id: number; episodes: number | null; title: any; cover: string | null }>> {
-  const fields = malIds
-    .map(
-      (id, i) =>
-        `m${i}: Media(idMal: ${id}, type: ANIME) { id idMal episodes title { english romaji native userPreferred } coverImage { large } }`,
-    )
-    .join("\n");
-  const out = new Map<number, { id: number; episodes: number | null; title: any; cover: string | null }>();
-  try {
-    const res = await fetch(ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: `query { ${fields} }` }),
-    });
-    const json = await res.json();
-    const data = json?.data || {};
-    for (const key of Object.keys(data)) {
-      const m = data[key];
-      if (m?.id && m?.idMal) {
-        out.set(Number(m.idMal), {
-          id: Number(m.id),
-          episodes: typeof m.episodes === "number" ? m.episodes : null,
-          title: m.title || undefined,
-          cover: m.coverImage?.large ?? null,
-        });
-      }
-    }
-  } catch {
-    /* network failure — the whole batch is reported as skipped by the caller */
-  }
+type MalMedia = MediaRow & {
+  idMal: number | null;
+  episodes: number | null;
+  title: any;
+  coverImage: { large: string | null } | null;
+};
+
+/** Map a batch of MAL ids → AniList media, with the badge metadata in the same
+ *  request so the Badges tab has nothing left to fetch for these titles. */
+async function mapMalBatch(malIds: number[]): Promise<Map<number, MalMedia>> {
+  const media = await mediaPage<MalMedia>(
+    "idMal_in",
+    malIds,
+    `id idMal episodes title { english romaji native userPreferred } coverImage { large }${MEDIA_META_FIELDS}`,
+  );
+  const out = new Map<number, MalMedia>();
+  for (const m of media) if (m?.id && m?.idMal) out.set(Number(m.idMal), m);
   return out;
 }
 
-const MAL_BATCH = 25;
-// Polite spacing between batches — AniList rate-limits to ~90 req/min.
-const MAL_BATCH_DELAY_MS = 750;
+// AniList's `Page` caps at 50 rows.
+const MAL_BATCH = 50;
+// 27 requests/min, under AniList's current limit of 30.
+const MAL_BATCH_DELAY_MS = 2200;
 
 export async function importFromMalXml(
   xml: string,
@@ -366,16 +381,18 @@ export async function importFromMalXml(
       const m = mapping.get(row.malId);
       if (!m) continue; // no AniList match — skip
       entries.push({
-        mediaId: m.id,
+        ...metaPatch(m),
+        mediaId: Number(m.id),
         status: row.status,
         score: row.score,
         progress: row.progress,
-        total: m.episodes,
-        title: m.title,
-        coverImage: m.cover,
-        startedAt: null,
-        completedAt: null,
+        total: typeof m.episodes === "number" ? m.episodes : null,
+        title: m.title || undefined,
+        coverImage: m.coverImage?.large ?? null,
+        startedAt: row.startedAt,
+        completedAt: row.completedAt,
         notes: null,
+        repeat: row.repeat,
         updatedAt: now,
       });
     }

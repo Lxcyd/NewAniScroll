@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { recordFlag } from "@/lib/badges/facts";
 import { getShowAdult } from "@/lib/prefs/adultPrefs";
@@ -7,8 +7,8 @@ import useDebounce from "@/lib/hooks/useDebounce";
 import Image from "next/image";
 import { useRouter } from "next/router";
 import { useSearch } from "@/lib/context/isOpenState";
-import { ChevronDownIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
-import { BookOpenIcon, PlayIcon } from "@heroicons/react/20/solid";
+import { ChevronDownIcon, ChevronRightIcon, MagnifyingGlassIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { BookOpenIcon, PlayIcon, StarIcon } from "@heroicons/react/20/solid";
 import { useAniList } from "@/lib/anilist/useAnilist";
 import { getFormat } from "@/utils/getFormat";
 import SearchByImage from "./search/searchByImage";
@@ -40,6 +40,27 @@ function highlight(text: string, query: string) {
   return out;
 }
 
+/** Le fondu de la bannière, en courbe : deux points seulement donnent un
+    dégradé linéaire, dont le début et la fin se voient comme une limite. */
+const BANNER_FADE =
+  "linear-gradient(90deg, transparent 0%, rgba(0,0,0,.02) 10%, rgba(0,0,0,.07) 20%, rgba(0,0,0,.16) 30%, rgba(0,0,0,.29) 40%, rgba(0,0,0,.45) 50%, rgba(0,0,0,.62) 60%, rgba(0,0,0,.78) 70%, rgba(0,0,0,.9) 80%, rgba(0,0,0,.97) 90%, #000 100%)";
+
+/** La ligne sous le titre : année, format, puis la durée d'un film, les
+    épisodes d'une série ou les chapitres d'un manga. */
+function metaOf(i: DataTypes, epShort: string): string[] {
+  const out: (string | number | null | undefined)[] = [i.startDate?.year || null, getFormat(i.format)];
+  if (i.format === "MOVIE" && i.duration) {
+    const h = Math.floor(i.duration / 60);
+    const m = i.duration % 60;
+    out.push(h ? `${h}h${m ? ` ${m}min` : ""}` : `${m}min`);
+  } else if (i.episodes) {
+    out.push(`${i.episodes} ${epShort}`);
+  } else if (i.chapters) {
+    out.push(`${i.chapters} ch.`);
+  }
+  return out.filter(Boolean).map(String);
+}
+
 export interface DataTypes {
   id: number;
   title: Title;
@@ -50,6 +71,10 @@ export interface DataTypes {
   isLicensed: boolean;
   genres: string[];
   startDate: StartDate;
+  episodes?: number | null;
+  duration?: number | null;
+  chapters?: number | null;
+  averageScore?: number | null;
 }
 
 interface Title {
@@ -206,6 +231,10 @@ export default function SearchPalette() {
           isLicensed: m.isLicensed,
           genres: m.genres || [],
           startDate: { year: m.startDate?.year ?? 0 },
+          episodes: m.episodes,
+          duration: m.duration,
+          chapters: m.chapters,
+          averageScore: m.averageScore,
         }));
     } catch {
       return [];
@@ -216,6 +245,33 @@ export default function SearchPalette() {
     advance();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debounceSearch, type]);
+
+  /* LA FENÊTRE EST CALÉE SUR LES PIXELS DE L'ÉCRAN (23/11/2026, Luc : « le bord
+     en haut est trop épais, les coins sont pixelisés »). Centrée, elle tombe sur
+     un demi-pixel dès que la fenêtre du navigateur a une taille impaire : les
+     traits de 1 px des cartes s'étalaient alors sur deux lignes. */
+  const panelEl = useRef<HTMLDivElement | null>(null);
+  const panelObserver = useRef<ResizeObserver | null>(null);
+  const snapPanel = useCallback(() => {
+    const el = panelEl.current;
+    if (!el) return;
+    el.style.translate = "";
+    const r = (el.querySelector('[role="listbox"]') ?? el).getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const off = (v: number) => Math.round(v * dpr) / dpr - v;
+    el.style.translate = `${off(r.left)}px ${off(r.top)}px`;
+  }, []);
+  const panelRef = useCallback((el: HTMLDivElement | null) => {
+    panelObserver.current?.disconnect();
+    panelEl.current = el;
+    if (!el) return;
+    panelObserver.current = new ResizeObserver(snapPanel);
+    panelObserver.current.observe(el);
+  }, [snapPanel]);
+  useEffect(() => {
+    window.addEventListener("resize", snapPanel);
+    return () => window.removeEventListener("resize", snapPanel);
+  }, [snapPanel]);
 
   // Every opening starts from a blank slate. The Ctrl+S handler used to clear
   // these itself, but it moved to SearchProvider so this component could be
@@ -260,8 +316,9 @@ export default function SearchPalette() {
               leave="ease-in duration-100"
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
+              afterEnter={snapPanel}
             >
-              <Dialog.Panel className="w-full max-w-2xl max-h-[68dvh] transform text-left transition-all">
+              <Dialog.Panel ref={panelRef} className="w-full max-w-2xl max-h-[68dvh] transform text-left transition-[opacity,transform]">
                 <Combobox
                   as="div"
                   className="max-w-2xl mx-auto rounded-lg shadow-2xl relative flex flex-col"
@@ -351,17 +408,39 @@ export default function SearchPalette() {
                       />
                     </div>
                   </div>
-                  <div className="flex items-center text-base font-medium rounded bg-secondary">
+                  {/* Saisie et résultats dans UN bloc, de la couleur des cases. */}
+                  <div className="mt-1 overflow-hidden rounded-2xl border border-white/10 bg-[#101116] shadow-2xl">
+                  <div className="flex items-center gap-3 px-5 text-base font-medium">
+                    <MagnifyingGlassIcon className="h-5 w-5 shrink-0 text-white/55" />
                     <Combobox.Input
                       ref={focusInput}
-                      className="p-5 text-white w-full bg-transparent border-0 outline-none"
+                      className="min-w-0 flex-1 border-0 bg-transparent py-4 text-white outline-none"
                       placeholder={t("search.searchSomething")}
                       onChange={(event) => setQuery(event.target.value)}
                     />
+                    {query ? (
+                      <button
+                        type="button"
+                        aria-label={t("common.close", "Fermer")}
+                        onClick={() => {
+                          if (focusInput.current) {
+                            focusInput.current.value = "";
+                            focusInput.current.focus();
+                          }
+                          setQuery("");
+                        }}
+                        className="shrink-0 text-white/60 transition-colors hover:text-white"
+                      >
+                        <XMarkIcon className="h-5 w-5" />
+                      </button>
+                    ) : null}
+                    <kbd className="shrink-0 rounded-md border border-white/15 bg-white/[.06] px-2 py-1 font-karla text-[11px] font-semibold text-white/70 [@media(hover:none)]:hidden">
+                      esc
+                    </kbd>
                   </div>
                   <Combobox.Options
                     static
-                    className="bg-secondary rounded mt-2 max-h-[50dvh] overflow-y-auto flex flex-col scrollbar-thin scrollbar-thumb-primary scrollbar-thumb-rounded"
+                    className="as-scroller flex max-h-[50dvh] flex-col gap-2 overflow-y-auto border-t border-white/10 empty:hidden [&:has(>li)]:p-2"
                   >
                     {!loading ? (
                       <Fragment>
@@ -370,35 +449,59 @@ export default function SearchPalette() {
                               <Combobox.Option
                                 key={i.id}
                                 value={i.id}
-                                className={({ active }) =>
-                                  `flex items-center gap-3 p-5 ${
-                                    active ? "bg-primary/40 cursor-pointer" : ""
-                                  }`
-                                }
+                                /* Pas d'`overflow-hidden` : découpée par la carte,
+                                   la bannière (masquée, donc sur sa propre couche)
+                                   laissait des coins en escalier. Elle porte
+                                   elle-même son arrondi, à l'intérieur du liseré. */
+                                className="relative flex h-[92px] shrink-0 cursor-pointer items-stretch gap-3 rounded-xl bg-[#101116] p-1.5"
                               >
-                                <div className="shrink-0">
+                                {/* La bannière occupe la droite et s'efface vers
+                                    la gauche, sous l'affiche et le titre. Un <img>
+                                    différé : ces images ne passent par aucun
+                                    redimensionnement (`unoptimized`). */}
+                                {i.bannerImage ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={i.bannerImage}
+                                    alt=""
+                                    loading="lazy"
+                                    decoding="async"
+                                    className="pointer-events-none absolute right-px top-px h-[calc(100%-2px)] w-[80%] rounded-r-[11px] object-cover opacity-60"
+                                    style={{ WebkitMaskImage: BANNER_FADE, maskImage: BANNER_FADE }}
+                                  />
+                                ) : null}
+                                <div className="relative h-full w-[53px] shrink-0 overflow-hidden rounded-lg bg-primary/60">
                                   {i.coverImage?.medium ? (
                                     <Image
                                       src={i.coverImage.medium}
                                       alt="coverImage"
                                       width={100}
-                                      height={100}
-                                      className="w-16 h-16 object-cover rounded"
+                                      height={150}
+                                      className="h-full w-full object-cover"
                                     />
                                   ) : (
-                                    <div className="w-16 h-16 rounded bg-primary/40" />
+                                    <div className="grid h-full w-full place-items-center text-white/40">
+                                      {type === "ANIME" ? <PlayIcon className="h-5 w-5" /> : <BookOpenIcon className="h-5 w-5" />}
+                                    </div>
                                   )}
                                 </div>
-                                <div className="flex flex-col w-full h-full">
-                                  <h3 className="font-karla font-semibold">
+                                <div className="relative flex min-w-0 flex-1 flex-col justify-between py-1 pr-2 [text-shadow:0_1px_4px_rgba(0,0,0,.85)]">
+                                  <h3 className="truncate font-karla font-semibold">
                                     {highlight(pickTitle(i.title, titlePref) ?? "", query)}
                                   </h3>
-                                  <p className="text-sm text-white/50">
-                                    {[i.startDate?.year || null, getFormat(i.format)]
-                                      .filter(Boolean)
-                                      .join(" ")}
-                                  </p>
+                                  <div className="flex items-center justify-between gap-3">
+                                    <p className="truncate text-[13px] font-semibold text-white/85">
+                                      {metaOf(i, t("anime.epShort")).join("  ·  ")}
+                                    </p>
+                                    {i.averageScore ? (
+                                      <span className="flex shrink-0 items-center gap-1 text-[13px] font-bold tabular-nums text-white">
+                                        <StarIcon className="h-4 w-4 text-action" />
+                                        {+(i.averageScore / 10).toFixed(1)}
+                                      </span>
+                                    ) : null}
+                                  </div>
                                 </div>
+                                <span aria-hidden className="as-glass-edge" />
                               </Combobox.Option>
                             ))
                           : !loading &&
@@ -440,6 +543,7 @@ export default function SearchPalette() {
                       </div>
                     )}
                   </Combobox.Options>
+                  </div>
                 </Combobox>
               </Dialog.Panel>
             </Transition.Child>

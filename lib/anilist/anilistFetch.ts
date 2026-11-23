@@ -171,15 +171,36 @@ async function writeFailureCache(key: string, status: number): Promise<void> {
   await writeResponseCache(key, FAILURE_CACHE_TTL_S, mark);
 }
 
+/* What a query costs AniList: one point per ROOT field, aliased or not (rule of
+   23/11/2026; measured: 3 root aliases = 3 points, aliases nested under one
+   `Media` = 1). Counted so the home page's 6-`Page` batch can't overdraw. */
+function rootFieldCount(query: string): number {
+  let depth = 0;
+  let parens = 0;
+  let roots = 0;
+  for (let i = 0; i < query.length; i++) {
+    const c = query[i];
+    if (c === "#") {
+      while (i < query.length && query[i] !== "\n") i++;
+    } else if (c === "(") parens++;
+    else if (c === ")") parens--;
+    else if (!parens && c === "{") {
+      depth++;
+      if (depth === 2) roots++;
+    } else if (!parens && c === "}") depth--;
+  }
+  return Math.max(1, roots);
+}
+
 /* Wait for the limiter to grant a point, with a hard wait cap so we don't
    block SSR for 30s when the budget is exhausted. Returns true if we got
    a point, false if we should fail-fast. */
-async function acquire(label: string, useMemory = false): Promise<boolean> {
+async function acquire(label: string, useMemory = false, cost = 1): Promise<boolean> {
   const lim = useMemory ? memLimiter : limiter;
   const start = Date.now();
   while (Date.now() - start < QUEUE_WAIT_MS) {
     try {
-      await lim.consume("global", 1);
+      await lim.consume("global", cost);
       return true;
     } catch (rej: any) {
       // RateLimiterRes when blocked — wait the suggested ms, capped.
@@ -198,9 +219,9 @@ async function acquire(label: string, useMemory = false): Promise<boolean> {
    full QUEUE_WAIT_MS (5 s) in `acquire` before returning null — 5 s of billed
    Vercel active time, per call, buying nothing. A 429 is the one failure that
    must NOT be refunded: there, the request really did land. */
-function refund(useMemory: boolean): void {
+function refund(useMemory: boolean, cost = 1): void {
   const lim = useMemory ? memLimiter : limiter;
-  lim.reward("global", 1).catch(() => {
+  lim.reward("global", cost).catch(() => {
     /* non-fatal — the bucket refills on its own within the minute */
   });
 }
@@ -251,7 +272,8 @@ export async function anilistFetch(opts: FetchOpts): Promise<Json | null> {
   const promise = (async (): Promise<Json | null> => {
     // Audit calls throttle in-process (memory limiter) so they don't each spend
     // a Redis EVALSHA on the shared limiter.
-    const ok = await acquire(label, skipCache);
+    const cost = rootFieldCount(query);
+    const ok = await acquire(label, skipCache, cost);
     if (!ok) return null;
 
     const ctrl = new AbortController();
@@ -291,7 +313,7 @@ export async function anilistFetch(opts: FetchOpts): Promise<Json | null> {
         // next run and re-report "down" without testing anything — the one
         // caller whose job is to notice the recovery, suppressed by the
         // mechanism meant to make outages cheap.
-        refund(skipCache);
+        refund(skipCache, cost);
         if (cacheKey && cacheSeconds > 0) await writeFailureCache(cacheKey, res.status);
         console.warn(`[anilist-fetch] HTTP ${res.status} (${label})`);
         return null;

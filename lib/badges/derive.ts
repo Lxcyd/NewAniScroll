@@ -39,6 +39,8 @@ export type Snapshot = {
   displayedHosts: string[];
   /** Les heures (depuis 1970) du fil d'activité AniList, pour les jours de série. */
   feedHours?: number[];
+  /** Le fil AniList lui-même : [secondes, id AniList, épisode]. */
+  feedEvents?: [number, number, number][];
   /** Maintenant, injectable pour que les tests ne dépendent pas de l'horloge. */
   now: number;
 };
@@ -54,8 +56,16 @@ export type Derived = {
   episodes: number;
   /** Minutes cumulées, mesurées sur la durée réelle des fichiers. */
   minutes: number;
-  /** Horodatages des épisodes terminés, sains et triés. */
+  /** Horodatages des épisodes terminés, ici et dans le fil AniList, triés. */
   stamps: number[];
+  /** Les mêmes, avec leur anime. */
+  timeline: { aniId: number; at: number }[];
+  /** Quand une séance a atteint `hours` pour la première fois. */
+  sessionReachedAt: (hours: number, weekend: boolean) => number | null;
+  /** Anime dont le fil montre le premier et le dernier épisode le même jour. */
+  sameDayIds: Set<number>;
+  /** La première reprise d'un anime après plus de 30 jours, d'après le fil. */
+  comebackAt: number | null;
   /** Jours locaux où au moins un épisode a été terminé. */
   days: Set<string>;
   /** La série de jours qui court en ce moment. */
@@ -64,6 +74,10 @@ export type Derived = {
   bestStreak: number;
   /** Épisodes terminés par anime. */
   perAnime: Map<number, Set<string>>;
+  /** Épisodes vus par anime, ici OU dans la liste (le plus grand des deux). */
+  episodesByAnime: Map<number, number>;
+  /** Le dernier épisode terminé sur le site, par anime (ms). */
+  lastSeenAt: Map<number, number>;
   /** Le plus gros total sur 24 h, puis sur 7 jours (fenêtres glissantes). */
   best24h: number;
   best7d: number;
@@ -89,6 +103,8 @@ export type Derived = {
    *  « celui-ci est-il terminé ? » à chaque fin d'épisode. */
   completedIds: Set<number>;
   completedCount: number;
+  /** Anime regardés, finis ou non : terminés, ou au moins un épisode vu. */
+  seen: LocalEntry[];
   /** Combien d'entrées dans la liste, tous statuts confondus. */
   listSize: number;
   /** Un anime dont on n'a regardé QUE le dernier épisode. */
@@ -115,7 +131,7 @@ export type Derived = {
   before: (year: number) => number | null;
   /** Décennies distinctes couvertes depuis `from`. */
   decades: (from: number) => number | null;
-  /** Années distinctes couvertes de `from` à `to` inclus. */
+  /** Années distinctes couvertes de `from` à `to` inclus, par des anime regardés. */
   years: (from: number, to: number) => number | null;
   /** Le studio le mieux représenté, en nombre d'anime terminés. */
   topStudio: number | null;
@@ -165,6 +181,10 @@ export type Derived = {
 /** Les statuts qui veulent dire « je l'ai fini ». Même ensemble que
  *  lib/profile/insights.ts : on ne re-regarde que ce qu'on a terminé une fois. */
 const FINISHED = new Set(["COMPLETED", "REPEATING"]);
+
+/** Dans la liste « Terminé » en ce moment : ce que comptent les badges « Termine N anime ». */
+export const isCompletedNow = (e: { status?: string | null }) =>
+  String(e.status ?? "").toUpperCase() === "COMPLETED";
 
 /** Une date floue AniList réduite à son jour, ou `null` si elle est incomplète.
  *  Exportée pour le détail de « D'un coup ». */
@@ -217,6 +237,7 @@ export function derive(s: Snapshot): Derived {
   /* ── Un seul balayage de la table de progression ───────────────────────── */
   const watched: Watched[] = [];
   const perAnime = new Map<number, Set<string>>();
+  const lastSeenAt = new Map<number, number>();
   for (const [key, entry] of Object.entries(s.progress)) {
     if (!isCompleted(entry)) continue;
     const sep = key.lastIndexOf(":");
@@ -233,9 +254,35 @@ export function derive(s: Snapshot): Derived {
     let set = perAnime.get(aniId);
     if (!set) perAnime.set(aniId, (set = new Set()));
     set.add(episode);
+    if (at && at > (lastSeenAt.get(aniId) ?? 0)) lastSeenAt.set(aniId, at);
   }
 
-  const stamps = watched.map((w) => w.at).filter((t) => t > 0).sort((a, b) => a - b);
+  /* LE FIL ANILIST EST L'HISTORIQUE DATÉ (24/11/2026, Luc : « 4 / 20 » sur un
+     compte qui a vu 34 épisodes en 24 h). Il compte pour tout ce qui parle de
+     QUAND on a regardé. Deux exclusions :
+       - une ligne à moins d'une minute de la précédente : des épisodes cochés à
+         la chaîne pour rattraper sa liste, pas regardés à ce moment-là ;
+       - un épisode déjà lu ici dans les 12 h : AniList en a reçu une copie. */
+  const here = new Map<string, number>();
+  for (const w of watched) if (w.at) here.set(`${w.aniId}:${w.episode}`, w.at);
+  const feedSorted = [...(s.feedEvents ?? [])].sort((a, b) => a[0] - b[0]);
+  const feedRows: { aniId: number; at: number; minutes: number }[] = [];
+  let previous = -Infinity;
+  for (const [sec, aniId, ep] of feedSorted) {
+    const at = sane(sec * 1000, now);
+    if (!at) continue;
+    const chained = at - previous < 60_000;
+    previous = at;
+    if (chained) continue;
+    const mine = here.get(`${aniId}:${ep}`);
+    if (mine != null && Math.abs(mine - at) < 12 * 3_600_000) continue;
+    feedRows.push({ aniId, at, minutes: s.list[aniId]?.duration || 24 });
+  }
+  const timeline = [...watched, ...feedRows]
+    .filter((w) => w.at > 0)
+    .map((w) => ({ aniId: w.aniId, at: w.at }))
+    .sort((a, b) => a.at - b.at);
+  const stamps = timeline.map((w) => w.at);
 
   /* UN SEUL `new Date` PAR HORODATAGE. Le jour, l'heure et « minuit pile » en
      creaient chacun le leur, sur des milliers d'horodatages a chaque passage de
@@ -260,7 +307,7 @@ export function derive(s: Snapshot): Derived {
      `watched.find((w) => w.at === …)` rendait, mais en un seul balayage : le
      `find` reparcourait toute la table pour CHAQUE seance (quadratique). */
   const minutesAt = new Map<number, number>();
-  for (const w of watched) if (!minutesAt.has(w.at)) minutesAt.set(w.at, w.minutes);
+  for (const w of [...watched, ...feedRows]) if (!minutesAt.has(w.at)) minutesAt.set(w.at, w.minutes);
 
   /* Les séances : une grappe d'activité, pas une date (une soirée qui passe
      minuit reste une soirée — cf. lib/badges/localtime.ts). */
@@ -268,6 +315,7 @@ export function derive(s: Snapshot): Derived {
   let biggestNight = 0;
   let longestSession = 0;
   let longestWeekendSession = 0;
+  const sessions: { end: number; hours: number; weekend: boolean }[] = [];
   for (const run of runs) {
     if (run.length > biggestNight) biggestNight = run.length;
     /* La durée d'une séance est mesurée du premier au dernier épisode, plus la
@@ -276,6 +324,7 @@ export function derive(s: Snapshot): Derived {
     const span = (run[run.length - 1] - run[0]) / 3_600_000;
     const tailMinutes = minutesAt.get(run[run.length - 1]) ?? 0;
     const hours = span + tailMinutes / 60;
+    sessions.push({ end: run[run.length - 1], hours, weekend: isWeekend(run[0]) && isWeekend(run[run.length - 1]) });
     if (hours > longestSession) longestSession = hours;
     /* Un « marathon de week-end » doit se tenir sur le week-end : on exige que
        les deux bouts de la séance y soient, sinon une séance du vendredi soir
@@ -289,7 +338,39 @@ export function derive(s: Snapshot): Derived {
   const entries = Object.values(s.list);
   const completed = entries.filter((e) => FINISHED.has(String(e.status ?? "").toUpperCase()));
   const rated = entries.filter((e) => (e.score ?? 0) > 0).length;
+  const seen = entries.filter(
+    (e) =>
+      FINISHED.has(String(e.status ?? "").toUpperCase()) ||
+      ((e.progress ?? 0) > 0 && String(e.status ?? "").toUpperCase() !== "PLANNING") ||
+      perAnime.has(e.mediaId),
+  );
   const rewatched = entries.filter((e) => (e.repeat ?? 0) >= 1).length;
+
+  /* Ce que le fil dit, anime par anime : commencé et fini le même jour, et
+     repris après plus de trente jours. */
+  const feedByAnime = new Map<number, { at: number; ep: number }[]>();
+  for (const [sec, aniId, ep] of feedSorted) {
+    const at = sane(sec * 1000, now);
+    if (!at) continue;
+    let rows = feedByAnime.get(aniId);
+    if (!rows) feedByAnime.set(aniId, (rows = []));
+    rows.push({ at, ep });
+  }
+  const sameDayIds = new Set<number>();
+  let comebackAt: number | null = null;
+  for (const [aniId, rows] of feedByAnime) {
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i].at - rows[i - 1].at > 30 * 86_400_000 && (comebackAt == null || rows[i].at < comebackAt)) {
+        comebackAt = rows[i].at;
+      }
+    }
+    const total = s.list[aniId]?.total ?? 0;
+    const status = String(s.list[aniId]?.status ?? "").toUpperCase();
+    if (total < 2 || !FINISHED.has(status)) continue;
+    const first = rows.find((r) => r.ep === 1);
+    const last = first && rows.find((r) => r.ep === total && r.at >= first.at);
+    if (first && last && dayKey(first.at) === dayKey(last.at)) sameDayIds.add(aniId);
+  }
 
   /* ── LE COMPTE D'ÉPISODES, ET POURQUOI IL NE PEUT PAS VENIR DE LA SEULE
      TABLE DE PROGRESSION ────────────────────────────────────────────────────
@@ -449,10 +530,17 @@ export function derive(s: Snapshot): Derived {
        tête de profil (88,2 j) et vient du `minutesWatched` d'AniList. */
     minutes: Math.max(localMinutes + importedMinutes, s.facts.counters.listMinutes?.n ?? 0),
     stamps,
+    timeline,
+    sessionReachedAt: (target, weekend) =>
+      sessions.find((r) => r.hours >= target && (!weekend || r.weekend))?.end ?? null,
+    sameDayIds,
+    comebackAt,
     days,
     streak: currentRun(days, dayKey(now)),
     bestStreak: longestRun(days),
     perAnime,
+    episodesByAnime: perAnimeCount,
+    lastSeenAt,
     best24h: bestWindow(stamps, 86_400_000),
     best7d: bestWindow(stamps, 7 * 86_400_000),
     biggestNight,
@@ -471,14 +559,23 @@ export function derive(s: Snapshot): Derived {
        est celui de la premiere rencontre, comme avant. */
     animeOnDate: (month, day) => {
       if (!onDate) {
-        onDate = new Map();
-        for (const w of watched) {
-          if (!w.at) continue;
+        const index = (onDate = new Map<string, Set<number>>());
+        const put = (m: number, j: number, id: number) => {
+          const k = `${m}-${j}`;
+          let set = index.get(k);
+          if (!set) index.set(k, (set = new Set()));
+          set.add(id);
+        };
+        for (const w of timeline) {
           const md = monthDay(w.at);
-          const k = `${md.month}-${md.day}`;
-          let set = onDate.get(k);
-          if (!set) onDate.set(k, (set = new Set()));
-          set.add(w.aniId);
+          put(md.month, md.day, w.aniId);
+        }
+        /* Les dates de la liste comptent aussi : un anime commencé ou fini le
+           31 octobre sur AniList ou MAL n'a aucune trace de lecture ici. */
+        for (const e of entries) {
+          for (const f of [e.startedAt, e.completedAt]) {
+            if (f?.month && f?.day) put(f.month, f.day, e.mediaId);
+          }
         }
       }
       return [...(onDate.get(`${month}-${day}`) ?? [])];
@@ -487,7 +584,10 @@ export function derive(s: Snapshot): Derived {
     entries,
     completed,
     completedIds: new Set(completed.map((e) => e.mediaId)),
-    completedCount: completed.length,
+    /* Le chiffre de la liste « Terminé » d'AniList et de Ma liste (185), sans les
+       titres en revisionnage que `completed` garde pour les genres, etc. (189). */
+    completedCount: completed.filter(isCompletedNow).length,
+    seen,
     listSize: entries.length,
 
     /* « Par la fin » : le dernier épisode d'un anime, et aucun autre. On lit la
@@ -513,7 +613,7 @@ export function derive(s: Snapshot): Derived {
        Les deux dates sont sur l'entrée de liste, posées par le moteur de
        synchro ; une série d'un seul épisode ne compte pas — ce serait un film,
        et le badge parle de dévorer une série. */
-    sameDayFinish: completed.some((e) => {
+    sameDayFinish: sameDayIds.size > 0 || completed.some((e) => {
       const a = fuzzyDay(e.startedAt);
       const b = fuzzyDay(e.completedAt);
       return !!a && a === b && (e.total ?? 0) > 1;
@@ -539,10 +639,10 @@ export function derive(s: Snapshot): Derived {
               .map((y) => Math.floor(y / 10)),
           ).size,
     years: (from, to) =>
-      !hasYear
+      !seen.some((e) => e.year != null)
         ? null
         : new Set(
-            completed
+            seen
               .map((e) => e.year)
               .filter((y): y is number => !!y && y >= from && y <= to),
           ).size,

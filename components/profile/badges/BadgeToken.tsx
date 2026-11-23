@@ -19,9 +19,8 @@
  */
 
 import { memo } from "react";
-import { MdCheck } from "react-icons/md";
 import { iconFor, SECRET_ICON } from "@/lib/badges/icons";
-import { HEX, RARITY, starsFor } from "./rarity";
+import { HEX, RARITY, ringSwatch, starsFor } from "./rarity";
 import type { Rarity } from "@/lib/badges/catalog";
 
 export type BadgeTokenProps = {
@@ -246,26 +245,42 @@ function BadgeTokenInner({
       {/* LA COCHE, et non plus seulement l'opacité : dans le panneau d'échelle,
           où rien n'est animé, un palier gagné et un palier à venir ne
           différaient que de quelques points de transparence. Un plancher à
-          16 px pour qu'elle reste une coche sur les jetons de 54. */}
-      {check && unlocked ? (
-        <div
-          aria-hidden="true"
-          style={{
-            position: "absolute",
-            right: -2 * scale,
-            top: 4 * scale,
-            width: Math.max(16, 26 * scale),
-            height: Math.max(16, 26 * scale),
-            borderRadius: "50%",
-            display: "grid",
-            placeItems: "center",
-            background: ink,
-            boxShadow: "0 0 0 2px #12131a, 0 2px 8px rgba(0,0,0,.5)",
-          }}
-        >
-          <MdCheck size={Math.max(16, 26 * scale) * 0.72} color="#12131a" />
-        </div>
-      ) : null}
+          16 px pour qu'elle reste une coche sur les jetons de 54. Pastille au
+          dégradé de l'anneau, trait à l'encre de la plaque (Common : l'anneau
+          est une couleur pleine, on prend le dégradé de sa plaque). */}
+      {check && unlocked ? (() => {
+        const box = Math.max(16, 26 * scale);
+        const disc = (box * 12) / 13;
+        const inset = (box - disc) / 2;
+        return (
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              right: -2 * scale + inset,
+              top: 4 * scale + inset,
+              width: disc,
+              height: disc,
+              borderRadius: "50%",
+              display: "grid",
+              placeItems: "center",
+              background: rarity === "c" ? R.plaque[0] : ringSwatch(rarity),
+              boxShadow: `0 0 0 ${(box * 2.5) / 26}px #12131a, 0 2px 8px rgba(0,0,0,.5)`,
+            }}
+          >
+            <svg viewBox="-12 -12 24 24" width={disc} height={disc}>
+              <path
+                d="M-5.6 .3-1.9 4 5.6-3.9"
+                fill="none"
+                stroke={R.plaque[1]}
+                strokeWidth={2.9}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+        );
+      })() : null}
     </div>
   );
 }

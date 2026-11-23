@@ -47,9 +47,25 @@ export type BadgeState = {
    * meilleure preuve disponible plutôt que sur l'heure du rattrapage.
    */
   backfilled?: true;
+  /**
+   * Les dates inventées par les anciens rattrapages ont été retirées (24/11/2026).
+   * Une copie sans ce drapeau ne peut plus les réimposer à la fusion.
+   */
+  redated?: true;
 };
 
 const EMPTY: BadgeState = { v: 1, got: {} };
+
+/**
+ * « Obtenu, mais on ne sait pas quand » (import d'une liste sans dates). Une
+ * valeur et non un champ à part : `got` est lu partout comme « id → nombre »,
+ * et l'ancien format de sauvegarde l'accepte tel quel. Ne s'affiche jamais.
+ */
+export const NO_DATE = 1;
+
+/** La plus ancienne des deux, une vraie date l'emportant toujours sur NO_DATE. */
+const earliest = (a: number, b: number) =>
+  a === NO_DATE ? b : b === NO_DATE ? a : Math.min(a, b);
 
 function parse(raw: string | null): BadgeState {
   if (!raw) return EMPTY;
@@ -60,7 +76,12 @@ function parse(raw: string | null): BadgeState {
       const n = Number(at);
       if (Number.isFinite(n) && n > 0) got[id] = n;
     }
-    return { v: 1, got, ...(p?.backfilled ? { backfilled: true as const } : {}) };
+    return {
+      v: 1,
+      got,
+      ...(p?.backfilled ? { backfilled: true as const } : {}),
+      ...(p?.redated ? { redated: true as const } : {}),
+    };
   } catch {
     return EMPTY;
   }
@@ -106,11 +127,11 @@ export function grant(
     if (got[id] == null) {
       got[id] = when;
       fresh.push(id);
-    } else if (when < got[id]) {
+    } else {
       /* Une preuve plus ancienne que ce qu'on avait : on corrige la date sans
          re-notifier. Arrive quand le rattrapage de métadonnées permet enfin de
-         dater un badge accordé faute de mieux à l'heure de son rattrapage. */
-      got[id] = when;
+         dater un badge accordé sans date. */
+      got[id] = earliest(got[id], when);
     }
   }
   const markBackfilled = opts?.backfilled || state.backfilled;
@@ -119,9 +140,20 @@ export function grant(
     !!markBackfilled !== !!state.backfilled ||
     JSON.stringify(got) !== JSON.stringify(state.got);
   if (changed) {
-    write({ v: 1, got, ...(markBackfilled ? { backfilled: true as const } : {}) });
+    write({
+      v: 1,
+      got,
+      ...(markBackfilled ? { backfilled: true as const } : {}),
+      ...(state.redated ? { redated: true as const } : {}),
+    });
   }
   return fresh;
+}
+
+/** Remplace les dates une fois pour toutes (cf. `redated`). Aucun badge ne se perd. */
+export function applyRedate(dates: Record<string, number>): void {
+  const state = getBadgeState();
+  write({ ...state, got: { ...state.got, ...dates }, redated: true });
 }
 
 /**
@@ -138,10 +170,21 @@ export function grant(
 export function mergeBadgeState(a: BadgeState, b: BadgeState): BadgeState {
   const got: Record<string, number> = { ...a.got };
   for (const [id, at] of Object.entries(b.got)) {
-    got[id] = got[id] == null ? at : Math.min(got[id], at);
+    if (got[id] == null) got[id] = at;
+    else if (a.redated && !b.redated) continue;
+    else if (b.redated && !a.redated) got[id] = at;
+    else got[id] = earliest(got[id], at);
   }
   const backfilled = a.backfilled || b.backfilled;
-  return { v: 1, got, ...(backfilled ? { backfilled: true as const } : {}) };
+  /* ET, pas OU : si une copie ancienne vient d'apporter des badges, leurs dates
+     n'ont pas été corrigées. L'évaluateur repasse sur l'ensemble. */
+  const redated = a.redated && b.redated;
+  return {
+    v: 1,
+    got,
+    ...(backfilled ? { backfilled: true as const } : {}),
+    ...(redated ? { redated: true as const } : {}),
+  };
 }
 
 /** Fusionne une charge venue du compte dans l'état local. Rend `true` si ça a bougé. */

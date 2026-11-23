@@ -91,6 +91,8 @@ export type LocalListMap = Record<number, LocalEntry>;
 
 const KEY = "aniscroll:localList";
 export const LOCAL_LIST_EVENT = "aniscroll:localList:change";
+/** Un import ou une synchro va écrire toute la liste d'un coup. */
+export const LOCAL_LIST_BULK_EVENT = "aniscroll:localList:bulk";
 
 function notify(): void {
   if (typeof window === "undefined") return;
@@ -251,6 +253,9 @@ export function importEntries(entries: LocalEntry[], mode: ImportMode): number {
     };
     written++;
   }
+  /* AVANT l'écriture : l'évaluateur de badges doit savoir que ce changement est
+     un lot, et accorder sans notifier (lib/badges/evaluate.ts). */
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(LOCAL_LIST_BULK_EVENT));
   writeLocalList(map);
   return written;
 }

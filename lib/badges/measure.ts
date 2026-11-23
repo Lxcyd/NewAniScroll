@@ -88,11 +88,12 @@ export function measure(def: BadgeDef, d: Derived, state: BadgeState): Progress 
          anime le 31 octobre), on dit qu'on ne sait pas. */
       const genre = m.genre ? String(m.genre) : null;
       if (!genre) return bool(true);
-      const hits = d.completed.filter(
+      /* `seen` et non `completed` : la condition dit « regarde », pas « termine ». */
+      const hits = d.seen.filter(
         (e) => ids.includes(e.mediaId) && e.genres?.includes(genre),
       );
       if (hits.length) return bool(true);
-      const known = d.completed.some((e) => ids.includes(e.mediaId) && e.genres?.length);
+      const known = d.seen.some((e) => ids.includes(e.mediaId) && e.genres?.length);
       return known ? [0, 1] : null;
     }
 
@@ -141,7 +142,7 @@ export function measure(def: BadgeDef, d: Derived, state: BadgeState): Progress 
       const w = WORKS[String(m.key)];
       if (!w) return null;
       let seen = 0;
-      for (const id of w.ids) seen += d.perAnime.get(id)?.size ?? 0;
+      for (const id of w.ids) seen += d.episodesByAnime.get(id) ?? 0;
       return [seen, n];
     }
 
@@ -191,10 +192,17 @@ export function measure(def: BadgeDef, d: Derived, state: BadgeState): Progress 
  * badges étaient donc impossibles (constaté le 09/11/2026). Lire l'ensemble
  * rattrape aussi tout ce qui a été enregistré avant la correction.
  */
+export const isBonusFormat = (e: { format?: string | null }) =>
+  e.format === "OVA" || e.format === "SPECIAL";
+
 export function flagUp(d: Derived, name: string): boolean {
   if (d.facts.flags[name] != null) return true;
   if (name === "noPause") return d.facts.noPause.length > 0;
   if (name === "bothLangs") return d.facts.bothLangs.length > 0;
+  /* Le lecteur ne leve ce drapeau qu'a la fin d'un episode : les OAV deja dans
+     la liste (vus avant les badges, ou ailleurs) ne comptaient jamais. */
+  if (name === "oav") return d.seen.some(isBonusFormat);
+  if (name === "comeback") return d.comebackAt != null;
   return false;
 }
 

@@ -433,8 +433,10 @@ export function ResumeBlock({
               </svg>
             </span>
           </span>
+          {/* Collée au bord de la carte, dont les coins arrondissent le rail ;
+              seul le bout de la partie remplie est arrondi. */}
           <span className="absolute inset-x-0 bottom-0 h-1 bg-white/15">
-            <span className="block h-full bg-action" style={{ width: `${row.pct}%` }} />
+            <span className="block h-full rounded-r-full bg-action" style={{ width: `${row.pct}%` }} />
           </span>
         </Link>
       </div>

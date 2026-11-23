@@ -20,7 +20,7 @@
  * avancement qu'on n'a pas mesuré serait un chiffre faux.
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import Link from "next/link";
@@ -31,10 +31,9 @@ import {
   BADGES, BY_ID, LADDERS, MAIN, RARITY_ORDER, SECRETS,
   type BadgeDef, type Rarity,
 } from "@/lib/badges/catalog";
-import { announce } from "@/lib/badges/achievementStore";
 import { beginQuiet, endQuiet, flush, progressAll } from "@/lib/badges/evaluate";
 import type { Derived } from "@/lib/badges/derive";
-import { detailKind, detailOf, type Detail, type DetailCell } from "@/lib/badges/detail";
+import { detailKind, detailOf, detailYear, type Detail, type DetailCell } from "@/lib/badges/detail";
 import { genreLabel } from "@/lib/i18n/genreLabel";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
@@ -42,22 +41,20 @@ import type { LocalEntry } from "@/lib/list/localList";
 import { backfillMetadata } from "@/lib/badges/metaBackfill";
 import { recordFlag } from "@/lib/badges/facts";
 import { revealAnchor, revealTarget } from "@/lib/badges/reveal";
-import { mergeBadgeState, useBadgeState, type BadgeState } from "@/lib/badges/store";
+import { SECTION_ORDER, sectionOf } from "@/lib/badges/sections";
+import { mergeBadgeState, NO_DATE, useBadgeState, type BadgeState } from "@/lib/badges/store";
 import { Bar } from "./widgets/common";
 import { Dropdown } from "./WidgetSettings";
 import BadgeDefs from "./badges/BadgeDefs";
 import BadgeToken from "./badges/BadgeToken";
+import ViewSwitch, { VIEWS, type View } from "./ViewSwitch";
+import { useScrollLock, useSheetPresence } from "./useSheetPresence";
 import { RARITY, RING_HUE, ringSwatch } from "./badges/rarity";
 
 type Filter = "all" | "got" | "todo";
 type Progress = [number, number] | null;
 /** Le menu de rareté : toutes, ou une seule. */
 type RarityPick = "all" | Rarity;
-
-const FAMILY_ORDER = [
-  "episodes", "time", "sessions", "finished",
-  "discovery", "genres", "franchise", "regularity", "profile",
-] as const;
 
 /**
  * Le côté d'un jeton, en px.
@@ -71,6 +68,14 @@ const FAMILY_ORDER = [
  * réserve un peu plus que `ROW_TOKEN`.
  */
 const ROW_TOKEN = 100;
+/** Les jetons des vues Grille et Compacte. */
+const TILE_TOKEN = 84;
+const COMPACT_TOKEN = 48;
+/* Une préférence de l'appareil, comme la vue de Ma liste. */
+const VIEW_KEY = "as-profile-badges-view";
+/** Sans accents ni majuscules : « legende » trouve « Légende ». */
+const norm = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+const famAnchor = (k: string) => `badges-fam-${k}`;
 const TIER_TOKEN = 54;
 /** Le palier sélectionné dans le panneau : un cran au-dessus des autres. */
 const TIER_TOKEN_SEL = TIER_TOKEN + 12;
@@ -114,6 +119,35 @@ export default function ProfileBadges({
   );
   const [filter, setFilter] = useState<Filter>("all");
   const [rarity, setRarity] = useState<RarityPick>("all");
+  const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+  const searched = useDeferredValue(query);
+  /* Même mécanique que Ma liste : le bouton bouge tout de suite, la liste suit
+     en différé. Lu à la création : cet onglet n'est jamais rendu par le serveur
+     (lazyTabs.ts). */
+  const [pickedView, setPickedView] = useState<View>(() => {
+    try {
+      const v = localStorage.getItem(VIEW_KEY) as View | null;
+      if (v && VIEWS.includes(v)) return v;
+    } catch {}
+    return "cards";
+  });
+  const view = useDeferredValue(pickedView);
+  const [viewSwitched, setViewSwitched] = useState(false);
+  const chooseView = (v: View) => {
+    if (v !== pickedView) setViewSwitched(true);
+    setPickedView(v);
+    try { localStorage.setItem(VIEW_KEY, v); } catch {}
+  };
+  /* Ce que la recherche peut lire. */
+  const searchIndex = useMemo(
+    () => new Map(BADGES.map((b) => {
+      const name = norm(t(`badges.${b.id}.name`));
+      return [b.id, { name, all: `${name} ${norm(t(`badges.${b.id}.cond`))}` }];
+    })),
+    [t],
+  );
+  const terms = useMemo(() => norm(searched).split(/\s+/).filter(Boolean), [searched]);
   /* Le dernier résultat connu d'abord (cache du module) : l'onglet s'affiche
      tout de suite avec ses barres, la nouvelle mesure arrive après. */
   const [progress, setProgress] = useState<Map<string, Progress>>(() => (live && lastLive?.progress) || new Map());
@@ -206,28 +240,34 @@ export default function ProfileBadges({
       if (!cible) return;
       setFilter("all");
       setRarity("all");
+      setQuery("");
       cancelAnimationFrame(t);
       /* Deux images : les filtres remis à zéro doivent avoir rendu la ligne. */
+      const chercher = (essais: number) => {
+        const def = BY_ID[cible];
+        const tiers = def?.ladder ? LADDERS[def.ladder] ?? [] : [];
+        const head = tiers.find((id) => gotRef.current[id] == null) ?? tiers[tiers.length - 1];
+        const el =
+          document.getElementById(revealAnchor(cible)) ??
+          (head ? document.getElementById(revealAnchor(head)) : null);
+        if (!el) {
+          if (essais > 0) t = requestAnimationFrame(() => chercher(essais - 1));
+          return;
+        }
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.classList.add("as-badge-flash");
+        window.setTimeout(() => {
+          if (!sorti) el.classList.remove("as-badge-flash");
+        }, 2600);
+        try {
+          window.history.replaceState(null, "", window.location.pathname + window.location.search);
+        } catch {
+          /* au mieux */
+        }
+      };
+      /* Deux images au moins : les filtres remis à zéro doivent avoir rendu. */
       t = requestAnimationFrame(() => {
-        t = requestAnimationFrame(() => {
-          const def = BY_ID[cible];
-          const tiers = def?.ladder ? LADDERS[def.ladder] ?? [] : [];
-          const head = tiers.find((id) => gotRef.current[id] == null) ?? tiers[tiers.length - 1];
-          const el =
-            document.getElementById(revealAnchor(cible)) ??
-            (head ? document.getElementById(revealAnchor(head)) : null);
-          if (!el) return;
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
-          el.classList.add("as-badge-flash");
-          window.setTimeout(() => {
-            if (!sorti) el.classList.remove("as-badge-flash");
-          }, 2600);
-          try {
-            window.history.replaceState(null, "", window.location.pathname + window.location.search);
-          } catch {
-            /* au mieux */
-          }
-        });
+        t = requestAnimationFrame(() => chercher(30));
       });
     };
     reveler();
@@ -254,7 +294,18 @@ export default function ProfileBadges({
     return head;
   }, [got]);
 
+  /* UN SECRET VERROUILLÉ NE SE CHERCHE QUE PAR SON NOM, déjà affiché : chercher
+     dans sa condition masquée permettrait de la deviner mot à mot. */
+  const matches = (b: BadgeDef) => {
+    if (!terms.length) return true;
+    const e = searchIndex.get(b.id);
+    if (!e) return false;
+    const hay = b.secret && got[b.id] == null ? e.name : e.all;
+    return terms.every((x) => hay.includes(x));
+  };
+
   const keep = (b: BadgeDef) => {
+    if (!matches(b)) return false;
     /* Un secret VERROUILLÉ ne répond à aucune rareté : son jeton la cache, et
        le ranger sous « Mythique » la donnerait quand même. Il ne reste visible
        que sous « Toutes ». */
@@ -266,12 +317,12 @@ export default function ProfileBadges({
     return true;
   };
 
-  /** Les lignes d'une famille, échelles repliées sur leur palier courant. */
-  const rowsOf = (family: string): BadgeDef[] => {
+  /** Les lignes d'une section, échelles repliées sur leur palier courant. */
+  const rowsOf = (section: string): BadgeDef[] => {
     const out: BadgeDef[] = [];
     const seen = new Set<string>();
     for (const b of BADGES) {
-      if (b.family !== family) continue;
+      if (sectionOf(b) !== section) continue;
       if (b.ladder) {
         if (seen.has(b.ladder)) continue;
         seen.add(b.ladder);
@@ -286,6 +337,11 @@ export default function ProfileBadges({
           const tiers = (LADDERS[b.ladder] ?? []).filter((id) => BY_ID[id].rarity === rarity);
           if (!tiers.length) continue;
           shown = BY_ID[tiers.find((id) => got[id] == null) ?? tiers[tiers.length - 1]];
+        }
+        /* Une recherche vise un palier précis : « Légende » doit le trouver même
+           si l'échelle en est à un autre. */
+        if (terms.length && !keep(shown)) {
+          shown = (LADDERS[b.ladder] ?? []).map((id) => BY_ID[id]).find(keep) ?? shown;
         }
         /* Le filtre s'applique au palier MONTRÉ : « à obtenir » sur une échelle
            entièrement faite doit la faire disparaître, pas afficher son dernier
@@ -334,301 +390,422 @@ export default function ProfileBadges({
     { k: "todo", label: t("badges.ui.todo", "À obtenir"), n: BADGES.length - gotCount - secretCount },
   ];
 
+  const sections = SECTION_ORDER.map((section) => ({ section, rows: rowsOf(section) }));
+  const secretRows = SECRETS.filter(keep);
+  const nothing = !secretRows.length && sections.every((s) => !s.rows.length);
+  const navItems: NavItem[] = [
+    ...sections.map(({ section, rows }) => {
+      const all = BADGES.filter((b) => sectionOf(b) === section);
+      return {
+        key: section,
+        label: t(`badges.ui.section.${section}`, section),
+        done: all.filter((b) => got[b.id] != null).length,
+        total: all.length,
+        enabled: rows.length > 0,
+      };
+    }),
+    {
+      key: "secret",
+      label: t("badges.ui.family.secret", "Secret"),
+      done: secretCount,
+      total: SECRETS.length,
+      enabled: secretRows.length > 0,
+    },
+  ];
+  const clearAll = () => {
+    setQuery("");
+    setFilter("all");
+    setRarity("all");
+  };
+
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-3">
       <BadgeDefs />
 
-      {/* En-tête : où en est la collection, et les trois filtres.
-          `as-stat-card` comme partout ailleurs sur le profil : quand le
-          propriétaire a posé une illustration en fond de page, un texte nu
-          par-dessus ne se lit pas. La classe porte le fond sombre ET le flou
-          d'arrière-plan que le studio de bannière règle (`--as-plate-blur`,
-          nul par défaut, donc gratuit pour tous les autres profils).
+      {/* La barre d'outils, comme celle de Ma liste : pas de boîte derrière,
+          chaque contrôle porte sa plaque (`as-stat-card`), lisible sur une
+          illustration de fond.
 
-          `z-20` : le menu de rareté déborde de cette carte vers le bas, et chaque
-          carte de la liste est son propre contexte d'empilement (`isolation`)
-          peint APRÈS celle-ci — sans lui, la liste recouvrait le menu. */}
-      <div className="as-stat-card z-20 flex flex-wrap items-center justify-between gap-4 rounded-xl px-4 py-3 ring-1 ring-white/[.08]">
-        <div className="flex items-baseline gap-3">
-          <span className="font-outfit text-2xl font-semibold text-white">
-            {gotCount}
-            <span className="text-white/35"> / {MAIN.length}</span>
-          </span>
-          <span className="font-karla text-[11px] uppercase tracking-[.16em] text-white/40">
-            {t("badges.ui.total", "badges obtenus")}
-          </span>
-          {secretCount > 0 && (
-            <span className="font-outfit text-[11px] font-semibold text-[#FF7F57]">
-              + {secretCount} {t("badges.ui.secretsShort", "secrets")}
-            </span>
-          )}
-        </div>
+          `z-20` : le menu de rareté déborde vers le bas, et chaque carte de la
+          liste est son propre contexte d'empilement (`isolation`) peint APRÈS
+          cette barre — sans lui, la liste recouvrait le menu. */}
+      <div className="relative z-20 flex flex-wrap items-center gap-2">
+        {/* La recherche prend toute la place libre de la barre (22/11/2026, Luc). */}
+        <label className="as-list-field as-stat-card min-w-0 flex-[3_1_220px] cursor-text focus-within:!border-action">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true" className="shrink-0 text-white/40"><path d="M9.5,16q-2.72,0-4.61-1.89Q3,12.23 3,9.5Q3,6.77 4.89,4.89T9.5,3t4.61,1.89T16,9.5q0,1.1-0.35,2.07T14.7,13.3l5.6,5.6q0.28,0.28 0.28,0.7q0,0.42-0.28,0.7q-0.27,0.27-0.7,0.27T18.9,20.3l-5.6-5.6q-0.75,0.6-1.72,0.95T9.5,16Zm0-2q1.88,0 3.19-1.31T14,9.5T12.69,6.31T9.5,5T6.31,6.31T5,9.5t1.31,3.19T9.5,14Z" /></svg>
+          <input
+            ref={searchRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Escape" && query) { e.stopPropagation(); setQuery(""); } }}
+            placeholder={t("badges.ui.search", "Chercher un badge…")}
+            aria-label={t("badges.ui.search", "Chercher un badge…")}
+            className="min-w-0 flex-1 bg-transparent text-[15px] text-white outline-none placeholder:text-white/35"
+          />
+          {query ? (
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); setQuery(""); searchRef.current?.focus(); }}
+              aria-label={t("listMenu.clearSearch")}
+              title={t("listMenu.clearSearch")}
+              className="-mr-1 grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
+            </button>
+          ) : null}
+        </label>
         <div className="flex flex-wrap items-center gap-2">
-          {live && <PreviewButton />}
           <Dropdown
-            className="as-dd-full w-[190px]"
+            className="as-dd-full as-dd-page as-stat-card w-[190px] rounded-[12px]"
+            flip
             label={t("badges.ui.rarityFilter.label", "Filtrer par rareté")}
             value={rarity}
             choices={rarityChoices}
             onPick={(v) => setRarity(v as RarityPick)}
           />
-          {chips.map((c) => (
-            <button
-              key={c.k}
-              type="button"
-              onClick={() => setFilter(c.k)}
-              className={
-                "font-outfit rounded-md border px-3 py-1.5 text-[12px] font-semibold transition-colors " +
-                (filter === c.k
-                  ? "border-as-accent bg-as-accent text-white"
-                  : "border-white/10 bg-white/[.04] text-white/60 hocus:text-white/85")
-              }
-            >
-              {c.label}
-              <span className="ml-1.5 text-[10px] opacity-60">{c.n}</span>
-            </button>
-          ))}
+          <FilterChips chips={chips} value={filter} onPick={setFilter} label={t("badges.ui.total", "badges obtenus")} />
+          <ViewSwitch value={pickedView} onChange={chooseView} />
         </div>
       </div>
 
-      {/* Les familles. */}
-      {FAMILY_ORDER.map((family) => {
-        const rows = rowsOf(family);
-        if (!rows.length) return null;
-        return (
-          <section key={family} className="flex flex-col gap-3">
-            <div className="as-stat-card flex items-baseline gap-3 rounded-lg border-l-2 border-as-accent py-2 pl-3 pr-4">
-              <h3 className="font-outfit m-0 text-lg font-semibold text-white">
-                {t(`badges.ui.family.${family}`, family)}
-              </h3>
-              <span className="font-karla text-[12px] text-white/40">
-                {t(`badges.ui.familyDesc.${family}`, "")}
-              </span>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              {rows.map((b) => (
-                <BadgeRow
-                  key={b.id}
-                  def={b}
-                  state={state}
-                  progress={live ? progress.get(b.id) ?? null : null}
-                  live={live}
-                  filter={filter}
-                  ladderProgress={progress}
-                  derived={live ? derived : null}
-                />
-              ))}
-            </div>
-          </section>
-        );
-      })}
+      {nothing ? (
+        <div className="flex justify-center py-10">
+          <div className="as-stat-card flex w-full max-w-md flex-col items-center gap-2 rounded-[14px] border border-white/[0.12] px-6 py-7 text-center">
+            <p className="font-bold text-white">{t("listMenu.nothing")}</p>
+            <p className="text-sm text-white/75">{t("badges.ui.searchHint", "Essaie un autre mot, une autre rareté ou un autre filtre.")}</p>
+            <button type="button" onClick={clearAll} className="as-sfp-apply as-list-clear mt-3 px-6" style={{ flex: "none" }}>
+              {t("listMenu.clearAll")}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-2 grid items-start gap-5 lg:grid-cols-[190px_minmax(0,1fr)]">
+          <BadgeNav items={navItems} done={gotCount} total={MAIN.length} secrets={secretCount} />
+          <div
+            key={view}
+            className={`flex min-w-0 flex-col gap-8${viewSwitched ? " as-list-viewin" : ""}${pickedView !== view ? " is-pending" : ""}`}
+          >
+            {sections.map(({ section, rows }) => {
+              if (!rows.length) return null;
+              return (
+                <section key={section} id={famAnchor(section)} className="flex scroll-mt-40 flex-col gap-3 lg:scroll-mt-24">
+                  <div className="as-stat-card flex items-baseline gap-3 rounded-lg border-l-2 border-as-accent py-2 pl-3 pr-4">
+                    <h3 className="font-outfit m-0 text-lg font-semibold text-white">
+                      {t(`badges.ui.section.${section}`, section)}
+                    </h3>
+                    <span className="font-karla text-[12px] text-white/40">
+                      {t(`badges.ui.sectionDesc.${section}`, "")}
+                    </span>
+                  </div>
+                  <BadgeList
+                    rows={rows}
+                    view={view}
+                    state={state}
+                    progress={progress}
+                    live={live}
+                    filter={filter}
+                    derived={derived}
+                  />
+                </section>
+              );
+            })}
 
-      {/* Les secrets, à part et hors du total. */}
-      <SecretSection
-        state={state}
-        progress={progress}
-        live={live}
-        filter={filter}
-        keep={keep}
-        derived={derived}
-      />
+            {/* Les secrets, à part et hors du total. */}
+            <SecretSection
+              rows={secretRows}
+              view={view}
+              state={state}
+              progress={progress}
+              live={live}
+              filter={filter}
+              derived={derived}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-/* ── ⚠ TEMPORAIRE — le bouton d'essai de la notification ────────────────────
- *
- * À RETIRER une fois l'animation validée. Tout ce qui le concerne tient dans ce
- * bloc et dans le `{live && <PreviewButton />}` de l'en-tête : deux suppressions
- * et il n'en reste rien.
- *
- * Il N'ACCORDE AUCUN BADGE — il ne touche ni `aniscroll:badges`, ni les faits,
- * ni la sauvegarde. Il pousse un id dans la file d'affichage, point. Un bouton
- * d'essai qui accorderait pour de vrai fabriquerait une fausse collection qu'il
- * faudrait ensuite démêler, et l'invariant « un badge obtenu ne se reperd
- * jamais » rend ce démêlage impossible.
- *
- * Chaque clic avance d'une RARETÉ : les six ont des couleurs, des étoiles et un
- * balayage différents, et c'est justement ça qu'on vient regarder.
- *
- * Son libellé n'est PAS traduit, et c'est délibéré : ajouter deux clés dans les
- * deux locales pour un bouton qu'on va enlever laisserait deux orphelines
- * derrière lui. « Test » se lit dans les deux langues.
+/* ── Le sommaire ────────────────────────────────────────────────────────────── */
+
+/**
+ * Tous / Obtenus / À obtenir : la case colorée GLISSE vers le filtre choisi.
+ * En `transform` seul (comme la pilule de ProfileTabs) : le changement de
+ * filtre re-rend la liste, une transition de `width` saccaderait. Pas de garde
+ * `prefers-reduced-motion` : ce poste répond `reduce` et ne verrait rien.
  */
-function PreviewButton() {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const [q, setQ] = useState("");
-  /* DEUX refs, parce qu'il y a maintenant deux morceaux dans deux arbres : le
-     bouton reste en place, le panneau est portalé sur le corps du document. Un
-     clic « dehors » doit épargner les deux, sinon cliquer le bouton fermerait
-     puis rouvrirait le panneau dans le même geste. */
-  const boite = useRef<HTMLDivElement | null>(null);
-  const panneau = useRef<HTMLDivElement | null>(null);
-  const btn = useRef<HTMLButtonElement | null>(null);
-  /** Où poser le panneau à l'écran. Mesuré à l'ouverture. */
-  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+function FilterChips({
+  chips,
+  value,
+  onPick,
+  label,
+}: {
+  chips: { k: Filter; label: string; n: number }[];
+  value: Filter;
+  onPick: (f: Filter) => void;
+  label: string;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  const pill = useRef<HTMLSpanElement>(null);
+  const last = useRef<{ x: number; w: number } | null>(null);
 
-  /* Fermer au clic dehors et à Échap. Un `mousedown` et pas un `click` : le
-     second se déclenche APRÈS que le bouton du panneau a fait son travail, donc
-     un clic sur un badge fermerait le panneau deux fois. */
-  useEffect(() => {
-    if (!open) return;
-    const dehors = (e: MouseEvent) => {
-      const n = e.target as Node;
-      if (boite.current?.contains(n) || panneau.current?.contains(n)) return;
-      setOpen(false);
-    };
-    const echap = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", dehors);
-    window.addEventListener("keydown", echap);
-    return () => {
-      document.removeEventListener("mousedown", dehors);
-      window.removeEventListener("keydown", echap);
-    };
-  }, [open]);
-
-  /* Cent soixante-seize badges : sans recherche, la liste est un mur. On filtre
-     sur le NOM TRADUIT et pas sur l'id — c'est le nom qui est affiché, et
-     personne ne connaît les ids par cœur. */
-  const listes = useMemo(() => {
-    const terme = q.trim().toLowerCase();
-    const garde = (b: BadgeDef) =>
-      !terme || t(`badges.${b.id}.name`).toLowerCase().includes(terme);
-    return RARITY_ORDER.map((r) => ({
-      rarity: r,
-      rows: BADGES.filter((b) => b.rarity === r && garde(b)),
-    })).filter((g) => g.rows.length);
-  }, [q, t]);
-
-  const basculer = () => {
-    /* La position est prise AU MOMENT du clic : le panneau est fixé à l'écran,
-       donc il lui faut des coordonnées d'écran, pas la promesse d'un parent. */
-    const r = btn.current?.getBoundingClientRect();
-    if (r) setPos({ top: r.bottom + 8, right: window.innerWidth - r.right });
-    setOpen((v) => !v);
+  const place = (slide: boolean) => {
+    const b = box.current?.querySelector<HTMLElement>('[aria-pressed="true"]');
+    const el = pill.current;
+    if (!b || !el) return;
+    const to = { x: b.offsetLeft, w: b.offsetWidth };
+    const old = last.current;
+    last.current = to;
+    el.style.width = `${to.w}px`;
+    el.style.transform = `translateX(${to.x}px)`;
+    if (!slide || !old || old.x === to.x) return;
+    let from = old;
+    const running = el.getAnimations();
+    if (running.length) {
+      // Reprise en plein vol : on repart de là où la case se trouve à l'écran.
+      const m = new DOMMatrix(getComputedStyle(el).transform);
+      from = { x: m.e, w: m.a * old.w };
+      running.forEach((a) => a.cancel());
+    }
+    el.animate(
+      [
+        { transform: `translateX(${from.x}px) scaleX(${from.w / to.w})` },
+        { transform: `translateX(${to.x}px) scaleX(1)` },
+      ],
+      { duration: 380, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+    );
   };
 
+  (typeof window === "undefined" ? useEffect : useLayoutEffect)(() => place(true), [value]);
+  /* Un compteur qui arrive ou la police qui charge change la largeur des
+     boutons : la case suit, sans glisser. */
+  useEffect(() => {
+    if (!box.current) return;
+    const ro = new ResizeObserver(() => place(false));
+    ro.observe(box.current);
+    return () => ro.disconnect();
+  }, []);
+
   return (
-    <div className="relative" ref={boite}>
-      <button
-        ref={btn}
-        type="button"
-        onClick={basculer}
-        aria-expanded={open}
-        title="Temporaire : rejoue l'animation de déblocage, sans rien accorder."
-        className="font-outfit rounded-md border border-dashed border-[#FF7F57]/60 bg-[#FF7F57]/10 px-3 py-1.5 text-[12px] font-semibold text-[#FF7F57] transition-colors hocus:bg-[#FF7F57]/20"
-      >
-        Test
-      </button>
-
-      {/* ── LE PANNEAU EST PORTALÉ SUR `document.body` ─────────────────────────
-          Il passait DERRIÈRE la liste des badges. Ce n'est pas le `z-50` qui
-          était faux : un z-index ne vaut que dans son contexte d'empilement, et
-          les cartes de la liste en créent chacune un (elles portent un
-          `backdrop-filter`). Monter le nombre n'aurait servi à rien — il aurait
-          fallu remonter tout l'ancêtre, c'est-à-dire empiler la barre de
-          filtres au-dessus du contenu pour un panneau qu'on ouvre trois fois
-          par mois.
-
-          Un portal sur le corps du document sort de la question : il n'y a plus
-          d'ancêtre à battre. Le prix est de porter soi-même les coordonnées,
-          d'où `position: fixed` et la mesure au clic. */}
-      {open && pos
-        ? createPortal(
-            <div
-              ref={panneau}
-              style={{ top: pos.top, right: pos.right }}
-              className="fixed z-[1000] flex max-h-[70vh] w-[300px] flex-col overflow-hidden rounded-xl border border-white/10 as-menu-bg shadow-2xl"
-            >
-          <div className="border-b border-white/10 p-2">
-            <input
-              autoFocus
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Chercher un badge…"
-              className="font-karla w-full rounded-lg bg-white/5 px-3 py-2 text-[13px] text-white outline-none ring-1 ring-white/10 placeholder:text-white/30 focus:ring-white/25"
-            />
-          </div>
-
-          {/* Une entrée PAR RARETÉ en tête : c'est ce que le bouton faisait
-              avant (il tournait sur les six), et c'est le geste le plus
-              fréquent — on vient presque toujours regarder un mythique. */}
-          <div className="flex flex-wrap gap-1 border-b border-white/10 p-2">
-            {RARITY_ORDER.map((r) => {
-              const pool = BADGES.filter((b) => b.rarity === r && !b.secret);
-              if (!pool.length) return null;
-              return (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => {
-                    announce([pool[Math.floor(Math.random() * pool.length)].id]);
-                    setOpen(false);
-                  }}
-                  className="font-karla rounded-md px-2 py-1 text-[11px] font-semibold transition-colors hocus:bg-white/10"
-                  style={{ color: RARITY[r].ic }}
-                >
-                  {t(`badges.ui.rarity.${r}`, r)}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto p-1">
-            {listes.length === 0 ? (
-              <div className="font-karla px-3 py-6 text-center text-[12px] text-white/35">
-                Aucun badge
-              </div>
-            ) : (
-              listes.map((g) => (
-                <div key={g.rarity}>
-                  <div
-                    className="font-karla px-3 pb-1 pt-2 text-[9px] font-semibold uppercase tracking-[.18em]"
-                    style={{ color: RARITY[g.rarity].ic }}
-                  >
-                    {t(`badges.ui.rarity.${g.rarity}`, g.rarity)}
-                  </div>
-                  {g.rows.map((b) => (
-                    <button
-                      key={b.id}
-                      type="button"
-                      onClick={() => {
-                        announce([b.id]);
-                        setOpen(false);
-                      }}
-                      className="font-karla flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-[13px] text-white/80 transition-colors hocus:bg-white/10 hocus:text-white"
-                    >
-                      <span
-                        className="h-1.5 w-1.5 shrink-0 rounded-full"
-                        style={{ background: RARITY[b.rarity].ic }}
-                      />
-                      <span className="truncate">{t(`badges.${b.id}.name`)}</span>
-                      {b.secret ? (
-                        <span className="ml-auto shrink-0 text-[10px] text-white/30">secret</span>
-                      ) : null}
-                    </button>
-                  ))}
-                </div>
-              ))
-            )}
-          </div>
-            </div>,
-            document.body,
-          )
-        : null}
+    <div ref={box} role="group" aria-label={label} className="as-stat-card relative flex h-[42px] shrink-0 items-center gap-0.5 rounded-[12px] border border-white/[0.12] p-0.5">
+      <span ref={pill} aria-hidden className="pointer-events-none absolute bottom-0.5 left-0 top-0.5 origin-left rounded-[9px] bg-as-accent" />
+      {chips.map((c) => (
+        <button
+          key={c.k}
+          type="button"
+          aria-pressed={value === c.k}
+          onClick={() => onPick(c.k)}
+          className={
+            "font-outfit relative z-10 h-full whitespace-nowrap rounded-[9px] px-3 text-[12px] font-semibold transition-colors " +
+            (value === c.k ? "text-white" : "text-white/60 hocus:text-white/85")
+          }
+        >
+          {c.label}
+          <span className="ml-1.5 text-[10px] opacity-60">{c.n}</span>
+        </button>
+      ))}
     </div>
   );
+}
+
+type NavItem = { key: string; label: string; done: number; total: number; enabled: boolean };
+
+/**
+ * Le sommaire collant : une colonne sur ordinateur, une bande qui défile sur
+ * téléphone. Il suit la section lue et y saute au clic. Une famille sans
+ * résultat pour la recherche ou les filtres reste listée, éteinte. Le total de
+ * la collection est en tête : hors de la bande qui défile sur téléphone, il
+ * reste donc toujours visible.
+ */
+function BadgeNav({
+  items,
+  done,
+  total,
+  secrets,
+}: {
+  items: NavItem[];
+  done: number;
+  total: number;
+  secrets: number;
+}) {
+  const { t } = useTranslation();
+  const [active, setActive] = useState(items[0]?.key ?? "");
+  const strip = useRef<HTMLElement | null>(null);
+  const enabledKey = items.filter((i) => i.enabled).map((i) => i.key).join(",");
+
+  /* `body { overflow-x: hidden }` en fait un conteneur de défilement qui ne
+     défile jamais : tout `sticky` de la page s'y accroche et ne colle pas.
+     `clip` coupe le débordement pareil sans créer ce conteneur ; limité au
+     temps où le sommaire est affiché. */
+  useEffect(() => {
+    document.body.classList.add("as-sticky-page");
+    return () => document.body.classList.remove("as-sticky-page");
+  }, []);
+
+  useEffect(() => {
+    const keys = enabledKey ? enabledKey.split(",") : [];
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
+      let cur = keys[0] ?? "";
+      /* Sous 1024 px, le sommaire collant porte aussi le total : il est plus haut. */
+      const seuil = window.innerWidth < 1024 ? 170 : 140;
+      for (const k of keys) {
+        const el = document.getElementById(famAnchor(k));
+        if (el && el.getBoundingClientRect().top <= seuil) cur = k;
+      }
+      /* Tout en bas, la dernière section est trop courte pour monter jusqu'au
+         seuil : c'est pourtant elle qu'on lit. */
+      const doc = document.documentElement;
+      if (keys.length && window.scrollY + window.innerHeight >= doc.scrollHeight - 2) {
+        cur = keys[keys.length - 1];
+      }
+      setActive(cur);
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(measure); };
+    measure();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [enabledKey]);
+
+  /* Sur téléphone, la pastille active reste visible dans la bande. */
+  useEffect(() => {
+    const box = strip.current;
+    if (!box || box.scrollWidth <= box.clientWidth) return;
+    const btn = box.querySelector<HTMLElement>('[aria-current="true"]');
+    if (btn) box.scrollTo({ left: btn.offsetLeft - (box.clientWidth - btn.offsetWidth) / 2 });
+  }, [active]);
+
+  return (
+    <div className="as-badge-nav as-stat-card sticky top-16 z-10 min-w-0 rounded-xl p-1.5 ring-1 ring-white/[.08] lg:top-20">
+    <div className="mb-1.5 flex items-baseline justify-between gap-2 border-b border-white/[.08] px-2.5 pb-2 pt-1">
+      <p className="font-outfit m-0 shrink-0 whitespace-nowrap text-xl font-semibold leading-tight text-white">
+        {done}
+        <span className="text-white/35"> / {total}</span>
+        <span className="sr-only"> {t("badges.ui.total", "badges obtenus")}</span>
+      </p>
+      {secrets > 0 ? (
+        <p className="font-outfit m-0 shrink-0 whitespace-nowrap text-[11px] font-semibold text-[#FF7F57]">
+          + {secrets} {t("badges.ui.secretsShort", "secrets")}
+        </p>
+      ) : null}
+    </div>
+    <nav
+      ref={strip}
+      aria-label={t("badges.ui.nav", "Sommaire des badges")}
+      className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible"
+    >
+      {items.map((it) => (
+        <button
+          key={it.key}
+          type="button"
+          disabled={!it.enabled}
+          aria-current={active === it.key ? "true" : undefined}
+          onClick={() => {
+            setActive(it.key);
+            const el = document.getElementById(famAnchor(it.key));
+            if (!el) return;
+            el.scrollIntoView({ behavior: "smooth", block: "start" });
+            /* Les lignes hors écran ont une hauteur estimée (content-visibility) :
+               mesurées pendant le trajet, elles décalent l'arrivée. On recale. */
+            const recale = (n = 8) => {
+              const marge = parseFloat(getComputedStyle(el).scrollMarginTop) || 0;
+              if (Math.abs(el.getBoundingClientRect().top - marge) > 2) {
+                el.scrollIntoView({ behavior: "instant", block: "start" });
+              }
+              if (n > 0) requestAnimationFrame(() => recale(n - 1));
+            };
+            const auBout = () => recale();
+            window.addEventListener("scrollend", auBout, { once: true });
+            window.setTimeout(() => window.removeEventListener("scrollend", auBout), 1500);
+          }}
+          className={
+            "font-outfit flex shrink-0 items-center justify-between gap-3 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-left text-[13px] font-semibold transition-colors disabled:cursor-default disabled:opacity-30 " +
+            (active === it.key ? "bg-as-accent text-white" : "text-white/65 enabled:hocus:bg-white/[.07] enabled:hocus:text-white")
+          }
+        >
+          <span>{it.label}</span>
+          <span className="text-[10.5px] tabular-nums opacity-70">{Math.round((it.done / it.total) * 100)} %</span>
+        </button>
+      ))}
+    </nav>
+    </div>
+  );
+}
+
+/** Le bouton Détail s'affiche-t-il sur cette ligne ? */
+function showsDetail(
+  def: BadgeDef, unlocked: boolean, hidden: boolean, progress: Progress, derived: Derived | null,
+): boolean {
+  if (!derived || (hidden && !unlocked)) return false;
+  if (!unlocked && !(progress && progress[1] > 1)) return false;
+  return !!detailKind(def, derived);
+}
+
+/** Largeur d'un bouton de ligne en vue Compacte, et leur écart. */
+const SLOT = 42;
+const SLOT_GAP = 4;
+
+/** Les lignes d'une section, dans la vue choisie. */
+function BadgeList({
+  rows, view, state, progress, live, filter, derived, hidden = false,
+}: {
+  rows: BadgeDef[];
+  view: View;
+  state: BadgeState;
+  progress: Map<string, Progress>;
+  live: boolean;
+  filter: Filter;
+  derived: Derived | null;
+  hidden?: boolean;
+}) {
+  /* Compacte : la place des boutons est la même sur toute la section, sinon
+     les dates et les barres se décalent d'une ligne à l'autre. */
+  const slots = view !== "compact" ? 0 :
+    (rows.some((b) => b.ladder) ? 1 : 0) +
+    (rows.some((b) => showsDetail(b, state.got[b.id] != null, hidden, live ? progress.get(b.id) ?? null : null, live ? derived : null)) ? 1 : 0);
+  const items = rows.map((b) => (
+    <BadgeRow
+      key={b.id}
+      def={b}
+      view={view}
+      slots={slots}
+      state={state}
+      progress={live ? progress.get(b.id) ?? null : null}
+      live={live}
+      filter={filter}
+      ladderProgress={progress}
+      derived={live ? derived : null}
+      hidden={hidden}
+    />
+  ));
+  /* Grille et Compacte : UN panneau flou par section, comme Ma liste. */
+  if (view === "grid") {
+    return (
+      <div className="as-stat-card grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2 rounded-2xl p-2.5 ring-1 ring-white/[.07] sm:p-3">
+        {items}
+      </div>
+    );
+  }
+  if (view === "compact") {
+    return <div className="as-stat-card overflow-hidden rounded-xl ring-1 ring-white/[.07]">{items}</div>;
+  }
+  return <div className="flex flex-col gap-1.5">{items}</div>;
 }
 
 /* ── Une ligne ──────────────────────────────────────────────────────────────── */
 
 function BadgeRow({
-  def, state, progress, live, filter, ladderProgress, derived, hidden = false,
+  def, view = "cards", slots = 0, state, progress, live, filter, ladderProgress, derived, hidden = false,
 }: {
   def: BadgeDef;
+  view?: View;
+  /** Compacte : combien de boutons réserver au bout de la ligne. */
+  slots?: number;
   state: BadgeState;
   progress: Progress;
   live: boolean;
@@ -642,6 +819,101 @@ function BadgeRow({
   const at = state.got[def.id];
   const unlocked = at != null;
   const R = RARITY[def.rarity];
+
+  if (view !== "cards") {
+    const detailBtn = showsDetail(def, unlocked, hidden, progress, derived) && derived ? (
+      <DetailButton def={def} derived={derived} progress={progress} small />
+    ) : null;
+    const ladderBtn = def.ladder ? (
+      <LadderButton ladder={def.ladder} state={state} progress={ladderProgress} live={live} color={R.ic} small />
+    ) : null;
+    const token = (size: number) => (
+      <BadgeToken
+        id={def.id}
+        rarity={def.rarity}
+        icon={def.icon}
+        tag={def.tag}
+        unlocked={unlocked}
+        hidden={hidden && !unlocked}
+        size={size}
+        check
+      />
+    );
+    const name = (
+      <span
+        className="font-outfit block truncate text-[13.5px] font-semibold"
+        title={t(`badges.${def.id}.name`)}
+        style={{ color: unlocked ? "#fff" : "rgba(255,255,255,.85)" }}
+      >
+        {t(`badges.${def.id}.name`)}
+      </span>
+    );
+    const rarityLabel = <RarityLine def={def} at={at} center={view === "grid"} />;
+
+    if (view === "grid") {
+      return (
+        <div
+          id={revealAnchor(def.id)}
+          className={
+            "as-badge-row as-badge-tile scroll-mt-28 flex min-w-0 flex-col rounded-xl p-2.5 text-center transition-colors " +
+            (unlocked
+              ? "ring-1 ring-white/[.08] hocus:ring-white/[.16]"
+              : "is-locked outline-dashed outline-1 -outline-offset-1 outline-white/[.16] hocus:outline-white/30")
+          }
+          style={unlocked ? { backgroundImage: `linear-gradient(180deg, ${R.ic}24, transparent 70%)` } : undefined}
+        >
+          <div className="as-badge-row-in flex min-w-0 flex-1 flex-col items-center">
+            {token(TILE_TOKEN)}
+            <div className="mt-1 w-full min-w-0">{name}{rarityLabel}</div>
+            {/* Deux lignes réservées : les barres s'alignent d'une case à l'autre. */}
+            <div className="w-full min-w-0 [&>p]:line-clamp-2 [&>p]:min-h-[2.6em] [&>p]:break-all [&>p]:text-[11.5px] [&>p:not(.as-badge-blur)]:break-normal">
+              <Condition def={def} hidden={hidden && !unlocked} unlocked={unlocked} />
+            </div>
+            <div className="w-full"><ProgressLine def={def} progress={progress} unlocked={unlocked} live={live} color={R.ic} /></div>
+          </div>
+          <div className={`mt-2 flex-wrap items-center justify-center gap-1 ${detailBtn || ladderBtn ? "flex min-h-7" : "hidden"}`}>
+            {detailBtn}
+            {ladderBtn}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        id={revealAnchor(def.id)}
+        className={
+          "as-badge-row as-badge-row-compact scroll-mt-28 flex items-center gap-2 px-3 py-1.5 shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)] transition-[background-color] last:shadow-none hover:bg-white/[0.06]" +
+          (unlocked ? "" : " is-locked")
+        }
+        style={unlocked ? { backgroundImage: `linear-gradient(90deg, ${R.ic}1f, transparent 45%)` } : undefined}
+      >
+        <div className="as-badge-row-in flex min-w-0 flex-1 items-center gap-3">
+          <div className="shrink-0">{token(COMPACT_TOKEN)}</div>
+          <div className="min-w-0 flex-1 sm:w-[175px] sm:flex-none max-sm:[&>span:first-child]:line-clamp-2 max-sm:[&>span:first-child]:whitespace-normal max-sm:[&>span:first-child]:leading-tight">{name}{rarityLabel}</div>
+          <div className="hidden min-w-0 flex-1 sm:block [&>p]:mt-0 [&>p]:line-clamp-2">
+            <Condition def={def} hidden={hidden && !unlocked} unlocked={unlocked} />
+          </div>
+          {/* La barre des badges à obtenir ; la colonne reste vide sur PC pour
+              garder les boutons alignés, et rend sa place sur téléphone. */}
+          <div className={`w-[72px] shrink-0 justify-end sm:flex sm:w-[150px] [&>div]:mt-0 [&>div]:w-full [&>p]:mt-0 [&>p]:leading-tight max-sm:[&>div>div:first-child]:hidden max-sm:[&>div]:justify-end ${unlocked ? "hidden" : "flex"}`}>
+            {unlocked ? null : (
+              <ProgressLine def={def} progress={progress} unlocked={unlocked} live={live} color={R.ic} />
+            )}
+          </div>
+        </div>
+        {slots > 0 ? (
+          <div
+            className="flex shrink-0 items-center justify-end"
+            style={{ width: slots * SLOT + (slots - 1) * SLOT_GAP, gap: SLOT_GAP }}
+          >
+            {detailBtn}
+            {ladderBtn}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -658,7 +930,7 @@ function BadgeRow({
         "as-badge-row as-stat-card scroll-mt-28 flex flex-col rounded-xl px-3.5 py-3 transition-colors " +
         (unlocked
           ? "ring-1 ring-white/[.08] hocus:ring-white/[.16]"
-          : "outline-dashed outline-1 -outline-offset-1 outline-white/[.16] hocus:outline-white/30")
+          : "is-locked outline-dashed outline-1 -outline-offset-1 outline-white/[.16] hocus:outline-white/30")
       }
       /* Obtenu : la ligne se teinte à la couleur de rareté, liseré compris.
          Le dégradé de plaque est repris tel quel (mêmes variables que
@@ -673,7 +945,7 @@ function BadgeRow({
       }
     >
       <div className="flex items-center gap-4">
-        <div className="shrink-0">
+        <div className="as-badge-row-in shrink-0">
           <BadgeToken
             id={def.id}
             rarity={def.rarity}
@@ -686,20 +958,15 @@ function BadgeRow({
           />
         </div>
 
-        <div className="min-w-0 flex-1">
+        <div className="as-badge-row-in min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <span
               className="font-outfit text-[15.5px] font-semibold"
-              style={{ color: unlocked ? "#fff" : "rgba(255,255,255,.58)" }}
+              style={{ color: unlocked ? "#fff" : "rgba(255,255,255,.85)" }}
             >
               {t(`badges.${def.id}.name`)}
             </span>
-            <span
-              className="font-karla text-[9px] uppercase tracking-[.16em]"
-              style={{ color: unlocked ? R.ic : "rgba(255,255,255,.28)" }}
-            >
-              {t(`badges.ui.rarity.${def.rarity}`, def.rarity)}
-            </span>
+            <RarityLine def={def} at={at} />
           </div>
 
           <Condition def={def} hidden={hidden && !unlocked} unlocked={unlocked} />
@@ -710,6 +977,7 @@ function BadgeRow({
             unlocked={unlocked}
             live={live}
             color={R.ic}
+            fixed
           />
           {!unlocked && derived && !hidden ? <MissingLine def={def} derived={derived} /> : null}
         </div>
@@ -718,37 +986,20 @@ function BadgeRow({
             secret verrouillé — sa condition est cachée, ses cases la
             donneraient — ni sur un badge à UN SEUL anime pas encore obtenu
             (« Pépite méconnue ») : sa liste serait vide. */}
-        {/* La date AU-DESSUS du bouton Détail, en une colonne à droite, collée
-            en HAUT de la ligne même seule (`self-start`). `mt-0.5` : 12 px de
-            `py-3` + 2 = les 14 px de `px-3.5`, même marge en haut qu'à droite. */}
         {(() => {
-          const detail =
-            derived && !(hidden && !unlocked) && (unlocked || (progress && progress[1] > 1));
-          if (!unlocked && !detail) return null;
+          const detail = derived && !(hidden && !unlocked) && (unlocked || (progress && progress[1] > 1));
+          if (!detail && !def.ladder) return null;
           return (
-            <div className="mt-0.5 flex shrink-0 flex-col items-end gap-2 self-start">
-              {unlocked && <DatePill at={at} color={R.ic} />}
-              {detail && derived ? (
-                <DetailButton def={def} derived={derived} progress={progress} />
+            <div className="flex shrink-0 items-center gap-1.5">
+              {detail && derived ? <DetailButton def={def} derived={derived} progress={progress} /> : null}
+              {/* L'échelle complète s'ouvre dans un panneau : les six paliers,
+                  celui du moment compris et mis en avant. */}
+              {def.ladder ? (
+                <LadderButton ladder={def.ladder} state={state} progress={ladderProgress} live={live} color={R.ic} />
               ) : null}
             </div>
           );
         })()}
-
-        {/* L'ÉCHELLE COMPLÈTE S'OUVRE, ELLE NE SE DÉPLIE PLUS.
-            Le dépli montrait les AUTRES paliers : la suite avait donc un trou à
-            l'endroit du palier courant — on lisait 1, puis 250, et le 25 qu'on
-            est justement en train de viser manquait. Un panneau montre les six,
-            celui du moment compris et mis en avant. */}
-        {def.ladder && (
-          <LadderButton
-            ladder={def.ladder}
-            state={state}
-            progress={ladderProgress}
-            live={live}
-            color={R.ic}
-          />
-        )}
       </div>
     </div>
   );
@@ -783,23 +1034,28 @@ function ObtainedOn({ at }: { at: number }) {
 }
 
 /**
- * La pastille d'obtention : la DATE seule, dans la couleur de la rareté.
- *
- * Elle a porté une coche et « Obtenu · » : deux redites. Le jeton a déjà sa
- * coche (`check`), la case obtenue sa teinte et son liseré, et une date ne se
- * lit pas autrement que comme celle où on l'a eu.
+ * La rareté, puis la date d'obtention derrière une barre fine. Pas de mention
+ * « Obtenu » : le jeton a sa coche et la case sa teinte.
  */
-function DatePill({ at, color }: { at: number; color: string }) {
+function RarityLine({ def, at, center = false }: { def: BadgeDef; at?: number; center?: boolean }) {
+  const { t } = useTranslation();
+  const unlocked = at != null;
   return (
-    <span
-      className="ml-auto inline-flex shrink-0 items-center rounded-full px-2 py-[3px] font-outfit text-[10.5px] font-bold leading-none tabular-nums"
-      style={{
-        color,
-        background: `${color}29`,
-        boxShadow: `inset 0 0 0 1px ${color}66`,
-      }}
-    >
-      <ObtainedOn at={at} />
+    <span className={`inline-flex max-w-full items-center gap-1.5 ${center ? "justify-center" : ""}`}>
+      <span
+        className="font-karla truncate text-[9px] uppercase tracking-[.16em]"
+        style={{ color: unlocked ? RARITY[def.rarity].ic : "rgba(255,255,255,.6)" }}
+      >
+        {t(`badges.ui.rarity.${def.rarity}`, def.rarity)}
+      </span>
+      {unlocked && at !== NO_DATE ? (
+        <>
+          <span aria-hidden className="h-2.5 w-px shrink-0 bg-white/25" />
+          <span className="shrink-0 whitespace-nowrap font-karla text-[10.5px] leading-none tabular-nums text-white/75">
+            <ObtainedOn at={at} />
+          </span>
+        </>
+      ) : null}
     </span>
   );
 }
@@ -833,7 +1089,7 @@ function Condition({
   return (
     <p
       className="m-0 mt-1 font-karla text-[12.5px] leading-snug"
-      style={{ color: unlocked ? "rgba(255,255,255,.45)" : "rgba(255,255,255,.32)" }}
+      style={{ color: unlocked ? "rgba(255,255,255,.55)" : "rgba(255,255,255,.68)" }}
     >
       {t(`badges.${def.id}.cond`)}
     </p>
@@ -875,20 +1131,22 @@ function progressText(
 }
 
 function ProgressLine({
-  def, progress, unlocked, live, color,
+  def, progress, unlocked, live, color, fixed = false,
 }: {
   def: BadgeDef;
   progress: Progress;
   unlocked: boolean;
   live: boolean;
   color: string;
+  /** Vue Cartes : même longueur de barre sur toutes les lignes dès la tablette. */
+  fixed?: boolean;
 }) {
   const { t, i18n } = useTranslation();
   if (unlocked) return null;
   if (!live) return null;
   if (!progress) {
     return (
-      <p className="m-0 mt-1.5 font-karla text-[10.5px] italic text-white/25">
+      <p className="m-0 mt-1.5 font-karla text-[10.5px] italic text-white/55">
         {t("badges.ui.notMeasurable", "Pas encore mesurable")}
       </p>
     );
@@ -897,10 +1155,10 @@ function ProgressLine({
   if (target <= 1) return null; // un fait binaire n'a pas d'avancement à montrer
   return (
     <div className="mt-1.5 flex items-center gap-2">
-      <div className="min-w-0 flex-1">
+      <div className={fixed ? "min-w-0 flex-1 sm:w-[280px] sm:flex-none" : "min-w-0 flex-1"}>
         <Bar pct={Math.min(100, (cur / target) * 100)} color={color} />
       </div>
-      <span className="font-karla text-[10.5px] tabular-nums text-white/40">
+      <span className="shrink-0 font-karla text-[10.5px] tabular-nums text-white/65">
         {/* Le séparateur de milliers suit la langue choisie : « 10 000 » en
             français, « 10,000 » en anglais. Il était figé en fr-FR. */}
         {progressText(def, cur, target, i18n.language, t)}
@@ -913,19 +1171,25 @@ function ProgressLine({
 
 /** Le chevron au bout de la ligne, et le panneau qu'il ouvre. */
 function LadderButton({
-  ladder, state, progress, live, color,
+  ladder, state, progress, live, color, small = false,
 }: {
   ladder: string;
   state: BadgeState;
   progress: Map<string, Progress>;
   live: boolean;
   color: string;
+  /** Le format des vues Grille et Compacte. */
+  small?: boolean;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const ids = LADDERS[ladder] ?? [];
   const done = ids.filter((id) => state.got[id] != null).length;
   if (ids.length < 2) return null;
+  /* Le palier OÙ L'ON EST, celui qu'on est en train de faire (et non le dernier
+     obtenu), à sa couleur : cinq paliers obtenus sur six = 6/6 Mythique. */
+  const palier = Math.min(done + 1, ids.length);
+  const rarete = BY_ID[ids[palier - 1]].rarity;
 
   return (
     <>
@@ -934,11 +1198,25 @@ function LadderButton({
         onClick={() => setOpen(true)}
         title={t("badges.ui.seeTiers", "Voir tous les paliers")}
         aria-label={t("badges.ui.seeTiers", "Voir tous les paliers")}
-        className="ml-1 flex shrink-0 flex-col items-center gap-1 rounded-lg border border-white/10 bg-white/[.04] px-2.5 py-2 transition-colors hocus:border-white/25 hocus:bg-white/[.08]"
+        className={
+          "flex shrink-0 items-center justify-center rounded-full bg-white/[.09] text-white transition-colors hocus:bg-white/[.17] " +
+          (small ? "h-8 p-[3px]" : "h-10 gap-2 p-1.5 sm:pl-4")
+        }
+        style={small ? { width: SLOT } : undefined}
       >
-        <span className="font-outfit text-[15px] leading-none text-white/45">›</span>
-        <span className="font-karla text-[9px] tabular-nums leading-none text-white/30">
-          {done}/{ids.length}
+        {small ? null : (
+          <span className="hidden font-outfit text-[13.5px] font-semibold leading-none sm:inline">
+            {t("badges.ui.tiers", "Paliers")}
+          </span>
+        )}
+        <span
+          className={
+            "grid place-items-center rounded-full font-karla font-bold tabular-nums leading-none " +
+            (small ? "h-[26px] w-full text-[11px]" : "h-7 min-w-[38px] px-1.5 text-[12px]")
+          }
+          style={{ background: RING_HUE[rarete], color: RARITY[rarete].plaque[1] }}
+        >
+          {palier}/{ids.length}
         </span>
       </button>
       {open && (
@@ -964,94 +1242,51 @@ function LadderButton({
  * il se retrouverait coincé derrière la ligne suivante.
  */
 function PopShell({
-  tint, glow, onClose, children,
+  title, meta, onClose, children,
 }: {
-  /** La teinte du haut de la carte. */
-  tint: string;
-  /** La lueur autour d'elle. */
-  glow: string;
+  title: React.ReactNode;
+  /** Le compteur à droite du titre. */
+  meta?: React.ReactNode;
   onClose: () => void;
   children: React.ReactNode;
 }) {
   const { t } = useTranslation();
+  /* La fenêtre de « Trier & filtrer » (21/11/2026, Luc) : mêmes classes, même
+     voile, même entrée et même sortie. Seule sa largeur est celle d'une liste. */
+  const [open, setOpen] = useState(true);
+  const { shown, closing } = useSheetPresence(open);
+  useScrollLock(true);
 
-  /* Échap ferme, et le défilement de la page est gelé tant que le panneau est
-     ouvert — sinon la molette fait glisser la liste DERRIÈRE lui.
+  useEffect(() => {
+    if (!shown) onClose();
+  }, [shown, onClose]);
 
-     SUR `html`, PAS SEULEMENT SUR `body`, et c'est ce qui manquait. `html`
-     porte `overflow-x: clip` (globals.css) : dès que sa propre valeur n'est plus
-     `visible`, celle de `body` ne remonte plus jusqu'à la fenêtre et ne gèle
-     que `body` lui-même, qui n'a rien à faire défiler. La page continuait donc
-     de glisser sous le panneau. Même remède que la visionneuse d'Artworks. */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") setOpen(false);
     };
     window.addEventListener("keydown", onKey);
-    const html = document.documentElement.style;
-    const body = document.body.style;
-    const prev = [html.overflow, body.overflow];
-    html.overflow = "hidden";
-    body.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      [html.overflow, body.overflow] = prev;
-    };
-  }, [onClose]);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   if (typeof document === "undefined") return null;
 
   return createPortal(
     <div
-      role="dialog"
-      aria-modal="true"
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 999999,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 16,
-      }}
+      className={`as-sfp-overlay${closing ? " is-closing" : ""}`}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) setOpen(false); }}
     >
-      {/* Le voile est un calque FRÈRE du panneau, et non son parent. Un
-          élément qui porte un `backdrop-filter` devient la racine de fond de ses
-          descendants : le flou du panneau n'aurait vu que la teinte unie du
-          voile, pas la page. Frères, le panneau floute ce que le voile montre. */}
-      <div className="as-pop-back" aria-hidden style={{ position: "absolute", inset: 0 }} />
-      <div
-        className="as-pop-card"
-        /* Le clic sur le panneau ne doit pas traverser jusqu'au fond, qui ferme. */
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          position: "relative",
-          width: "min(560px, 100%)",
-          maxHeight: "min(82vh, 760px)",
-          overflowY: "auto",
-          overscrollBehavior: "contain",
-          borderRadius: 18,
-          border: "1px solid rgba(255,255,255,.1)",
-          /* Du verre, pas une plaque : la page se devine au travers, floutée.
-             Assez de teinte pour que le texte se lise sur une illustration
-             claire, pas assez pour la cacher. */
-          background: `linear-gradient(180deg, ${tint}1a, rgba(18,18,26,.4) 24%, rgba(14,14,20,.34))`,
-          backdropFilter: "blur(24px) saturate(1.4)",
-          WebkitBackdropFilter: "blur(24px) saturate(1.4)",
-          boxShadow: `0 24px 70px rgba(0,0,0,.55), 0 0 40px ${glow}24`,
-          transition: "box-shadow 380ms ease",
-          padding: 18,
-        }}
-      >
-        {children}
-        <button
-          type="button"
-          onClick={onClose}
-          className="font-outfit mt-4 w-full rounded-lg border border-white/10 bg-white/[.04] py-2 text-[12px] font-semibold text-white/60 transition-colors hocus:bg-white/[.08] hocus:text-white/90"
-        >
-          {t("badges.ui.close", "Fermer")}
-        </button>
+      <div className="as-sfp" role="dialog" aria-modal="true" style={{ maxWidth: 560 }}>
+        <div className="as-sfp-head">
+          <h3 className="m-0 min-w-0 flex-1 truncate">{title}</h3>
+          {meta ? <span className="as-sfp-rv shrink-0">{meta}</span> : null}
+          <button type="button" className="as-sfp-x shrink-0" onClick={() => setOpen(false)} aria-label={t("listMenu.close")}>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <div className="as-sfp-body">
+          <div className="px-[18px] py-3">{children}</div>
+        </div>
       </div>
     </div>,
     document.body,
@@ -1151,23 +1386,11 @@ function LadderPopup({
 
   // La lueur suit la sélection, comme le cadre.
   return (
-    <PopShell tint={color} glow={S.ic} onClose={onClose}>
-        <div className="mb-4 flex items-baseline gap-3">
-          <h3 className="font-outfit m-0 text-[16px] font-semibold text-white">
-            {t(`badges.${ids[0]}.name`)}
-            <span className="text-white/30">
-              {" → "}
-              {t(`badges.${ids[ids.length - 1]}.name`)}
-            </span>
-          </h3>
-          <span
-            className="font-karla ml-auto shrink-0 text-[11px] tabular-nums"
-            style={{ color }}
-          >
-            {done} / {ids.length}
-          </span>
-        </div>
-
+    <PopShell
+      title={<>{t(`badges.${ids[0]}.name`)}<span className="text-white/30">{" → "}{t(`badges.${ids[ids.length - 1]}.name`)}</span></>}
+      meta={`${done} / ${ids.length}`}
+      onClose={onClose}
+    >
         <div className="relative flex flex-col gap-2">
           {/* LE cadre. Premier dans le DOM : les lignes, positionnées, se
               peignent par-dessus lui — il est derrière leur texte, pas dessus. */}
@@ -1273,7 +1496,7 @@ function LadderPopup({
                     >
                       {t(`badges.${id}.name`)}
                     </span>
-                    {at != null ? <DatePill at={at} color={R.ic} /> : null}
+                    {at != null && at !== NO_DATE ? <span className="ml-auto shrink-0 whitespace-nowrap font-karla text-[10.5px] tabular-nums text-white/75"><ObtainedOn at={at} /></span> : null}
                   </div>
                   {/* Rendu pour toutes les lignes et replié hors sélection : un
                       dépli qui n'existerait que sélectionné ne pourrait pas se
@@ -1313,11 +1536,13 @@ function LadderPopup({
  * d'anime.
  */
 function DetailButton({
-  def, derived, progress,
+  def, derived, progress, small = false,
 }: {
   def: BadgeDef;
   derived: Derived;
   progress: Progress;
+  /** Le format des vues Grille et Compacte : l'icône seule. */
+  small?: boolean;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -1333,53 +1558,81 @@ function DetailButton({
         onClick={() => setOpen(true)}
         title={t("badges.ui.detail.open", "Voir le détail")}
         aria-label={t("badges.ui.detail.open", "Voir le détail")}
-        className="flex shrink-0 flex-col items-center gap-1 rounded-lg border border-white/10 bg-white/[.04] px-2.5 py-2 transition-colors hocus:border-white/25 hocus:bg-white/[.08]"
+        className={
+          "flex shrink-0 items-center justify-center rounded-full bg-white/[.09] text-white/75 transition-colors hocus:bg-white/[.17] hocus:text-white " +
+          (small ? "h-8 w-8" : "h-10 w-10")
+        }
       >
-        <Icon size={15} className="text-white/45" aria-hidden="true" />
-        <span className="font-karla text-[9px] leading-none text-white/30">
-          {t("badges.ui.detail.short", "Détail")}
-        </span>
+        <Icon size={small ? 15 : 17} aria-hidden="true" />
       </button>
       {open && detail ? (
-        <DetailPopup def={def} detail={detail} progress={progress} onClose={() => setOpen(false)} />
+        <DetailPopup def={def} detail={detail} derived={derived} progress={progress} onClose={() => setOpen(false)} />
       ) : null}
     </>
   );
 }
 
+/** Quand chaque anime a été fini d'après le fil AniList du compte (ms), lu une
+ *  fois par visite et seulement à l'ouverture d'un détail. Vide sans compte. */
+let finsDuFil: Promise<Map<number, number>> | null = null;
+function useFinsDuFil() {
+  const [fins, setFins] = useState<Map<number, number>>(() => new Map());
+  useEffect(() => {
+    let vivant = true;
+    const lire = () => {
+      finsDuFil ??= fetch("/api/v2/account/anilist-feed?fins=1")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => new Map(Object.entries(j?.f ?? {}).map(([id, s]) => [Number(id), Number(s) * 1000])))
+        .catch(() => new Map<number, number>());
+      void finsDuFil.then((m) => { if (vivant) setFins(m); });
+    };
+    /* L'import des lignes « terminé » tourne peut-être en ce moment. */
+    const relire = () => { finsDuFil = null; lire(); };
+    lire();
+    window.addEventListener("aniscroll:anilistFeedFins", relire);
+    return () => {
+      vivant = false;
+      window.removeEventListener("aniscroll:anilistFeedFins", relire);
+    };
+  }, []);
+  return fins;
+}
+
 function DetailPopup({
-  def, detail, progress, onClose,
+  def, detail, derived, progress, onClose,
 }: {
   def: BadgeDef;
   detail: Detail;
+  derived: Derived;
   progress: Progress;
   onClose: () => void;
 }) {
   const { t, i18n } = useTranslation();
   const R = RARITY[def.rarity];
+  const fins = useFinsDuFil();
+  /* Le fil d'abord : il date la PREMIÈRE fin, le site la dernière lecture. */
+  const yearOf = (e: LocalEntry) =>
+    detailYear(def, e, fins.get(e.mediaId) ?? derived.lastSeenAt.get(e.mediaId));
 
   return (
-    <PopShell tint={R.ic} glow={R.ic} onClose={onClose}>
-      <div className="mb-1 flex items-baseline gap-3">
-        <h3 className="font-outfit m-0 text-[16px] font-semibold text-white">
-          {t(`badges.${def.id}.name`)}
-        </h3>
-        {progress && progress[1] > 1 ? (
-          <span
-            className="font-karla ml-auto shrink-0 text-[11px] tabular-nums"
-            style={{ color: R.ic }}
-          >
-            {progressText(def, progress[0], progress[1], i18n.language, t)}
-          </span>
-        ) : null}
-      </div>
+    <PopShell
+      title={t(`badges.${def.id}.name`)}
+      meta={
+        progress && progress[1] > 1
+          ? progressText(def, progress[0], progress[1], i18n.language, t)
+          : detail.kind === "list"
+            ? t("badges.ui.detail.animeCount", { count: detail.items.length, defaultValue: "{{count}} anime" })
+            : undefined
+      }
+      onClose={onClose}
+    >
       <p className="m-0 mb-4 font-karla text-[12px] leading-snug text-white/40">
         {t(`badges.${def.id}.cond`)}
       </p>
       {detail.kind === "grid" ? (
-        <DetailGrid detail={detail} color={R.ic} />
+        <DetailGrid yearOf={yearOf} detail={detail} color={R.ic} />
       ) : (
-        <AnimeList items={detail.items} />
+        <AnimeList yearOf={yearOf} items={detail.items} />
       )}
     </PopShell>
   );
@@ -1391,8 +1644,9 @@ function DetailPopup({
  * anime qui la remplissent.
  */
 function DetailGrid({
-  detail, color,
+  yearOf, detail, color,
 }: {
+  yearOf: (e: LocalEntry) => number | null;
   detail: Extract<Detail, { kind: "grid" }>;
   color: string;
 }) {
@@ -1418,27 +1672,23 @@ function DetailGrid({
       {/* Les filtres ne servent que s'il y a les deux sortes de cases : le
           classement des studios, par exemple, n'a pas de case vide. */}
       {missing > 0 && covered > 0 ? (
-        <div className="mb-3 flex flex-wrap gap-1.5">
+        <div className="as-sfp-chips mb-3">
           {filters.map((f) => (
             <button
               key={f.k}
               type="button"
               onClick={() => setShow(f.k)}
-              className={
-                "font-outfit rounded-md border px-2.5 py-1 text-[11px] font-semibold transition-colors " +
-                (show === f.k
-                  ? "border-white/30 bg-white/10 text-white"
-                  : "border-white/10 bg-white/[.03] text-white/50 hocus:text-white/80")
-              }
+              aria-pressed={show === f.k}
+              className={`as-sfp-chip${show === f.k ? " is-on" : ""}`}
             >
               {f.label}
-              <span className="ml-1.5 text-[10px] opacity-60">{f.n}</span>
+              <span className="as-sfp-chipn">{f.n}</span>
             </button>
           ))}
         </div>
       ) : null}
 
-      <div className="flex flex-wrap gap-1.5">
+      <div className="as-sfp-chips">
         {cells.map((c) => {
           const on = c.key === pick;
           const clickable = detail.browsable && c.done;
@@ -1449,28 +1699,15 @@ function DetailGrid({
               disabled={!clickable}
               aria-pressed={clickable ? on : undefined}
               onClick={() => setPick(on ? null : c.key)}
-              className={
-                "font-karla inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px] tabular-nums transition-colors " +
-                (c.done
-                  ? "text-white ring-1 ring-inset " + (clickable ? "cursor-pointer" : "cursor-default")
-                  : "cursor-default text-white/35 outline-dashed outline-1 -outline-offset-1 outline-white/[.16]")
-              }
-              style={
-                c.done
-                  ? ({
-                      background: on ? `${color}47` : `${color}1f`,
-                      "--tw-ring-color": on ? color : `${color}4d`,
-                    } as CSSProperties)
-                  : undefined
-              }
+              className={`as-sfp-chip${on ? " is-on" : ""}${c.done ? "" : " is-zero"}${clickable ? "" : " pointer-events-none"}`}
             >
               {label(c)}
               {c.value != null ? (
-                <span className="text-[10px] opacity-70">
+                <span className="as-sfp-chipn">
                   {t("profile.blocks.bingo.points", { points: c.value })}
                 </span>
               ) : detail.browsable && c.done ? (
-                <span className="text-[10px] opacity-60">{c.items.length}</span>
+                <span className="as-sfp-chipn">{c.items.length}</span>
               ) : null}
             </button>
           );
@@ -1487,7 +1724,7 @@ function DetailGrid({
                 defaultValue: "{{count}} anime",
               })}
             </p>
-            <AnimeList items={picked.items} />
+            <AnimeList yearOf={yearOf} items={picked.items} />
           </div>
         ) : covered > 0 ? (
           <p className="m-0 mt-4 font-karla text-[11.5px] italic text-white/30">
@@ -1539,7 +1776,7 @@ function MissingLine({ def, derived }: { def: BadgeDef; derived: Derived }) {
 }
 
 /** Les anime d'une case ou d'un seuil : vignette, titre, année — et un lien. */
-function AnimeList({ items }: { items: LocalEntry[] }) {
+function AnimeList({ yearOf, items }: { yearOf: (e: LocalEntry) => number | null; items: LocalEntry[] }) {
   const { t } = useTranslation();
   const titlePref = useTitlePref();
   const clickTarget = useClickTarget();
@@ -1551,7 +1788,7 @@ function AnimeList({ items }: { items: LocalEntry[] }) {
     );
   }
   return (
-    <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
+    <ul className="-mx-2 m-0 flex list-none flex-col gap-0.5 p-0">
       {items.map((e) => (
         <li key={e.mediaId}>
           <Link
@@ -1572,9 +1809,9 @@ function AnimeList({ items }: { items: LocalEntry[] }) {
             <span className="min-w-0 flex-1 truncate font-karla text-[13px] text-white/85">
               {pickTitle(e.title, titlePref)}
             </span>
-            {e.year ? (
+            {yearOf(e) ? (
               <span className="shrink-0 font-karla text-[11px] tabular-nums text-white/35">
-                {e.year}
+                {yearOf(e)}
               </span>
             ) : null}
           </Link>
@@ -1587,22 +1824,22 @@ function AnimeList({ items }: { items: LocalEntry[] }) {
 /* ── Les secrets ────────────────────────────────────────────────────────────── */
 
 function SecretSection({
-  state, progress, live, filter, keep, derived,
+  rows, view, state, progress, live, filter, derived,
 }: {
+  rows: BadgeDef[];
+  view: View;
   state: BadgeState;
   progress: Map<string, Progress>;
   live: boolean;
   filter: Filter;
-  keep: (b: BadgeDef) => boolean;
   derived: Derived | null;
 }) {
   const { t } = useTranslation();
-  const rows = SECRETS.filter(keep);
   if (!rows.length) return null;
   const done = SECRETS.filter((b) => state.got[b.id] != null).length;
 
   return (
-    <section className="flex flex-col gap-3">
+    <section id={famAnchor("secret")} className="flex scroll-mt-40 flex-col gap-3 lg:scroll-mt-24">
       <div className="as-stat-card flex items-baseline gap-3 rounded-lg border-l-2 border-[#FF7F57] py-2 pl-3 pr-4">
         <h3 className="font-outfit m-0 text-lg font-semibold text-white">
           {t("badges.ui.family.secret", "Secret")}
@@ -1614,21 +1851,16 @@ function SecretSection({
           {t("badges.ui.familyDesc.secret", "")}
         </span>
       </div>
-      <div className="flex flex-col gap-1.5">
-        {rows.map((b) => (
-          <BadgeRow
-            key={b.id}
-            def={b}
-            state={state}
-            progress={live ? progress.get(b.id) ?? null : null}
-            live={live}
-            filter={filter}
-            ladderProgress={progress}
-            derived={live ? derived : null}
-            hidden
-          />
-        ))}
-      </div>
+      <BadgeList
+        rows={rows}
+        view={view}
+        state={state}
+        progress={progress}
+        live={live}
+        filter={filter}
+        derived={derived}
+        hidden
+      />
     </section>
   );
 }

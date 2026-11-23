@@ -188,6 +188,7 @@ export function statsFromEntries(entries: ProfileEntry[]): ProfileStats {
 export function watchTime(minutes: number): { days?: string; hours?: string } {
   const hours = minutes / 60;
   const days = hours / 24;
-  const fmt = (n: number) => (n % 1 === 0 ? String(n) : n.toFixed(1));
+  // Arrondi d'abord : 88,04 donne « 88 », pas « 88.0 ».
+  const fmt = (n: number) => String(+n.toFixed(1));
   return days >= 1 ? { days: fmt(days) } : { hours: fmt(hours) };
 }

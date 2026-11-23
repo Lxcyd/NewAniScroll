@@ -3421,6 +3421,40 @@ html.as-dragging .as-nudge {
 .le-dd-compact.as-dd-full .le-dd-list {
   max-height: none;
 }
+/* Posé sur la page et non dans un panneau (filtre de rareté des Badges) : même
+   bordure que les menus de Ma liste (`.as-list-menu`). La bordure épaisse
+   ci-dessus reste celle des menus du panneau de réglages. */
+.le-dd-compact.as-dd-page .le-dd-list {
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0,0,0,.55);
+}
+/* Le liseré de verre des cartes de la recherche : une bordure de 1 px, identique
+   sur les quatre côtés. Ni dégradé découpé par `mask`, ni reflet en haut : le
+   premier sortait irrégulier, le second épaississait le haut (23/11/2026, Luc). */
+.as-glass-edge {
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(255,255,255,.17);
+  border-radius: inherit;
+  pointer-events: none;
+}
+[data-headlessui-state~="active"] > .as-glass-edge {
+  border-color: var(--brand-primary, #E94560);
+}
+/* Son bouton a la plaque et la hauteur des champs de Ma liste (`.as-list-field`). */
+.le-dd-compact.as-dd-page .le-dd-trigger {
+  height: 42px;
+  border-radius: 12px;
+  border-color: rgba(255,255,255,.12);
+  background: transparent;
+}
+.le-dd-compact.as-dd-page .le-dd-trigger:hover { border-color: rgba(255,255,255,.22); }
+.le-dd-compact.as-dd-page .le-dd-list.is-up {
+  top: auto;
+  bottom: calc(100% + 5px);
+  animation-name: as-list-menu-in-up;
+}
 .le-dd-compact .le-dd-option {
   padding: 9px 12px;
   font-size: 14px;
@@ -4726,16 +4760,18 @@ html.as-dragging .as-nudge {
    pas ») : à 0,35 sur une bannière claire elle disparaissait. Pastille sombre,
    lisible sur n'importe quel fond, sans dépendre du survol (tactile). */
 .as-ach-close {
-  color: #fff;
-  background: rgba(0, 0, 0, 0.62);
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
-  transition: background-color 0.18s ease, border-color 0.18s ease;
+  /* Plus de pastille (22/11/2026, Luc : « la croix est moche ») : une croix
+     fine, détachée du fond par une ombre, avec un rond léger au survol. */
+  color: rgba(255, 255, 255, 0.92);
+  background: transparent;
+  border: 0;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.75));
+  transition: background-color 0.18s ease, color 0.18s ease;
 }
 .as-ach-close:hover,
 .as-ach-close:focus-visible {
-  background: rgba(0, 0, 0, 0.88);
-  border-color: rgba(255, 255, 255, 0.6);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
 }
 
 /* (`asAchShine` — la lueur qui balayait le texte — a été retirée le 17/09 :
@@ -4830,6 +4866,27 @@ html.as-dragging .as-nudge {
   content-visibility: auto;
   contain-intrinsic-size: auto 124px; /* hauteur mesurée d'une ligne, bureau et mobile */
 }
+.as-badge-row.as-badge-row-compact { contain-intrinsic-size: auto 60px; }
+body.as-sticky-page { overflow-x: clip; }
+/* Sous 1024 px, le sommaire passe AU-DESSUS de la liste qui défile : opaque. */
+@media (max-width: 1023.98px) {
+  .as-badge-nav.as-stat-card { background: linear-gradient(145deg, rgb(20,22,28), rgb(12,13,16)); }
+}
+/* La barre des badges est déjà une carte : ses champs n'empilent pas un second
+   fond sombre ni un second flou. */
+/* Dans un panneau, l'éclat d'une ligne ciblée reste à l'intérieur de la ligne. */
+.as-badge-row-compact.as-badge-flash, .as-badge-tile.as-badge-flash { animation-name: asBadgeFlashIn; }
+@keyframes asBadgeFlashIn {
+  0%, 100% { box-shadow: inset 0 0 0 0 rgba(233, 69, 96, 0); }
+  50% { box-shadow: inset 0 0 0 2px rgba(233, 69, 96, .8), inset 0 0 22px rgba(233, 69, 96, .25); }
+}
+.as-badge-row.as-badge-tile { contain-intrinsic-size: auto 235px; }
+/* Un badge pas encore obtenu est un peu transparent (21/11/2026, Luc). Sur le
+   CONTENU et pas sur la ligne : une opacité sur `.as-stat-card` couperait le
+   flou d'arrière-plan de son `::before`. */
+.as-badge-row.is-locked .as-badge-row-in { opacity: .55; transition: opacity .15s; }
+.as-badge-row.is-locked:hover .as-badge-row-in,
+.as-badge-row.is-locked:focus-within .as-badge-row-in { opacity: 1; }
 
 /* La sélection d'un palier (cf. LadderPopup). Le TRAJET du cadre est en JS ; sa
    COULEUR, elle, change ici, en même temps qu'il voyage. Il apparaît avec les

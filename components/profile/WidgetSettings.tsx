@@ -136,6 +136,7 @@ export function Dropdown({
   onPick,
   className = "mt-1.5",
   label,
+  flip = false,
 }: {
   value: string;
   choices: {
@@ -153,6 +154,10 @@ export function Dropdown({
   className?: string;
   /** Nom accessible du bouton, quand rien autour ne dit à quoi il sert. */
   label?: string;
+  /** Posé sur la page : s'ouvre vers le haut quand la place manque en bas, comme
+      les menus de Ma liste (64 px = la navbar). Pas dans un panneau de réglages,
+      qui rognerait le menu. */
+  flip?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const current = choices.find((c) => c.value === value) ?? choices[0];
@@ -275,7 +280,20 @@ export function Dropdown({
            choix change de `group`, un trait et son intitulé le séparent du
            précédent (favoris | statuts | listes perso, 25/10/2026). Un menu
            sans groupes (la rareté des badges) reste une seule colonne. */
-        <div className="le-dd-list as-scroller" style={{ maxHeight: 360, overflowY: "auto" }}>
+        <div
+          ref={
+            flip
+              ? (el) => {
+                  const field = el?.parentElement?.getBoundingClientRect();
+                  if (!el || !field) return;
+                  const h = el.offsetHeight + 12;
+                  el.classList.toggle("is-up", window.innerHeight - field.bottom < h && field.top - 64 >= h);
+                }
+              : undefined
+          }
+          className="le-dd-list as-scroller"
+          style={{ maxHeight: 360, overflowY: "auto" }}
+        >
           {choices.map((c, i) => (
             <Fragment key={c.value}>
             {i > 0 && c.group !== choices[i - 1].group ? (

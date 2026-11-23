@@ -197,19 +197,19 @@ export function loadAnimeChars(id: number, onPage?: () => void): Promise<AvatarC
 }
 
 const searchCache = new Map<string, AvatarChar[]>();
-/** Recherche de personnages par nom : 50, en deux pages dans la même requête. */
+/** Recherche de personnages par nom : 50 en UNE `Page` (deux alias de `Page`
+ *  coûtent deux points depuis le 23/11/2026). */
 export async function searchChars(q: string): Promise<AvatarChar[]> {
   const key = q.trim().toLowerCase();
   const hit = searchCache.get(key);
   if (hit) return hit;
   const d = await ask<any>(
     `query ($q: String) {
-      a: Page(perPage: 25, page: 1) { characters(search: $q, sort: [SEARCH_MATCH, FAVOURITES_DESC]) { ${CHAR} } }
-      b: Page(perPage: 25, page: 2) { characters(search: $q, sort: [SEARCH_MATCH, FAVOURITES_DESC]) { ${CHAR} } }
+      Page(perPage: 50) { characters(search: $q, sort: [SEARCH_MATCH, FAVOURITES_DESC]) { ${CHAR} } }
     }`,
     { q: key },
   );
-  const out = dedupe([...chars(d?.a?.characters), ...chars(d?.b?.characters)]);
+  const out = dedupe(chars(d?.Page?.characters));
   if (d) searchCache.set(key, out);
   return out;
 }

@@ -6,11 +6,13 @@ import {
   putAnilistFeed,
   type FeedEvent,
 } from "@/lib/auth/userData";
+import { finsOf, mergeCompletions } from "@/lib/anilist/feedFins";
 
 /**
  * Le fil d'activité AniList du compte (cf. lib/anilist/feedImport.ts).
  *
  *   GET  → { anilistId, last, oldest, done } — où reprendre la lecture.
+ *   GET ?fins=1 → en plus, `f` : { id: secondes }, quand chaque anime a été fini.
  *   POST → { last, e: [[secondes, id, épisode], …], oldest?, done? } — les
  *          lignes lues, ajoutées à celles déjà rangées, et où en est la lecture
  *          du passé. `full: true` remplace tout.
@@ -44,6 +46,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       last: feed?.last ?? 0,
       oldest: feed?.oldest ?? 0,
       done: !!feed?.done,
+      cOldest: feed?.cOldest ?? 0,
+      cDone: !!feed?.cDone,
       n: feed?.e.length ?? 0,
       /* Les heures datees du fil (10/11/2026), pour les badges de serie, qui se
          calculent dans le navigateur : ~un entier par heure regardee, pas un par
@@ -51,6 +55,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ...(req.query.hours
         ? { h: [...new Set((feed?.e ?? []).map((ev) => Math.floor(ev[0] / 3600)))].sort((a, b) => a - b) }
         : {}),
+      /* Les lignes elles-mêmes, pour les badges de rythme (24/11/2026). Les
+         20 000 plus récentes : ce qui tient sans danger en localStorage. */
+      ...(req.query.events ? { ev: (feed?.e ?? []).slice(0, 20_000) } : {}),
+      ...(req.query.fins ?{ f: finsOf(feed?.e ?? [], feed?.c) } : {}),
     });
   }
 
@@ -76,11 +84,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const oldest = [old?.oldest, Number.isInteger(sent) && sent > 0 ? sent : undefined]
       .filter((x): x is number => !!x)
       .reduce((a, b) => Math.min(a, b), Infinity);
+    /* Les lignes « completed » survivent à chaque envoi d'épisodes. */
+    const c = mergeCompletions(old?.c, req.body?.c, now);
+    const cSent = Number(req.body?.cOldest);
+    const cOldest = [old?.cOldest, Number.isInteger(cSent) && cSent > 0 ? cSent : undefined]
+      .filter((x): x is number => !!x)
+      .reduce((a, b) => Math.min(a, b), Infinity);
     await putAnilistFeed(user.id, {
       last: Math.max(last, old?.last ?? 0),
       e: all.slice(0, FEED_MAX_EVENTS),
       ...(Number.isFinite(oldest) ? { oldest } : {}),
       ...(req.body?.done === true || old?.done ? { done: true } : {}),
+      ...(Object.keys(c).length ? { c } : {}),
+      ...(Number.isFinite(cOldest) ? { cOldest } : {}),
+      ...(req.body?.cDone === true || old?.cDone ? { cDone: true } : {}),
     });
     return res.status(200).json({ n: Math.min(all.length, FEED_MAX_EVENTS) });
   }

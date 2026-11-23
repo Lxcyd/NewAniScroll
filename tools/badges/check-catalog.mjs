@@ -423,6 +423,36 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
   check("une date incomplète ne compte pas",
     m("one-sitting", snap({ list: { 1: entry({ startedAt: { year: 2026, month: null, day: null }, completedAt: d1 }) } })), [0, 1]);
 
+  /* Ce qui vient d'une liste importée, sans aucune trace de lecture ici. */
+  check("un OAV de la liste → « Épisode bonus »",
+    m("oav", snap({ list: { 1: entry({ format: "OVA" }) } })), [1, 1]);
+  check("un OAV seulement prévu ne compte pas",
+    m("oav", snap({ list: { 1: entry({ format: "OVA", status: "PLANNING", progress: 0 }) } })), [0, 1]);
+  check("One Piece dans la liste → « Big Three »",
+    m("big-three", snap({ list: { 21: entry({ mediaId: 21, status: "CURRENT", progress: 3 }) } })), [3, 1]);
+  check("une horreur finie un 31/10 dans la liste → Halloween",
+    m("halloween", snap({ list: { 1: entry({ genres: ["Horror"], completedAt: { year: 2024, month: 10, day: 31 } }) } })), [1, 1]);
+  check("une comédie finie un 31/10 ne compte pas",
+    m("halloween", snap({ list: { 1: entry({ genres: ["Comedy"], completedAt: { year: 2024, month: 10, day: 31 } }) } })), [0, 1]);
+
+  /* « Termine N anime » suit la liste Terminé d'AniList : pas les revisionnages. */
+  check("un titre en revisionnage ne compte pas dans « Termine N anime »",
+    m("fin-5", snap({ list: { 1: entry(), 2: entry({ mediaId: 2, status: "REPEATING" }) } })), [1, 5]);
+
+  /* Le fil AniList : les badges de rythme le lisent, sans les coches à la chaîne. */
+  const t0 = Math.floor(local(2026, 9, 10, 12) / 1000);
+  const fil = (n, pas) => Array.from({ length: n }, (_, i) => [t0 + i * pas, 7, i + 1]);
+  check("20 épisodes du fil en 24 h → Streaming Intensif",
+    m("burst-20", snap({ feedEvents: fil(20, 1800) })), [20, 20]);
+  check("20 épisodes cochés à la chaîne ne font pas une rafale",
+    m("burst-20", snap({ feedEvents: fil(20, 5) })), [1, 20]);
+  check("12 épisodes du fil d'affilée → Nuit blanche",
+    m("night-12", snap({ feedEvents: fil(12, 1500) })), [12, 12]);
+  check("un anime repris après 40 jours dans le fil → Repris en main",
+    m("comeback", snap({ feedEvents: [[t0 - 40 * 86400, 7, 1], [t0, 7, 2]] })), [1, 1]);
+  check("le premier et le dernier épisode le même jour → D'un coup",
+    m("one-sitting", snap({ list: { 7: entry({ mediaId: 7 }) }, feedEvents: [[t0, 7, 1], [t0 + 3600, 7, 12]] })), [1, 1]);
+
   /* « Premier pas » : une entrée dans la liste suffit, quel que soit le statut. */
   check("liste vide → 0 / 1", m("first-add", snap()), [0, 1]);
   check("un titre en projet suffit",
@@ -579,6 +609,12 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
   check("union des ids", Object.keys(ab.got).sort(), ["ep-1", "ep-25", "fin-1"]);
   check("backfilled est un OU", ab.backfilled, true);
   check("fusion idempotente", mergeBadgeState(ab, ab), ab);
+  /* « Sans date » ne doit jamais effacer une vraie date, dans aucun sens. */
+  const sans = { v: 1, got: { "ep-1": 1 } };
+  const date = { v: 1, got: { "ep-1": 500 } };
+  check("une vraie date bat « sans date »", mergeBadgeState(sans, date).got["ep-1"], 500);
+  check("…dans les deux sens", mergeBadgeState(date, sans).got["ep-1"], 500);
+  check("deux « sans date » le restent", mergeBadgeState(sans, sans).got["ep-1"], 1);
 }
 
 /* ── Les badges qui comptent des badges ───────────────────────────────────── */

@@ -81,22 +81,91 @@ function episodes(progress: unknown): number[] {
  *  (lib/badges/evaluate.ts) : ils se calculent ici, le fil vit sur le serveur. */
 export const FEED_HOURS_KEY = "aniscroll:anilistFeedHours";
 
+/** Les lignes du fil : les badges de rythme, d'heure et de date les lisent. */
+export const FEED_EVENTS_KEY = "aniscroll:anilistFeedEvents";
+
 async function storeFeedHours(): Promise<void> {
   try {
-    const r = await fetch("/api/v2/account/anilist-feed?hours=1");
-    const h = r.ok ? (await r.json())?.h : null;
-    if (Array.isArray(h)) localStorage.setItem(FEED_HOURS_KEY, JSON.stringify(h));
+    const r = await fetch("/api/v2/account/anilist-feed?hours=1&events=1");
+    const j = r.ok ? await r.json() : null;
+    if (Array.isArray(j?.h)) localStorage.setItem(FEED_HOURS_KEY, JSON.stringify(j.h));
+    if (Array.isArray(j?.ev)) {
+      localStorage.setItem(FEED_EVENTS_KEY, JSON.stringify(j.ev));
+      /* Du passé : l'évaluateur accorde en silence, comme pour un import. */
+      window.dispatchEvent(new CustomEvent("aniscroll:localList:bulk"));
+    }
   } catch {
     /* best-effort : sans elles, les badges ne voient que la table locale */
+  }
+}
+
+/** Prévient un détail de badge ouvert que de nouvelles dates de fin sont rangées. */
+export const FEED_FINS_EVENT = "aniscroll:anilistFeedFins";
+const estFin = (a: any) => /^completed/i.test(String(a?.status ?? "")) && !!a?.media?.id;
+
+let finsEnCours = false;
+
+/**
+ * Les lignes « completed » du passé, lues UNE fois pour tout le compte.
+ *
+ * Le premier import n'a gardé que les lignes d'épisode : un anime passé en
+ * Terminé sans cocher d'épisode n'y a aucune date. Reprise comme l'import
+ * principal, sous la plus ancienne date déjà lue, avec un envoi toutes les dix
+ * pages. Sans le délai de 30 min : tant que ce n'est pas fini, ça reprend.
+ */
+async function syncCompletions(token: string | undefined): Promise<boolean> {
+  if (finsEnCours || typeof window === "undefined") return false;
+  finsEnCours = true;
+  try {
+    const state = await fetch("/api/v2/account/anilist-feed")
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
+    const id = Number(state?.anilistId);
+    if (!id || state?.cDone) return false;
+    const before = Number(state?.cOldest) || Math.floor(Date.now() / 1000) + 86_400;
+    let c: Record<number, number> = {};
+    let low = before;
+    let changed = false;
+    for (let p = 1; p <= MAX_PAGES; p++) {
+      const d = await page(token, id, p, before);
+      if (!d) return changed;
+      for (const a of d.activities ?? []) {
+        if (!a?.id) continue;
+        low = Math.min(low, a.createdAt);
+        if (estFin(a)) c[a.media.id] = Math.min(c[a.media.id] ?? Infinity, a.createdAt);
+      }
+      const end = !d.pageInfo?.hasNextPage;
+      if (end || p % 10 === 0) {
+        const ok = await fetch("/api/v2/account/anilist-feed", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ e: [], last: 0, c, cOldest: low, cDone: end }),
+        })
+          .then((r) => r.ok)
+          .catch(() => false);
+        if (!ok) return changed;
+        changed = true;
+        c = {};
+        window.dispatchEvent(new CustomEvent(FEED_FINS_EVENT));
+      }
+      if (end) break;
+      await sleep(PAGE_GAP_MS);
+    }
+    return changed;
+  } finally {
+    finsEnCours = false;
   }
 }
 
 /** Vrai quand de nouvelles lignes ont été rangées (le profil est alors à recharger). */
 export async function syncAnilistFeed(token: string | undefined): Promise<boolean> {
   const changed = await syncFeed(token);
+  await syncCompletions(token);
   /* Relues quand le fil a bouge, ou tant qu'elles n'ont jamais ete lues. */
   try {
-    if (changed || !localStorage.getItem(FEED_HOURS_KEY)) await storeFeedHours();
+    if (changed || !localStorage.getItem(FEED_HOURS_KEY) || !localStorage.getItem(FEED_EVENTS_KEY)) {
+      await storeFeedHours();
+    }
   } catch {
     /* sans stockage */
   }
@@ -119,7 +188,7 @@ async function syncFeed(token: string | undefined): Promise<boolean> {
     const id = Number(state?.anilistId);
     if (!id) return false;
     const last = Number(state?.last) || 0;
-    const save = (body: { e: FeedEvent[]; last: number; oldest?: number; done?: boolean }) =>
+    const save = (body: { e: FeedEvent[]; last: number; oldest?: number; done?: boolean; c?: Record<number, number> }) =>
       fetch("/api/v2/account/anilist-feed", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -137,6 +206,7 @@ async function syncFeed(token: string | undefined): Promise<boolean> {
     /* 1. LES NOUVELLES LIGNES, au-dessus de la dernière déjà rangée. */
     if (last > 0) {
       const e: FeedEvent[] = [];
+      const c: Record<number, number> = {};
       let top = last;
       for (let p = 1; p <= MAX_PAGES; p++) {
         const d = await page(token, id, p);
@@ -150,12 +220,13 @@ async function syncFeed(token: string | undefined): Promise<boolean> {
           }
           top = Math.max(top, a.id);
           take(a, e);
+          if (estFin(a)) c[a.media.id] = Math.min(c[a.media.id] ?? Infinity, a.createdAt);
         }
         if (reached || !d.pageInfo?.hasNextPage) break;
         await sleep(PAGE_GAP_MS);
       }
       if (top > last) {
-        if (!(await save({ e, last: top }))) return changed;
+        if (!(await save({ e, last: top, c }))) return changed;
         changed = true;
       }
     }

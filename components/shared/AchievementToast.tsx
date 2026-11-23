@@ -40,6 +40,7 @@ import { next, useAchievement } from "@/lib/badges/achievementStore";
 import { revealHref } from "@/lib/badges/reveal";
 import { useBadgePrefs } from "@/lib/prefs/badgePrefs";
 import { usePlayerSurface } from "@/lib/notifications/playerSurface";
+import { useSearch } from "@/lib/context/isOpenState";
 import BadgeDefs from "@/components/profile/badges/BadgeDefs";
 import BadgeToken from "@/components/profile/badges/BadgeToken";
 import { RARITY } from "@/components/profile/badges/rarity";
@@ -233,6 +234,7 @@ export default function AchievementToast() {
   const surface = usePlayerSurface();
   const { fx } = useBadgePrefs();
   const router = useRouter();
+  const setSearchOpen = useSearch()?.setIsOpen;
   const { t } = useTranslation();
   const [phase, setPhase] = useState<Phase>("in");
   /** Vrai tant que la souris (ou le clavier) tient la notification. */
@@ -371,8 +373,11 @@ export default function AchievementToast() {
   const open = useCallback(() => {
     if (!def) return;
     dismiss();
+    /* La recherche vit au niveau de l'application et survit à la navigation :
+       ouverte, elle recouvrirait le badge qu'on vient de demander. */
+    setSearchOpen?.(false);
     void router.push(revealHref(def.id));
-  }, [def, dismiss, router]);
+  }, [def, dismiss, router, setSearchOpen]);
 
   /* Échap ferme, comme partout ailleurs sur le site. */
   useEffect(() => {
@@ -885,7 +890,7 @@ export default function AchievementToast() {
           </div>
 
           {/* La croix, TOUJOURS VISIBLE (21/11/2026, Luc : « on ne la voit pas ») :
-              une pastille sombre qui se détache de n'importe quel fond. Ses
+              une croix fine, détachée de n'importe quel fond par une ombre. Ses
               couleurs vivent dans globals.css, sinon le survol ne s'y applique
               pas. Elle reste atteignable au clavier. */}
           <button
@@ -911,13 +916,18 @@ export default function AchievementToast() {
               cursor: "pointer",
               padding: 0,
               lineHeight: 0,
+              /* Grossit avec le jeton et le texte, au même rythme. Plus fort
+                 qu'eux : à 12 px, 7 % ne se verrait pas. La transition reprend
+                 celles de `.as-ach-close`, qu'un style en ligne écraserait. */
+              transform: held ? "scale(1.15)" : "scale(1)",
+              transition: "transform .2s cubic-bezier(.22,1,.36,1), background-color .18s ease, color .18s ease",
             }}
           >
             <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
               <path
                 d="M1.5 1.5l9 9M10.5 1.5l-9 9"
                 stroke="currentColor"
-                strokeWidth="2"
+                strokeWidth="1.5"
                 strokeLinecap="round"
               />
             </svg>

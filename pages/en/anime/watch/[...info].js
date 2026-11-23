@@ -1784,7 +1784,7 @@ export default function Watch({
          minutes apres l'ouverture de la page -- si tant est que ca arrive. */
       import("@/lib/badges/facts")
         .then((facts) => {
-          const host = serverToHost(activeServerRef.current);
+          const host = serverToHost(activeServerRef.current)?.host;
           if (host) facts.recordHost(host);
           /* « Deux voix » : le meme episode vu en VO puis en VF. La trace par
              episode vit en sessionStorage, seule la conclusion est gardee. */

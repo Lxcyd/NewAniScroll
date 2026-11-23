@@ -24,14 +24,15 @@
  */
 
 import { DISPLAYED_HOSTS } from "../hostRegistry";
-import { getLocalList } from "../list/localList";
+import { getLocalList, LOCAL_LIST_BULK_EVENT } from "../list/localList";
 import { readProgressMap } from "../watch/progress";
 import { BADGES, BY_ID, type BadgeDef } from "./catalog";
-import { derive, type Derived, type Snapshot } from "./derive";
+import { derive, fuzzyDay, isCompletedNow, type Derived, type Snapshot } from "./derive";
+import { clusters, inHourWindow, monthDay } from "./localtime";
 import { getFacts } from "./facts";
 import { dayKey, sane } from "./localtime";
-import { measure } from "./measure";
-import { getBadgeState, grant } from "./store";
+import { isBonusFormat, measure } from "./measure";
+import { applyRedate, getBadgeState, grant, NO_DATE } from "./store";
 import { readVocab } from "./metaBackfill";
 import { announce } from "./achievementStore";
 
@@ -64,9 +65,28 @@ function readFeedHours(): number[] | undefined {
   }
 }
 
+/* Relu à chaque passage, reparsé seulement s'il a changé : il peut peser 100 Ko. */
+let feedRaw: string | null = null;
+let feedParsed: [number, number, number][] | undefined;
+function readFeedEvents(): [number, number, number][] | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const raw = window.localStorage.getItem("aniscroll:anilistFeedEvents");
+    if (raw !== feedRaw) {
+      feedRaw = raw;
+      const parsed = raw ? JSON.parse(raw) : null;
+      feedParsed = Array.isArray(parsed) ? parsed : undefined;
+    }
+    return feedParsed;
+  } catch {
+    return undefined;
+  }
+}
+
 export function snapshot(now = Date.now()): Snapshot {
   return {
     feedHours: readFeedHours(),
+    feedEvents: readFeedEvents(),
     progress: readProgressMap(),
     list: getLocalList(),
     facts: getFacts(),
@@ -87,44 +107,96 @@ export function snapshot(now = Date.now()): Snapshot {
  * depuis 2024. On remonte donc à l'horodatage qui a réellement franchi le
  * seuil.
  *
- * Quand aucune preuve ne porte de date — un geste enregistré avant que ce
- * système existe, une liste importée sans horodatage — on rend `now`. C'est le
- * dernier recours, pas le cas normal.
+ * Quand aucune preuve ne porte de date — une liste importée sans horodatage —
+ * on rend `null` : pas de date affichée plutôt qu'une date inventée (Luc,
+ * 24/11/2026). `updatedAt` n'en est pas une, un import le réécrit à « maintenant ».
  */
-function dateFor(def: BadgeDef, d: Derived): number {
+function dateFor(def: BadgeDef, d: Derived): number | null {
   const m = def.metric;
-  const fallback = d.now;
 
-  if (m.k === "flag") return d.facts.flags[String(m.name)] ?? fallback;
-  if (m.k === "counter") return d.facts.counters[String(m.name)]?.at ?? fallback;
+  if (m.k === "flag") {
+    const at = d.facts.flags[String(m.name)];
+    if (at != null) return at;
+    if (m.name === "comeback") return d.comebackAt;
+    if (m.name !== "oav") return null;
+    /* Accorde depuis la liste : la plus ancienne date connue d'un OAV vu. */
+    const dates = d.seen
+      .filter(isBonusFormat)
+      .map((e) => fuzzyToMs(e.completedAt) ?? e.activityAt)
+      .filter((t): t is number => !!t);
+    return dates.length ? Math.min(...dates) : null;
+  }
+  if (m.k === "counter") return d.facts.counters[String(m.name)]?.at ?? null;
 
   /* Les paliers d'épisodes : l'horodatage du n-ième épisode terminé. Les
      horodatages sont triés, donc `stamps[n - 1]` EST le moment du
      franchissement. */
   if (m.k === "count" && m.of === "episodes") {
-    return d.stamps[m.n - 1] ?? fallback;
-  }
-  /* Les paliers de temps : le premier épisode à partir duquel le cumul dépasse
-     l'objectif. On refait la somme dans l'ordre chronologique — c'est la seule
-     façon de savoir QUAND les dix heures ont été atteintes. */
-  if (m.k === "count" && m.of === "minutes") {
-    return fallback; // affiné ci-dessous par `minutesCrossing`
+    return d.stamps[m.n - 1] ?? null;
   }
   /* Les anime terminés : la date de complétion du n-ième, dans l'ordre. */
   if (m.k === "count" && m.of === "completed") {
     const dates = d.completed
-      .map((e) => fuzzyToMs(e.completedAt) ?? e.activityAt ?? e.updatedAt)
+      .filter(isCompletedNow)
+      .map((e) => fuzzyToMs(e.completedAt) ?? e.activityAt)
       .filter((t): t is number => !!t)
       .sort((a, b) => a - b);
-    return dates[m.n - 1] ?? fallback;
+    return dates[m.n - 1] ?? null;
   }
-  /* Tout le reste : le dernier signe d'activité connu, qui est au pire
-     aujourd'hui et au mieux la vraie date. */
-  return d.stamps[d.stamps.length - 1] ?? fallback;
+  /* Les badges de rythme : le moment où le fil ou le site les a franchis. */
+  if (m.k === "window") {
+    let lo = 0;
+    for (let hi = 0; hi < d.stamps.length; hi++) {
+      while (d.stamps[hi] - d.stamps[lo] > Number(m.ms)) lo++;
+      if (hi - lo + 1 >= m.n) return d.stamps[hi];
+    }
+    return null;
+  }
+  if (m.k === "night") return clusters(d.stamps).find((r) => r.length >= m.n)?.[m.n - 1] ?? null;
+  if (m.k === "session") return d.sessionReachedAt(m.n, !!m.weekend);
+  if (m.k === "hourWindow") {
+    return d.stamps.find((t) => inHourWindow(t, Number(m.from), Number(m.to))) ?? null;
+  }
+  if (m.k === "midnight") {
+    return d.stamps.find((t) => {
+      const x = new Date(t);
+      return x.getHours() === 0 && x.getMinutes() === 0;
+    }) ?? null;
+  }
+  /* Deux badges tiennent à une date écrite dans la liste ou le fil. */
+  if (m.k === "sameDayFinish") {
+    const dates = d.completed
+      .filter((e) => (e.total ?? 0) > 1 && !!fuzzyDay(e.startedAt) && fuzzyDay(e.startedAt) === fuzzyDay(e.completedAt))
+      .map((e) => fuzzyToMs(e.completedAt))
+      .filter((t): t is number => !!t);
+    return dates.length ? Math.min(...dates) : null;
+  }
+  if (m.k === "onDate") {
+    const ok = new Set(
+      d.seen.filter((e) => !m.genre || !!e.genres?.includes(String(m.genre))).map((e) => e.mediaId),
+    );
+    const fromFeed = d.timeline
+      .filter((w) => {
+        const md = monthDay(w.at);
+        return ok.has(w.aniId) && md.month === m.month && md.day === m.day;
+      })
+      .map((w) => w.at);
+    const fromList = d.seen
+      .filter((e) => ok.has(e.mediaId))
+      .flatMap((e) => [e.startedAt, e.completedAt])
+      .filter((f) => f?.month === m.month && f?.day === m.day)
+      .map((f) => fuzzyToMs(f))
+      .filter((t): t is number => !!t);
+    const dates = [...fromFeed, ...fromList];
+    return dates.length ? Math.min(...dates) : null;
+  }
+  /* Tout le reste : aucune preuve. La dernière activité connue parlerait d'autre
+     chose que de ce badge. */
+  return null;
 }
 
-/** Quand le cumul de minutes a franchi `target`. */
-function minutesCrossing(s: Snapshot, target: number, fallback: number): number {
+/** Quand le cumul de minutes a franchi `target`, `null` s'il n'est pas daté. */
+function minutesCrossing(s: Snapshot, target: number): number | null {
   const rows: { at: number; minutes: number }[] = [];
   for (const [, entry] of Object.entries(s.progress)) {
     if (!entry || entry.duration <= 0) continue;
@@ -138,7 +210,7 @@ function minutesCrossing(s: Snapshot, target: number, fallback: number): number 
     sum += r.minutes;
     if (sum >= target) return r.at;
   }
-  return fallback;
+  return null;
 }
 
 /** `{ year, month, day }` → epoch ms local, `null` si la date est incomplète. */
@@ -146,6 +218,12 @@ function fuzzyToMs(d: { year: number | null; month: number | null; day: number |
   if (!d?.year || !d?.month || !d?.day) return null;
   return new Date(d.year, d.month - 1, d.day).getTime();
 }
+
+/** Ces badges ont une date vraie par nature : le geste, ou le don. */
+const KEEPS_ITS_DATE = new Set(["flag", "counter", "granted", "accountAge"]);
+/** Après ce jour, une date vient de la règle actuelle : rien à corriger. */
+const REDATE_CUTOFF = Date.UTC(2026, 10, 25);
+let lastDataKey = "";
 
 export type EvaluateResult = {
   /** Badges débloqués à ce passage, dans l'ordre du catalogue. */
@@ -164,25 +242,50 @@ export type EvaluateResult = {
 export function evaluate(opts?: { silent?: boolean; now?: number }): EvaluateResult {
   if (typeof window === "undefined") return { unlocked: [], backfill: false };
 
-  const state = getBadgeState();
+  let state = getBadgeState();
   const backfill = opts?.silent || !state.backfilled;
   const snap = snapshot(opts?.now ?? Date.now());
   const d = derive(snap);
 
+  const proofOf = (def: BadgeDef) =>
+    def.metric.k === "count" && def.metric.of === "minutes"
+      ? minutesCrossing(snap, def.metric.n)
+      : dateFor(def, d);
+
+  /* UNE FOIS : les dates posées par les anciens rattrapages étaient l'heure du
+     passage ou la dernière activité. On garde les gestes, datés à l'instant où
+     ils ont eu lieu, et on repart de la preuve pour tout le reste. */
+  if (!state.redated) {
+    const dates: Record<string, number> = {};
+    for (const [id, was] of Object.entries(state.got)) {
+      const def = BY_ID[id];
+      if (!def || KEEPS_ITS_DATE.has(def.metric.k) || was >= REDATE_CUTOFF) continue;
+      dates[id] = proofOf(def) ?? NO_DATE;
+    }
+    applyRedate(dates);
+    state = getBadgeState();
+  }
+
+  /* Le fil peut arriver après coup : un badge sans date reçoit alors la sienne. */
+  const dataKey = `${d.stamps.length}:${d.listSize}`;
   const earned: { id: string; at: number }[] = [];
   for (const def of BADGES) {
+    if (state.got[def.id] === NO_DATE && dataKey !== lastDataKey) {
+      const at = proofOf(def);
+      if (at != null) earned.push({ id: def.id, at: Math.min(at, d.now) });
+      continue;
+    }
     if (state.got[def.id] != null) continue;
     const p = measure(def, d, state);
     if (!p) continue;
     const [cur, target] = p;
     if (target <= 0 || cur < target) continue;
-    const at =
-      def.metric.k === "count" && def.metric.of === "minutes"
-        ? minutesCrossing(snap, def.metric.n, d.now)
-        : dateFor(def, d);
-    earned.push({ id: def.id, at: Math.min(at, d.now) });
+    const at = proofOf(def);
+    /* Sans preuve : gagné à l'instant s'il est annoncé, sinon on ne sait pas. */
+    earned.push({ id: def.id, at: Math.min(at ?? (backfill ? NO_DATE : d.now), d.now) });
   }
 
+  lastDataKey = dataKey;
   const fresh = grant(earned, { backfilled: true });
 
   /* LA COLLECTION SE REGARDE ELLE-MÊME, donc il faut un second tour.
@@ -199,7 +302,7 @@ export function evaluate(opts?: { silent?: boolean; now?: number }): EvaluateRes
       if (after.got[def.id] != null) continue;
       if (!SELF_REFERRING.has(def.metric.k)) continue;
       const p = measure(def, d2, after);
-      if (p && p[1] > 0 && p[0] >= p[1]) second.push({ id: def.id, at: d2.now });
+      if (p && p[1] > 0 && p[0] >= p[1]) second.push({ id: def.id, at: backfill ? NO_DATE : d2.now });
     }
     if (second.length) fresh.push(...grant(second));
   }
@@ -326,6 +429,8 @@ export function start(): () => void {
     scheduleEvaluate();
   };
   window.addEventListener("aniscroll:cloudPull", onPull);
+  /* Un import : les badges sont accordés, on les trouve dans l'onglet. */
+  window.addEventListener(LOCAL_LIST_BULK_EVENT, onPull);
   /* Le dernier changement d'une session doit survivre : le débounce mourrait
      avec la page. Même garde que cloudSync. */
   const onLeave = () => flush();
@@ -341,6 +446,7 @@ export function start(): () => void {
   return () => {
     for (const e of events) window.removeEventListener(e, on);
     window.removeEventListener("aniscroll:cloudPull", onPull);
+    window.removeEventListener(LOCAL_LIST_BULK_EVENT, onPull);
     window.removeEventListener("pagehide", onLeave);
     started = false;
   };

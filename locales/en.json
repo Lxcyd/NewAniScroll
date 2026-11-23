@@ -2167,6 +2167,29 @@
   "badges": {
     "ui": {
       "unlocked": "Badge unlocked",
+      "section": {
+        "progress": "Progress",
+        "marathons": "Marathons",
+        "moments": "Moments",
+        "discovery": "Discovery",
+        "fidelity": "Loyalty",
+        "player": "In the player",
+        "genres": "Genres",
+        "profile": "Profile"
+      },
+      "sectionDesc": {
+        "progress": "The big counters, tier after tier.",
+        "marathons": "Sessions that just won't stop.",
+        "moments": "The right episode at the right time.",
+        "discovery": "Off the beaten track.",
+        "fidelity": "Rewatch, and follow a saga to the end.",
+        "player": "Everything that happens during playback.",
+        "genres": "One badge per genre, until you have them all.",
+        "profile": "Your account, your way."
+      },
+      "search": "Search badges…",
+      "searchHint": "Try another word, rarity or filter.",
+      "nav": "Badge sections",
       "total": "badges earned",
       "secretsShort": "secrets",
       "all": "All",
@@ -2209,6 +2232,7 @@
         "secret": "Off the progression and out of the total: account linking, status, and a few finds."
       },
       "seeTiers": "See all tiers",
+      "tiers": "Tiers",
       "close": "Close",
       "openInProfile": "View this badge in your profile",
       "detail": {
@@ -2390,7 +2414,7 @@
     },
     "decades": {
       "name": "Every year",
-      "cond": "Finish an anime from every year, from 1970 to today."
+      "cond": "Watch an anime from every year, from 1970 to today."
     },
     "big-three": {
       "name": "Big three",

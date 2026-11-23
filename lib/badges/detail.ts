@@ -19,7 +19,8 @@
  */
 
 import type { BadgeDef } from "./catalog";
-import { fuzzyDay, initialsOf, titleOf, type Derived } from "./derive";
+import { fuzzyDay, initialsOf, isCompletedNow, titleOf, type Derived } from "./derive";
+import { isBonusFormat } from "./measure";
 import { WORKS } from "./works";
 import type { LocalEntry } from "../list/localList";
 
@@ -64,6 +65,7 @@ const COUNT_OF = new Set(["completed", "rated", "rewatched"]);
  */
 export function detailKind(def: BadgeDef, d: Derived): "grid" | "list" | null {
   const k = def.metric.k;
+  if (k === "flag") return def.metric.name === "oav" ? "list" : null;
   if ((k === "allGenres" || k === "allTags") && !d.vocab) return null;
   if (k === "count") {
     if (def.metric.of === "bingoPoints") return "grid";
@@ -73,6 +75,29 @@ export function detailKind(def: BadgeDef, d: Derived): "grid" | "list" | null {
      détailler : la case unique redirait la condition. */
   if (k === "works") return (WORKS[String(def.metric.key)]?.ids.length ?? 0) > 1 ? "grid" : null;
   return GRID.has(k) ? "grid" : LIST.has(k) ? "list" : null;
+}
+
+/** Les badges remplis par des anime TERMINÉS : leur année est celle de la fin. */
+const PAR_COMPLETION = new Set([
+  "alphabet", "works", "allGenres", "allTags", "studio", "genre", "tag", "format",
+  "popularityUnder", "studioNamed", "titleLength", "sameDayFinish", "neverSkipOp",
+]);
+
+/**
+ * L'année à afficher à côté d'un anime : celle du fait que le badge mesure.
+ * Sortie de l'œuvre pour les badges d'époque, fin de visionnage pour ceux qui
+ * comptent des anime terminés : la date de fin de la liste, sinon `vuLe` (ms),
+ * le dernier épisode daté par le fil AniList ou le site. `null` quand la liste ne garde pas cette date
+ * (quand une note a été posée, un titre ajouté, une revoyure faite) : mieux vaut
+ * rien qu'une année qui parle d'autre chose.
+ */
+export function detailYear(def: BadgeDef, e: LocalEntry, vuLe?: number | null): number | null {
+  const m = def.metric;
+  if (m.k === "years" || m.k === "yearBefore") return e.year ?? null;
+  if (PAR_COMPLETION.has(m.k) || (m.k === "count" && m.of === "completed") || m.name === "oav") {
+    return e.completedAt?.year ?? (vuLe ? new Date(vuLe).getFullYear() : null);
+  }
+  return null;
 }
 
 const byTitle = (a: LocalEntry, b: LocalEntry) => titleOf(a).localeCompare(titleOf(b));
@@ -105,7 +130,7 @@ export function detailOf(def: BadgeDef, d: Derived): Detail | null {
       return {
         kind: "grid",
         browsable: true,
-        cells: cellsOf(years, done, (e, y) => e.year === Number(y)),
+        cells: cellsOf(years, d.seen, (e, y) => e.year === Number(y)),
       };
     }
     case "alphabet": {
@@ -169,6 +194,10 @@ export function detailOf(def: BadgeDef, d: Derived): Detail | null {
     }
 
     /* ── Les anime qui comptent pour un seuil ─────────────────────────────── */
+    case "flag":
+      // Seul « Épisode bonus » a une liste : la même lecture que `flagUp`.
+      if (m.name !== "oav") return null;
+      return { kind: "list", items: d.seen.filter(isBonusFormat).sort(byTitle) };
     case "genre":
       return { kind: "list", items: done.filter((e) => e.genres?.includes(String(m.name))).sort(byTitle) };
     case "tag":
@@ -200,7 +229,7 @@ export function detailOf(def: BadgeDef, d: Derived): Detail | null {
         items: done
           .filter((e) => {
             const a = fuzzyDay(e.startedAt);
-            return !!a && a === fuzzyDay(e.completedAt) && (e.total ?? 0) > 1;
+            return d.sameDayIds.has(e.mediaId) || (!!a && a === fuzzyDay(e.completedAt) && (e.total ?? 0) > 1);
           })
           .sort(byTitle),
       };
@@ -232,7 +261,12 @@ export function detailOf(def: BadgeDef, d: Derived): Detail | null {
     /* Les épisodes d'une œuvre-fleuve (Conan, Pokémon) : ses entrées de liste. */
     case "worksEpisodes": {
       const ids = new Set(WORKS[String(m.key)]?.ids ?? []);
-      return { kind: "list", items: d.entries.filter((e) => ids.has(e.mediaId)).sort(byTitle) };
+      return {
+        kind: "list",
+        items: d.entries
+          .filter((e) => ids.has(e.mediaId) && (d.episodesByAnime.get(e.mediaId) ?? 0) > 0)
+          .sort(byTitle),
+      };
     }
     /* Halloween, Saint-Valentin, 1er avril : ce qui a été vu ce jour-là, et
        qui porte le bon genre. */
@@ -241,7 +275,7 @@ export function detailOf(def: BadgeDef, d: Derived): Detail | null {
       const genre = m.genre ? String(m.genre) : null;
       return {
         kind: "list",
-        items: d.entries
+        items: d.seen
           .filter((e) => ids.has(e.mediaId) && (!genre || !!e.genres?.includes(genre)))
           .sort(byTitle),
       };
@@ -278,7 +312,7 @@ export function detailOf(def: BadgeDef, d: Derived): Detail | null {
             .sort((a, b) => b.key.localeCompare(a.key));
           return { kind: "grid", browsable: false, labels: "season", cells };
         }
-        case "completed": return { kind: "list", items: [...done].sort(byTitle) };
+        case "completed": return { kind: "list", items: done.filter(isCompletedNow).sort(byTitle) };
         case "rated":
           return { kind: "list", items: d.entries.filter((e) => (e.score ?? 0) > 0).sort(byTitle) };
         case "rewatched":

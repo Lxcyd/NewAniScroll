@@ -181,7 +181,23 @@ const TicketStar: IconType = GenIcon({
   ],
 }) as IconType;
 
+/* Viseur, fourni par Luc le 23/11/2026 : l'icone du badge « D'un coup ». */
+const Crosshair: IconType = GenIcon({
+  tag: "svg",
+  attr: { viewBox: "0 0 24 24" },
+  child: [
+    {
+      tag: "path",
+      attr: {
+        d: "M11,21.95v-1Q7.88,20.6 5.64,18.36T3.05,13h-1q-0.43,0-0.71-0.29Q1.05,12.43 1.05,12t0.29-0.71T2.05,11h1Q3.4,7.88 5.64,5.64T11,3.05v-1q0-0.42 0.29-0.71T12,1.05t0.71,0.29T13,2.05v1q3.13,0.35 5.36,2.59T20.95,11h1q0.42,0 0.71,0.29T22.95,12t-0.29,0.71T21.95,13h-1q-0.35,3.13-2.59,5.36T13,20.95v1q0,0.43-0.29,0.71T12,22.95t-0.71-0.29T11,21.95Zm5.95-5Q19,14.9 19,12T16.95,7.05T12,5T7.05,7.05T5,12t2.05,4.95T12,19t4.95-2.05ZM9.18,14.83Q8,13.65 8,12T9.18,9.17T12,8t2.83,1.17T16,12t-1.17,2.82T12,16T9.18,14.83Zm4.24-1.41Q14,12.83 14,12t-0.59-1.41T12,10t-1.41,0.59Q10,11.18 10,12t0.59,1.41T12,14t1.41-0.59ZM12,12Z",
+      },
+      child: [],
+    },
+  ],
+}) as IconType;
+
 export const BADGE_ICONS: Record<string, IconType> = {
+  crosshair: Crosshair,
   screen1: MdOutlinePlayCircle,
   screen2: MdOutlineVideoLibrary,
   screen3: MdOutlineSubscriptions,

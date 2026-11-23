@@ -24,7 +24,7 @@ droits, DMCA deja vu) · 🔑 cle / compte requis · 🐢 limite de debit severe
 
 | Site | Ce qu'il apporte | Acces | Chez nous |
 | --- | --- | --- | --- |
-| [AniList](https://anilist.co) | Base principale : titres, genres, tags, relations, saisons, listes utilisateurs, trailers | API GraphQL `graphql.anilist.co`, ~90 req/min 🐢 | ✅ partout [lib/anilist/] |
+| [AniList](https://anilist.co) | Base principale : titres, genres, tags, relations, saisons, listes utilisateurs, trailers | API GraphQL `graphql.anilist.co`, 30 points/min (en-tête mesuré le 24/11/2026) ; depuis le 23/11/2026 chaque champ racine, alias compris, coûte 1 point, plus une limite par jeton 🐢 | ✅ partout [lib/anilist/] |
 | [MyAnimeList](https://myanimelist.net) | Notes, classement, notes PAR EPISODE | Via Jikan (non officiel) ; API officielle v2 🔑 | ✅ via Jikan [onglet Scores] |
 | [Jikan](https://jikan.moe) | API REST non officielle de MAL, sans cle | `api.jikan.moe/v4`, 3 req/s, 60/min 🐢 | ✅ [lib/…, score-grid] |
 | [AniDB](https://anidb.net) | La base la plus fine sur les EPISODES : specials, recaps, ep 0, types « credits » (OP/ED), fichiers par release (hash ed2k) | API HTTP/UDP 🔑, bannit vite 🐢 | ⏳ — cf. anime-lists ci-dessous |

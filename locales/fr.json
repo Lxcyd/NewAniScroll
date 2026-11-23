@@ -2167,6 +2167,29 @@
   "badges": {
     "ui": {
       "unlocked": "Badge débloqué",
+      "section": {
+        "progress": "Progression",
+        "marathons": "Marathons",
+        "moments": "Moments",
+        "discovery": "Découverte",
+        "fidelity": "Fidélité",
+        "player": "Au lecteur",
+        "genres": "Genres",
+        "profile": "Profil"
+      },
+      "sectionDesc": {
+        "progress": "Les grands compteurs, palier après palier.",
+        "marathons": "Les séances qui ne s'arrêtent plus.",
+        "moments": "Le bon épisode au bon moment.",
+        "discovery": "Sortir des sentiers battus.",
+        "fidelity": "Revoir, et suivre une saga jusqu'au bout.",
+        "player": "Tout ce qui se joue pendant la lecture.",
+        "genres": "Un badge par genre, jusqu'à les avoir tous.",
+        "profile": "Ton compte, à ta façon."
+      },
+      "search": "Chercher un badge…",
+      "searchHint": "Essaie un autre mot, une autre rareté ou un autre filtre.",
+      "nav": "Sommaire des badges",
       "total": "badges obtenus",
       "secretsShort": "secrets",
       "all": "Tous",
@@ -2209,6 +2232,7 @@
         "secret": "Hors progression et hors total : liaison de compte, statut et quelques trouvailles."
       },
       "seeTiers": "Voir tous les paliers",
+      "tiers": "Paliers",
       "close": "Fermer",
       "openInProfile": "Voir ce badge dans le profil",
       "detail": {
@@ -2390,7 +2414,7 @@
     },
     "decades": {
       "name": "Toutes les années",
-      "cond": "Termine un anime sorti chaque année, de 1970 à aujourd'hui."
+      "cond": "Regarde un anime sorti chaque année, de 1970 à aujourd'hui."
     },
     "big-three": {
       "name": "Big Three",
