@@ -164,7 +164,13 @@ export function choisir(p, candidats) {
   return { id: a.m.id, note: `empreinte: ${a.preuves.join("+")}`, score: a.score, preuves: a.preuves };
 }
 
-/** Recherche AniList par lots de 10 titres (alias GraphQL). */
+/**
+ * Recherche AniList par lots de 10 titres (alias GraphQL).
+ *
+ * DEPUIS LE 23/11/2026 CHAQUE ALIAS COUTE UN POINT sur les 30 de la minute : un
+ * lot de 10 en coute 10. La pause suit donc la taille du lot (22 s pour 10,
+ * soit 27 points/min), et un refus attend le delai annonce par AniList.
+ */
 export const CHAMPS_MEDIA = "id format episodes status startDate{year month day} endDate{year month day} title{romaji native english} synonyms studios(isMain:true){nodes{name}}";
 export async function rechercherLot(termes, { dors, compteur } = {}) {
   const vars = {}, defs = [], corps = [];
@@ -179,9 +185,13 @@ export async function rechercherLot(termes, { dors, compteur } = {}) {
       body: JSON.stringify({ query: `query(${defs.join(",")}){${corps.join(" ")}}`, variables: vars }),
       signal: AbortSignal.timeout(30000),
     }).catch(() => null);
-    if (!r || r.status === 429 || r.status >= 500) { await dors(30000); continue; }
+    if (!r || r.status === 429 || r.status >= 500) {
+      const annonce = r?.status === 429 ? Number(r.headers.get("retry-after")) : 0;
+      await dors(annonce > 0 ? (annonce + 1) * 1000 : 30000);
+      continue;
+    }
     const j = await r.json().catch(() => null);
-    await dors(2200); // AniList : ~30 requetes / minute
+    await dors(2200 * termes.length);
     return termes.map((_, i) => j?.data?.[`a${i}`]?.media || []);
   }
   return null;
