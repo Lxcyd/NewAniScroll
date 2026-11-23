@@ -817,6 +817,12 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
   check("une vieille copie ne remet pas une fausse date", mergeBadgeState(neuf, vieux).got.a, 1);
   ok("une vieille copie relance la correction", !mergeBadgeState(neuf, vieux).regraded);
   ok("deux copies corrigées le restent", !!mergeBadgeState(neuf, neuf).regraded);
+  const corrige = { v: 1, got: { a: 5 }, regraded: true };
+  const avantCorrection = { v: 1, got: { a: 5, "by-the-end": 9, "never-op": 9, gagne: 7 } };
+  check("une copie d'avant la correction ne ramène pas un badge retiré",
+    Object.keys(mergeBadgeState(avantCorrection, corrige).got).sort(), ["a", "gagne"]);
+  check("…dans les deux sens",
+    Object.keys(mergeBadgeState(corrige, avantCorrection).got).sort(), ["a", "gagne"]);
 
   /* Les faits ne s'écrasent plus d'un appareil à l'autre */
   {

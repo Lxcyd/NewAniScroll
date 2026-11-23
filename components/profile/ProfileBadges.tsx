@@ -117,6 +117,8 @@ export default function ProfileBadges({
     () => (live ? mergeBadgeState(saved, localState) : saved),
     [live, saved, localState],
   );
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const [filter, setFilter] = useState<Filter>("all");
   const [rarity, setRarity] = useState<RarityPick>("all");
   const [query, setQuery] = useState("");
@@ -170,7 +172,7 @@ export default function ProfileBadges({
        immédiat, l'évaluation débouncée du drapeau tomberait deux secondes plus
        tard, c'est-à-dire pendant le rattrapage — et serait tue avec lui. */
     flush();
-    const first = progressAll();
+    const first = progressAll(undefined, stateRef.current);
     lastLive = first;
     if (!alive) return;
     setProgress(first.progress);
@@ -195,7 +197,7 @@ export default function ProfileBadges({
     void backfillMetadata().finally(() => {
       flush();
       endQuiet();
-      const next = progressAll();
+      const next = progressAll(undefined, stateRef.current);
       lastLive = next;
       if (!alive) return;
       setProgress(next.progress);
@@ -210,6 +212,19 @@ export default function ProfileBadges({
       else window.clearTimeout(id);
     };
   }, [live]);
+
+  /* Les badges qui comptent des badges suivent la collection AFFICHÉE : sans ça,
+     « Grand collectionneur » gardait 71 quand le compteur du haut disait 72. */
+  useEffect(() => {
+    if (!live) return;
+    const id = window.setTimeout(() => {
+      const next = progressAll(undefined, state);
+      lastLive = next;
+      setProgress(next.progress);
+      setDerived(next.d);
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [live, state]);
 
   /**
    * LA RÉVÉLATION — la notification a envoyé ici avec un `#badge-<id>`.

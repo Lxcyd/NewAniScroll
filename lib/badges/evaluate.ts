@@ -32,7 +32,7 @@ import { clusters, inHourWindow, monthDay } from "./localtime";
 import { getFacts } from "./facts";
 import { dayKey, sane } from "./localtime";
 import { isBonusFormat, measure } from "./measure";
-import { applyCorrection, getBadgeState, grant, NO_DATE } from "./store";
+import { applyCorrection, getBadgeState, grant, NO_DATE, REVISED_RULES, type BadgeState } from "./store";
 import { readVocab } from "./metaBackfill";
 import { announce } from "./achievementStore";
 
@@ -240,9 +240,6 @@ const KEEPS_ITS_DATE = new Set(["flag", "counter", "granted", "accountAge"]);
 /** Après ce jour, une date vient de la règle actuelle : rien à corriger. */
 const REDATE_CUTOFF = Date.UTC(2026, 10, 25);
 let lastDataKey = "";
-
-/** Les badges dont la règle a été corrigée le 24/11/2026. */
-const REVISED_RULES = ["by-the-end", "never-op", "comeback", "one-sitting", "first-rating", "rated-50", "rated-200"];
 
 function accountDataReady(s: Snapshot, d: Derived): boolean {
   if (!d.entries.length) return false;
@@ -489,11 +486,10 @@ export function start(): () => void {
 }
 
 /** La progression de chaque badge, pour l'onglet. */
-export function progressAll(now = Date.now()): {
+export function progressAll(now = Date.now(), state: BadgeState = getBadgeState()): {
   d: Derived;
   progress: Map<string, [number, number] | null>;
 } {
-  const state = getBadgeState();
   const d = derive(snapshot(now));
   const progress = new Map<string, [number, number] | null>();
   for (const def of BADGES) progress.set(def.id, measure(def, d, state));

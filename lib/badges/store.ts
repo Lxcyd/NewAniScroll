@@ -65,6 +65,9 @@ const EMPTY: BadgeState = { v: 1, got: {} };
  */
 export const NO_DATE = 1;
 
+/** Les badges dont la règle a été corrigée le 24/11/2026. */
+export const REVISED_RULES = ["by-the-end", "never-op", "comeback", "one-sitting", "first-rating", "rated-50", "rated-200"];
+
 /** La plus ancienne des deux, une vraie date l'emportant toujours sur NO_DATE. */
 const earliest = (a: number, b: number) =>
   a === NO_DATE ? b : b === NO_DATE ? a : Math.min(a, b);
@@ -178,11 +181,17 @@ export function applyCorrection(dates: Record<string, number>, wrong: string[]):
  */
 export function mergeBadgeState(a: BadgeState, b: BadgeState): BadgeState {
   const got: Record<string, number> = { ...a.got };
+  /* Une copie d'avant la correction ne ramène pas ce que la correction a retiré :
+     la page affichait 72 badges (sa copie serveur + l'appareil) pour 70 réels. */
+  const corrected = a.regraded && !b.regraded ? a : b.regraded && !a.regraded ? b : null;
   for (const [id, at] of Object.entries(b.got)) {
     if (got[id] == null) got[id] = at;
     else if (a.regraded && !b.regraded) continue;
     else if (b.regraded && !a.regraded) got[id] = at;
     else got[id] = earliest(got[id], at);
+  }
+  if (corrected) {
+    for (const id of REVISED_RULES) if (corrected.got[id] == null) delete got[id];
   }
   const backfilled = a.backfilled || b.backfilled;
   /* ET, pas OU : si une copie ancienne vient d'apporter des badges, leurs dates
