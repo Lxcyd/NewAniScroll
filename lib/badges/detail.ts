@@ -77,7 +77,7 @@ export function detailKind(def: BadgeDef, d: Derived, got?: Record<string, numbe
   if (k === "counter") return def.metric.name === "onAirDay" ? "list" : null;
   if ((k === "allGenres" || k === "allTags") && !d.vocab) return null;
   if (k === "franchise") return d.franchises ? "list" : null;
-  if (k === "secretCount") return got ? "grid" : null;
+  if (k === "secretCount" || k === "rarityCount") return got ? "grid" : null;
   if (k === "count") {
     if (def.metric.of === "bingoPoints") return "grid";
     if (def.metric.of === "favourites" && !d.favouriteIds) return null;
@@ -134,10 +134,13 @@ export function detailOf(def: BadgeDef, d: Derived, got?: Record<string, number>
   switch (m.k) {
     /* « Chasseur de secrets » : les secrets OBTENUS, du premier au dernier.
        Ceux qui manquent ne sont pas montrés : leur nom les dévoilerait. */
-    case "secretCount": {
+    /* « Cinq légendaires » : même lecture, les badges obtenus de cette rareté
+       (24/11/2026, Luc). Mêmes badges que ceux que `measure` compte. */
+    case "secretCount":
+    case "rarityCount": {
       if (!got) return null;
       const ids = Object.keys(got)
-        .filter((id) => d.defs[id]?.secret)
+        .filter((id) => (m.k === "secretCount" ? d.defs[id]?.secret : d.defs[id]?.rarity === m.rarity))
         .sort((a, b) => got[a] - got[b]);
       return {
         kind: "grid",

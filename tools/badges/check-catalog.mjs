@@ -741,6 +741,10 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
     check("« Chasseur de secrets » : les secrets obtenus, dans l'ordre",
       detailOf(sc, d, got).cells.map((c) => c.key), secrets);
     check("« Chasseur de secrets » : mythique", sc.rarity, "m");
+    const l5 = all.find((b) => b.id === "legendary-5");
+    const legs = all.filter((b) => b.rarity === "l").slice(0, 2).map((b) => b.id);
+    check("« Cinq légendaires » : les légendaires obtenus, dans l'ordre",
+      detailOf(l5, d, { [legs[1]]: 20, [legs[0]]: 10, "fin-1": 5 }).cells.map((c) => c.key), legs);
   }
   ok("« Impatient » : pas de détail",
     !detailKind(all.find((b) => b.metric.k === "planningUnaired"), d));
