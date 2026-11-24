@@ -904,7 +904,12 @@ function BadgeListImpl({
   if (view === "compact") {
     return <div className="as-stat-card overflow-hidden rounded-xl ring-1 ring-white/[.07]">{items}</div>;
   }
-  return <div className="flex flex-col gap-1.5">{items}</div>;
+  /* Même boîte de fond que la grille de tuiles. */
+  return (
+    <div className="as-stat-card flex flex-col gap-1.5 rounded-2xl p-2.5 ring-1 ring-white/[.07] sm:p-3">
+      {items}
+    </div>
+  );
 }
 
 /* ── Une ligne ──────────────────────────────────────────────────────────────── */
