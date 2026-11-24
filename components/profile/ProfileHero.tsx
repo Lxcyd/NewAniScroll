@@ -966,8 +966,12 @@ export default function ProfileHero({
           className="pointer-events-none absolute inset-x-0 top-0 z-0 overflow-hidden"
           style={{
             height: "calc(100% + 28rem)",
-            WebkitMaskImage: "linear-gradient(to bottom, #000 22%, rgba(0,0,0,.5) 48%, rgba(0,0,0,.15) 72%, transparent 100%)",
-            maskImage: "linear-gradient(to bottom, #000 22%, rgba(0,0,0,.5) 48%, rgba(0,0,0,.15) 72%, transparent 100%)",
+            /* Une courbe douce, beaucoup de paliers : la fin du halo ne doit
+               pas se lire comme une ligne (25/11, Luc : « moins abrupte »). */
+            WebkitMaskImage:
+              "linear-gradient(to bottom, #000 18%, rgba(0,0,0,.86) 30%, rgba(0,0,0,.68) 42%, rgba(0,0,0,.5) 53%, rgba(0,0,0,.34) 63%, rgba(0,0,0,.21) 73%, rgba(0,0,0,.11) 83%, rgba(0,0,0,.04) 92%, transparent 100%)",
+            maskImage:
+              "linear-gradient(to bottom, #000 18%, rgba(0,0,0,.86) 30%, rgba(0,0,0,.68) 42%, rgba(0,0,0,.5) 53%, rgba(0,0,0,.34) 63%, rgba(0,0,0,.21) 73%, rgba(0,0,0,.11) 83%, rgba(0,0,0,.04) 92%, transparent 100%)",
           }}
         >
           <div
@@ -979,7 +983,7 @@ export default function ProfileHero({
               /* 25/11 (Luc) : 0,55 et 0,3 « trop », 0,16 « plus de dégradé ». */
               filter: "blur(90px) saturate(1)",
               transform: "scale(1.2)",
-              opacity: 0.23,
+              opacity: 0.2,
             }}
           />
         </div>

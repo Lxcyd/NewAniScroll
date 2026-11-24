@@ -2746,14 +2746,21 @@ html.as-scene-nav-hidden .as-navbar {
    devient transparente au lieu de virer au fond de la page, et le halo de
    couleur posé dessous (ProfileHero) prend le relais sans coupure. */
 .as-strip-fade {
+  /* Queue allongée (25/11, Luc : « moins abrupte ») : l'image commence à
+     s'effacer plus tôt et ses derniers pourcents s'étirent, au lieu de
+     tomber de 18 % à 0 sur le dernier sixième. */
   --as-strip-mask: linear-gradient(
     180deg,
     #000 0%,
-    rgba(0, 0, 0, 0.94) 22%,
-    rgba(0, 0, 0, 0.84) 40%,
-    rgba(0, 0, 0, 0.66) 56%,
-    rgba(0, 0, 0, 0.42) 70%,
-    rgba(0, 0, 0, 0.18) 84%,
+    rgba(0, 0, 0, 0.96) 15%,
+    rgba(0, 0, 0, 0.89) 28%,
+    rgba(0, 0, 0, 0.78) 40%,
+    rgba(0, 0, 0, 0.64) 51%,
+    rgba(0, 0, 0, 0.49) 61%,
+    rgba(0, 0, 0, 0.34) 70%,
+    rgba(0, 0, 0, 0.21) 79%,
+    rgba(0, 0, 0, 0.11) 87%,
+    rgba(0, 0, 0, 0.04) 94%,
     transparent 100%
   );
   -webkit-mask-image: var(--as-strip-mask);
