@@ -406,6 +406,12 @@ export default function ProfileHero({
       wokeAt.current = performance.now();
       setBrowserMuted(false);
       void yt.current?.play();
+      /* Le fichier d'AnimeThemes, parti muet de la même façon. */
+      const el = audio.current;
+      if (el?.muted) {
+        el.muted = false;
+        void el.play().catch(() => {});
+      }
     };
     const opts = { once: true, capture: true } as const;
     window.addEventListener("pointerdown", wake, opts);
@@ -472,12 +478,14 @@ export default function ProfileHero({
       }
       return;
     }
-    if (!banner.music?.videoId) return;
+    /* Les deux sortes de musique démarrent seules (24/11/2026, Luc : le
+       fichier d'AnimeThemes, lui, ne partait jamais). */
+    if (!banner.music) return;
     const auto = !was && readAutoplay();
     /* Une pause d'avant le cookie : on le pose, la visite suivante est juste. */
     if (!auto && !was) rememberAutoplay(false);
     if (auto) setSound(true);
-  }, [banner.music?.videoId, studio]);
+  }, [banner.music?.videoId, banner.music?.url, studio]);
 
   /* Deux façons de jouer la musique, et la meilleure gagne quand elle existe.
      L'audio d'AnimeThemes est le rip du générique — 90 s, d'où le `loop`
@@ -501,8 +509,16 @@ export default function ProfileHero({
   useEffect(() => {
     const el = audio.current;
     if (!el || viaYouTube) return;
-    if (sound) void el.play().catch(() => setSound(false));
-    else el.pause();
+    if (sound) {
+      void el.play().catch((err: unknown) => {
+        /* Son refusé sans geste : on joue MUET, comme le lecteur YouTube, et
+           le premier geste sur la page rend le son (cf. `browserMuted`). */
+        if ((err as { name?: string })?.name !== "NotAllowedError" || el.muted) return setSound(false);
+        el.muted = true;
+        setBrowserMuted(true);
+        void el.play().catch(() => setSound(false));
+      });
+    } else el.pause();
   }, [sound, viaYouTube, banner.music?.url]);
 
   /* Le fondu de l'extrait, quand le studio en a posé un. `timeupdate` ne parle
@@ -918,8 +934,8 @@ export default function ProfileHero({
       ) : null}
       {/* SA CASE (17/10/2026) : le fichier d'AnimeThemes n'avait rien à
           l'écran pour se lancer ni se couper. La même que la version YouTube,
-          sa pochette à la place du lecteur. Jamais de lecture auto : le
-          visiteur la lance d'ici. */}
+          sa pochette à la place du lecteur. Lecture auto comme elle depuis le
+          24/11/2026 (muette si le navigateur refuse le son). */}
       {banner.music && !viaYouTube && showCard ? (
         /* `pointer-events-none` : réduite, la case garde sa boîte de 240 px
            (elle rétrécit en transform) et cette boîte vide bloquait la molette.
@@ -946,10 +962,30 @@ export default function ProfileHero({
               return fadeGain(el.currentTime, banner.music?.from ?? 0, banner.music?.to || el.duration || 0, fade);
             }}
             playing={sound}
-            muted={vol === 0}
+            muted={vol === 0 || browserMuted}
             volume={vol > 0 ? vol : PROFILE_DEFAULT_VOLUME}
-            onToggle={() => setSound((x) => !x)}
-            onMuted={(m) => changeVol(m ? 0 : PROFILE_DEFAULT_VOLUME)}
+            /* Comme la case YouTube : le choix est retenu, et le clic qui
+               rend le son ne met pas en pause. */
+            onToggle={() => {
+              if (browserMuted || performance.now() - wokeAt.current < 600) return;
+              setSound((x) => {
+                rememberAutoplay(!x);
+                return !x;
+              });
+            }}
+            onMuted={(m) => {
+              if (!m && browserMuted) {
+                setBrowserMuted(false);
+                const el = audio.current;
+                if (el) {
+                  el.muted = false;
+                  void el.play().catch(() => {});
+                }
+                if (vol === 0) changeVol(PROFILE_DEFAULT_VOLUME);
+                return;
+              }
+              changeVol(m ? 0 : PROFILE_DEFAULT_VOLUME);
+            }}
             onVolume={changeVol}
             fallback={PROFILE_DEFAULT_VOLUME}
             minimizable
