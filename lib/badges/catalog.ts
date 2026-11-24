@@ -108,7 +108,7 @@ export const BADGES: BadgeDef[] = [
   { id: "april-fool", family: "discovery", rarity: "u", icon: "fishHook", tag: "01/04", metric: {"k":"onDate","month":4,"day":1,"genre":"Comedy","n":1} },
   { id: "g-action", family: "genres", rarity: "r", icon: "fist", tag: "30", metric: {"k":"genre","name":"Action","n":30} },
   { id: "g-romance", family: "genres", rarity: "r", icon: "partnerHeart", tag: "20", metric: {"k":"genre","name":"Romance","n":20} },
-  { id: "g-horror", family: "genres", rarity: "r", icon: "horror", tag: "15", metric: {"k":"genre","name":"Horror","n":15} },
+  { id: "g-horror", family: "genres", rarity: "r", icon: "horror", tag: "10", metric: {"k":"genre","name":"Horror","n":10} },
   { id: "g-mecha", family: "genres", rarity: "r", icon: "robot", tag: "10", metric: {"k":"genre","name":"Mecha","n":10} },
   { id: "g-slice", family: "genres", rarity: "r", icon: "leaf", tag: "20", metric: {"k":"genre","name":"Slice of Life","n":20} },
   { id: "g-isekai", family: "genres", rarity: "r", icon: "reborn", tag: "15", metric: {"k":"tag","name":"Isekai","n":15} },

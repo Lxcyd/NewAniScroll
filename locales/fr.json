@@ -2499,7 +2499,7 @@
     },
     "g-horror": {
       "name": "Même pas peur",
-      "cond": "Termine 15 anime d'horreur."
+      "cond": "Termine 10 anime d'horreur."
     },
     "g-mecha": {
       "name": "Dans le cockpit",

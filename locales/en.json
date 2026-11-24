@@ -2499,7 +2499,7 @@
     },
     "g-horror": {
       "name": "Not even scared",
-      "cond": "Finish 15 horror anime."
+      "cond": "Finish 10 horror anime."
     },
     "g-mecha": {
       "name": "In the cockpit",
