@@ -73,7 +73,7 @@ const COUNT_OF = new Set(["completed", "rated", "rewatched", "favourites"]);
  */
 export function detailKind(def: BadgeDef, d: Derived): "grid" | "list" | null {
   const k = def.metric.k;
-  if (k === "flag") return def.metric.name === "oav" || def.metric.name === "dayOne" ? "list" : null;
+  if (k === "flag") return ["oav", "dayOne", "bothLangs"].includes(String(def.metric.name)) ? "list" : null;
   if (k === "counter") return def.metric.name === "onAirDay" ? "list" : null;
   if ((k === "allGenres" || k === "allTags") && !d.vocab) return null;
   if (k === "franchise") return d.franchises ? "list" : null;
@@ -209,6 +209,11 @@ export function detailOf(def: BadgeDef, d: Derived): Detail | null {
       // Seul « Épisode bonus » a une liste : la même lecture que `flagUp`.
       if (m.name === "dayOne") {
         return { kind: "list", items: d.entries.filter((e) => d.finalOnAir.has(e.mediaId)).sort(byTitle) };
+      }
+      /* « VO et VF » : les anime dont un épisode a été vu dans les deux langues. */
+      if (m.name === "bothLangs") {
+        const ids = new Set(d.facts.bothLangs);
+        return { kind: "list", items: d.entries.filter((e) => ids.has(e.mediaId)).sort(byTitle) };
       }
       if (m.name !== "oav") return null;
       return { kind: "list", items: d.seen.filter(isBonusFormat).sort(byTitle) };

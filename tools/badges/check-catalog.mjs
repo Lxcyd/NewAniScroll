@@ -720,6 +720,12 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
     const det = detailOf(all.find((b) => b.metric.k === k), d);
     check(`${k} : l'anime qui l'a fait tomber`, det.items.map((e) => e.mediaId), ids);
   }
+  {
+    const dv = derive(snap({ list, facts: { ...EMPTY_FACTS, bothLangs: [3] } }));
+    const vf = all.find((b) => b.id === "two-voices");
+    check("« VO et VF » : un détail", detailKind(vf, dv), "list");
+    check("« VO et VF » : l'anime vu dans les deux langues", detailOf(vf, dv).items.map((e) => e.mediaId), [3]);
+  }
   ok("« Impatient » : pas de détail",
     !detailKind(all.find((b) => b.metric.k === "planningUnaired"), d));
   {
