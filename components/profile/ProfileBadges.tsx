@@ -1780,7 +1780,8 @@ const MISSING_INLINE = 12;
 function MissingLine({ def, derived }: { def: BadgeDef; derived: Derived }) {
   const { t } = useTranslation();
   const missing = useMemo(() => {
-    if (detailKind(def, derived) !== "grid") return null;
+    /* « De A à Z » sans « Il manque : E » (24/11/2026, Luc). */
+    if (def.metric.k === "alphabet" || detailKind(def, derived) !== "grid") return null;
     const d = detailOf(def, derived);
     if (!d || d.kind !== "grid" || d.labels === "season") return null;
     const m = d.cells.filter((c) => !c.done);
