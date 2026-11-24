@@ -2503,7 +2503,7 @@
     },
     "g-mecha": {
       "name": "In the cockpit",
-      "cond": "Finish 10 mecha anime."
+      "cond": "Finish 5 mecha anime."
     },
     "g-slice": {
       "name": "Slice of life",

@@ -2503,7 +2503,7 @@
     },
     "g-mecha": {
       "name": "Dans le cockpit",
-      "cond": "Termine 10 anime de mecha."
+      "cond": "Termine 5 anime de mecha."
     },
     "g-slice": {
       "name": "Tranche de vie",
