@@ -3,7 +3,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import Head from "next/head";
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import ResetWidgetsButton, { popIn } from "@/components/profile/ResetWidgetsButton";
+import ResetWidgetsButton, { FadeSwap, popIn } from "@/components/profile/ResetWidgetsButton";
 import { useTranslation } from "react-i18next";
 import { getServerSession } from "next-auth";
 import { useSession } from "next-auth/react";
@@ -542,10 +542,12 @@ function ProfileView({
           {/* RÉINITIALISER LES WIDGETS (08/11/2026, Luc) : dans le studio
               seulement, À LA PLACE de « Personnaliser le profil », et sur les
               deux onglets à widgets (24/11/2026). */}
-          {isOwner && picker && (tab === "overview" || tab === "stats") ? <ResetWidgetsButton tab={tab} /> : null}
+          {isOwner ? (
+          <FadeSwap k={!picker ? "custom" : tab === "overview" || tab === "stats" ? "reset" : "none"}>
+          {picker && (tab === "overview" || tab === "stats") ? <ResetWidgetsButton tab={tab} /> : null}
           {/* PERSONNALISER LE PROFIL, à la place de « Pour toi » (08/11/2026,
               Luc) : LE bouton qui ouvre le studio. */}
-          {isOwner && !picker && (
+          {!picker && (
             <button
               ref={popIn}
               type="button"
@@ -560,6 +562,8 @@ function ProfileView({
               {t("profile.customizeProfile")}
             </button>
           )}
+          </FadeSwap>
+          ) : null}
           {!isOwner && identity.tag ? <FriendButton tag={identity.tag} /> : null}
         </div>
 

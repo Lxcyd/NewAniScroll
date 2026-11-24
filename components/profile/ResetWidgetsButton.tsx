@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { ArrowPathIcon } from "@heroicons/react/24/solid";
 
 import { WIDGETS_RESET_EVENT } from "@/lib/profile/widgetBridge";
+
+const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /** L'entrée d'un bouton de l'en-tête quand le studio s'ouvre ou se ferme.
     Une référence STABLE (hors composant) : passée en `ref`, elle ne joue
@@ -15,6 +17,56 @@ export function popIn(el: HTMLElement | null) {
       { opacity: 1, transform: "none" },
     ],
     { duration: 260, easing: "cubic-bezier(.2,.8,.2,1)" },
+  );
+}
+
+/**
+ * L'ÉCHANGE DES BOUTONS DE L'EN-TÊTE EN FONDU (24/11/2026, Luc : « c'est très
+ * cut »). Quand `k` change, l'ancien bouton reste affiché le temps de
+ * s'effacer, PUIS le nouveau est monté — et entre par son `popIn`. Sans ça,
+ * l'un disparaissait et l'autre surgissait dans la même image.
+ */
+export function FadeSwap({ k, children }: { k: string; children: ReactNode }) {
+  const [shown, setShown] = useState<{ k: string; node: ReactNode }>({ k, node: children });
+  const box = useRef<HTMLDivElement>(null);
+  const run = useRef<Animation | null>(null);
+  useEffect(() => {
+    /* Revenu au bouton affiché pendant sa sortie : il réapparaît. */
+    if (k === shown.k) {
+      run.current?.cancel();
+      run.current = null;
+      return;
+    }
+    const el = box.current;
+    const next = { k, node: children };
+    if (!el || !shown.node) {
+      setShown(next);
+      return;
+    }
+    const a = el.animate(
+      [
+        { opacity: 1, transform: "none" },
+        { opacity: 0, transform: "translateY(-4px) scale(0.95)" },
+      ],
+      { duration: 170, easing: "ease-in", fill: "forwards" },
+    );
+    run.current = a;
+    a.onfinish = () => setShown(next);
+    return () => {
+      a.onfinish = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [k]);
+  /* Le voile de sortie tombe une fois le nouveau bouton monté, pas avant :
+     sinon l'ancien réapparaîtrait une image. */
+  useIsoLayoutEffect(() => {
+    run.current?.cancel();
+    run.current = null;
+  }, [shown.k]);
+  return (
+    <div ref={box} className="inline-flex">
+      {k === shown.k ? children : shown.node}
+    </div>
   );
 }
 
