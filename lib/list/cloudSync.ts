@@ -295,6 +295,10 @@ export type PullResult = {
  */
 /** Les catégories fusionnées au dernier pull : `start` les renvoie aussitôt. */
 const mergedSincePull = new Set<DataKind>();
+/** Les catégories en conflit au dernier pull : `start` ne les pousse pas. */
+const heldForConflict = new Set<DataKind>();
+/** Un pull a abouti : l'appareil connaît l'état du compte. */
+let pulledOk = false;
 
 export async function pullAll(options?: { force?: boolean }): Promise<PullResult> {
   const result: PullResult = { applied: [], conflicts: [] };
@@ -336,10 +340,16 @@ export async function pullAll(options?: { force?: boolean }): Promise<PullResult
          maintenant l'union), donc il doit repartir vers le serveur au prochain
          passage, et c'est `pushKinds` qui posera la révision de la version
          fusionnée. */
-      if (merge(entry.payload)) {
-        result.applied.push(entry.kind);
-        mergedSincePull.add(entry.kind);
-      } else nextRevs[entry.kind] = entry.rev;
+      const changed = merge(entry.payload);
+      if (changed) result.applied.push(entry.kind);
+      /* LE SERVEUR N'A PAS TOUT (24/11/2026) : un badge accordé ici avant ce
+         pull — « Là depuis la bêta », dans les secondes qui suivent la
+         connexion — ne change pas la copie locale à la fusion (elle l'a déjà).
+         Sans ce test, la révision était prise et le badge ne partait jamais :
+         le profil public, qui lit le serveur, ne l'a montré à personne. */
+      const now = readKind(entry.kind);
+      if (changed || (now && !sameData(now, entry.payload))) mergedSincePull.add(entry.kind);
+      else nextRevs[entry.kind] = entry.rev;
     } else if (known == null && sameData(local, entry.payload)) {
       /* LE COMPTE QUI VIENT D'ÊTRE CRÉÉ (24/11/2026) : l'inscription emporte les
          données du navigateur (`snapshotAll`), et le premier pull les retrouvait
@@ -359,6 +369,9 @@ export async function pullAll(options?: { force?: boolean }): Promise<PullResult
   }
 
   writeRevs(nextRevs);
+  heldForConflict.clear();
+  result.conflicts.forEach((k) => heldForConflict.add(k));
+  pulledOk = true;
   if (result.applied.length) {
     // Every store listens to `storage` as well as its own event, so a single
     // notification is enough to refresh the whole UI.
@@ -464,7 +477,19 @@ export function start(): () => void {
      cette catégorie », donc elle s'éteint dès la première poussée réussie
      (`writeRevs`) et ne coûte plus rien ensuite — pas de POST par session. Et
      si l'historique local est vide, `pushKinds` n'envoie rien du tout. */
-  if (readRevs().recent === undefined) mark("recent");
+  /* GÉNÉRALISÉ LE 24/11/2026 à toute catégorie : ce que l'appareil a écrit
+     AVANT que cette écoute commence (le badge bêta, accordé dès la connexion)
+     n'avait aucun événement pour partir, et un compte neuf n'a de révision pour
+     rien. Sauf les catégories en conflit : l'utilisateur n'a pas encore choisi
+     quelle copie garder, les pousser trancherait à sa place. Et seulement
+     après un pull réussi : sans lui, l'appareil ignore ce que le compte a, et
+     pousser écraserait peut-être une liste qu'il n'a jamais vue. */
+  const known = readRevs();
+  if (pulledOk) {
+    for (const kind of DATA_KINDS) {
+      if (known[kind] === undefined && !heldForConflict.has(kind) && readKind(kind)) mark(kind);
+    }
+  } else if (known.recent === undefined) mark("recent");
   /* L'union faite au pull part tout de suite, sans attendre le prochain épisode. */
   mergedSincePull.forEach((k) => mark(k));
   mergedSincePull.clear();
