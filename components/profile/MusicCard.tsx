@@ -315,27 +315,47 @@ export default function MusicCard({
           boîte plus grande que la case (`-inset-16`, la lumière se rend à
           ~55 px), car un masque efface tout ce qui dépasse sa propre boîte.
           Même centre que la case : le repli (scale) ne bouge pas. */}
-      <div
-        className="pointer-events-none absolute -inset-16 -z-10 transition-[transform,opacity] duration-300 ease-out will-change-transform"
-        style={{
-          opacity: folded ? 0 : 1,
-          transform: folded ? `translate(${SHIFT}px, ${SHIFT}px) scale(${MINI / CARD})` : "none",
-          maskImage: "radial-gradient(closest-side, #000 55%, transparent 100%)",
-          WebkitMaskImage: "radial-gradient(closest-side, #000 55%, transparent 100%)",
-        }}
-      >
-        <div className="absolute inset-16">
-          {/* `playing` toujours faux : elle ne peint son image qu'à l'arrêt, et
-              une lecture partie seule au montage l'aurait laissée éteinte. Il
-              n'y a pas de vidéo à suivre ici. */}
-          <TrailerAmbient banner={art} playing={false} />
-        </div>
-      </div>
+      {/* UNE LUMIÈRE PAR FACE (24/11/2026, Luc). Au retournement, celle de la
+          face qui part s'éteint en rétrécissant pendant la première moitié du
+          demi-tour ; celle de la face qui arrive grandit en s'allumant pendant
+          la seconde (le délai est porté par l'état d'arrivée : l'extinction,
+          elle, part tout de suite). */}
+      {(back ? [false, true] : [false]).map((isBack) => {
+        const shown = !folded && isBack === flipped;
+        return (
+          <div
+            key={isBack ? "back" : "front"}
+            className="pointer-events-none absolute -inset-16 -z-10 will-change-transform"
+            style={{
+              opacity: shown ? 1 : 0,
+              transform: folded
+                ? `translate(${SHIFT}px, ${SHIFT}px) scale(${MINI / CARD})`
+                : shown
+                  ? "none"
+                  : "scale(0.8)",
+              transitionProperty: "transform, opacity",
+              transitionDuration: back ? "250ms" : "300ms",
+              transitionTimingFunction: shown ? "ease-out" : "ease-in",
+              transitionDelay: back && shown ? "250ms" : "0ms",
+              maskImage: "radial-gradient(closest-side, #000 55%, transparent 100%)",
+              WebkitMaskImage: "radial-gradient(closest-side, #000 55%, transparent 100%)",
+            }}
+          >
+            <div className="absolute inset-16">
+              {/* `playing` toujours faux : elle ne peint son image qu'à l'arrêt, et
+                  une lecture partie seule au montage l'aurait laissée éteinte. Il
+                  n'y a pas de vidéo à suivre ici. */}
+              <TrailerAmbient banner={isBack ? back?.art || art : art} playing={false} />
+            </div>
+          </div>
+        );
+      })}
       {canMini ? (
         <img
           aria-hidden
           alt=""
-          src={art}
+          /* La face visible : le petit carré garde celle sur laquelle on l'a quitté. */
+          src={flipped && back?.art ? back.art : art}
           /* À peine visible (17/10/2026) : 4 px de débord, 8 px de flou. */
           className={`pointer-events-none absolute -bottom-1 -right-1 -z-10 object-cover blur-[8px] transition-[transform,opacity] duration-300 ease-out will-change-transform ${folded ? "opacity-30" : "opacity-0"}`}
           style={{
