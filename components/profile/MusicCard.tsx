@@ -291,6 +291,7 @@ export default function MusicCard({
   const backArt = useHiResArt(back?.art ?? "");
   const [flipped, setFlipped] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const flippedAt = useRef(0);
   const hasBack = !!back;
   useEffect(() => {
     if (!hasBack) setFlipped(false);
@@ -540,14 +541,26 @@ export default function MusicCard({
           /* HORS DU PLAN QUI TOURNE : posée sur une face, l'icône partirait de
              sous la souris pendant le demi-tour et y reviendrait — un nouveau
              survol, un nouveau retournement, sans fin. Ici elle ne bouge pas. */
-          <span
-            aria-hidden
-            onPointerEnter={() => setFlipped((f) => !f)}
+          /* Le clic retourne aussi (24/11/2026, Luc) — sauf celui qui suit de
+             près le survol qui vient de retourner : sans ça, arriver et cliquer
+             (ou un tap sur téléphone, qui fait les deux) remettait la carte à
+             l'endroit. */
+          <button
+            type="button"
+            onPointerEnter={() => {
+              flippedAt.current = performance.now();
+              setFlipped((f) => !f);
+            }}
+            onClick={() => {
+              if (performance.now() - flippedAt.current < 400) return;
+              setFlipped((f) => !f);
+            }}
+            aria-label={flipped ? "Revenir à la musique" : "Lecture / pause du fond"}
             title={flipped ? "Musique" : "Fond"}
-            className={`as-preview-videobtn absolute left-2 top-2 z-10 grid h-7 w-7 cursor-default place-items-center transition-opacity duration-200 ${hovered ? "opacity-100" : "pointer-events-none opacity-0"}`}
+            className={`as-preview-videobtn absolute left-2 top-2 z-10 h-7 w-7 transition-opacity duration-200 ${hovered ? "opacity-100" : "pointer-events-none opacity-0"}`}
           >
             <ArrowPathRoundedSquareIcon className="h-4 w-4" strokeWidth={2} />
-          </span>
+          </button>
         ) : null}
       </div>
     </div>
