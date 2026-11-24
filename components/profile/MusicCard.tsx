@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from "react";
 import { MdPause, MdPlayArrow } from "react-icons/md";
+import { ArrowPathRoundedSquareIcon } from "@heroicons/react/24/outline";
 import HoverVolume from "@/components/shared/HoverVolume";
 import { eqLevels, eqVoice, type EqVoice } from "@/lib/profile/eqMotion";
 import TrailerAmbient from "@/components/shared/HoverPreview/TrailerAmbient";
@@ -282,13 +283,14 @@ export default function MusicCard({
   );
   const folded = canMini && mini;
 
-  /* Le verso : CHAQUE SURVOL RETOURNE LA CARTE (24/11/2026, Luc : « tu hover
-     la carte se retourne, tu quittes et tu re-hover elle se retourne »). Pas
-     de bouton ; la face montrée reste jusqu'au survol suivant, petit carré
-     compris. */
+  /* Le verso : CHAQUE SURVOL DE L'ICÔNE RETOURNE LA CARTE (24/11/2026, Luc :
+     « un icône à hover, pas la case »). L'icône paraît au survol de la case,
+     en haut à gauche ; passer dessus retourne, la quitter puis y revenir
+     retourne encore. La face montrée reste jusque-là, petit carré compris. */
   const back = card.back ?? null;
   const backArt = useHiResArt(back?.art ?? "");
   const [flipped, setFlipped] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const hasBack = !!back;
   useEffect(() => {
     if (!hasBack) setFlipped(false);
@@ -377,10 +379,13 @@ export default function MusicCard({
         onPointerMove={() => wake()}
         onPointerEnter={() => {
           wake();
-          if (hasBack) setFlipped((f) => !f);
+          setHovered(true);
           if (canMini) grow();
         }}
-        onPointerLeave={canMini ? () => shrinkIn(0) : undefined}
+        onPointerLeave={() => {
+          setHovered(false);
+          if (canMini) shrinkIn(0);
+        }}
       >
         {/* Le retournement : un plan 3D, deux faces dos à dos. Sans verso,
             aucune 3D — la case reste exactement celle d'avant. */}
@@ -531,6 +536,19 @@ export default function MusicCard({
           </div>
         ) : null}
         </div>
+        {back && !folded ? (
+          /* HORS DU PLAN QUI TOURNE : posée sur une face, l'icône partirait de
+             sous la souris pendant le demi-tour et y reviendrait — un nouveau
+             survol, un nouveau retournement, sans fin. Ici elle ne bouge pas. */
+          <span
+            aria-hidden
+            onPointerEnter={() => setFlipped((f) => !f)}
+            title={flipped ? "Musique" : "Fond"}
+            className={`as-preview-videobtn absolute left-2 top-2 z-10 grid h-7 w-7 cursor-default place-items-center transition-opacity duration-200 ${hovered ? "opacity-100" : "pointer-events-none opacity-0"}`}
+          >
+            <ArrowPathRoundedSquareIcon className="h-4 w-4" strokeWidth={2} />
+          </span>
+        ) : null}
       </div>
     </div>
   );
