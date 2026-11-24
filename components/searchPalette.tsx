@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { recordFlag } from "@/lib/badges/facts";
+import { flush as flushBadges } from "@/lib/badges/evaluate";
 import { getShowAdult } from "@/lib/prefs/adultPrefs";
 import { Combobox, Dialog, Menu, Transition } from "@headlessui/react";
 import useDebounce from "@/lib/hooks/useDebounce";
@@ -116,14 +117,19 @@ export default function SearchPalette() {
       .toLowerCase()
       .trim();
     if (!q) return;
-    if (q === "aniscroll") recordFlag("recursive");
-    if (q === "hentai") recordFlag("notHere");
     const me = String((searchSession as any)?.user?.name ?? "")
       .normalize("NFD")
       .replace(/[̀-ͯ]/g, "")
       .toLowerCase()
       .trim();
-    if (me.length >= 3 && q === me) recordFlag("selfSearch");
+    /* Le badge tombe A LA FRAPPE, sans Entree : on evalue tout de suite au
+       lieu d'attendre les 2 s de calme du debounce, qu'on n'atteignait jamais
+       avant de valider ou de continuer a taper. */
+    let got = false;
+    if (q === "aniscroll") got = recordFlag("recursive") || got;
+    if (q === "hentai") got = recordFlag("notHere") || got;
+    if (me.length >= 3 && q === me) got = recordFlag("selfSearch") || got;
+    if (got) flushBadges();
   }, [query, searchSession]);
   const [data, setData] = useState<DataTypes[] | null>(null);
   const debounceSearch = useDebounce(query, 300);
