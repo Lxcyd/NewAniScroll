@@ -350,11 +350,16 @@ export default function MusicCard({
                 ? `translate(${SHIFT}px, ${SHIFT}px) scale(${MINI / CARD})`
                 : shown
                   ? "none"
-                  : "scale(0.8)",
+                  : "scale(0.55)",
+              /* CALÉE SUR LA ROTATION (ease-in-out, de profil à 250 ms) : celle
+                 qui part s'éteint VITE (ease-out, finie à 220 ms) pour être nulle
+                 quand la carte est de profil ; l'autre ne part qu'à ce moment.
+                 La première version (rotation rapide au départ, extinction lente)
+                 laissait la lumière presque pleine autour d'une carte de profil. */
               transitionProperty: "transform, opacity",
-              transitionDuration: back ? "250ms" : "300ms",
-              transitionTimingFunction: shown ? "ease-out" : "ease-in",
-              transitionDelay: back && shown ? "250ms" : "0ms",
+              transitionDuration: back ? (shown ? "250ms" : "220ms") : "300ms",
+              transitionTimingFunction: "ease-out",
+              transitionDelay: back && shown && !folded ? "250ms" : "0ms",
               maskImage: "radial-gradient(closest-side, #000 55%, transparent 100%)",
               WebkitMaskImage: "radial-gradient(closest-side, #000 55%, transparent 100%)",
             }}
@@ -390,7 +395,7 @@ export default function MusicCard({
            réduit vers le coin bas droit. */
         /* L'ombre est ICI, avec l'arrondi de la case : le masque de la case
            (ci-dessous) la couperait. */
-        className={`pointer-events-auto relative h-full w-full shadow-2xl transition-[transform,border-radius] duration-300 ease-out will-change-transform ${folded ? "rounded-[40px]" : "rounded-xl"}`}
+        className={`pointer-events-auto relative h-full w-full ${back ? "" : "shadow-2xl"} transition-[transform,border-radius] duration-300 ease-out will-change-transform ${folded ? "rounded-[40px]" : "rounded-xl"}`}
         style={canMini ? { transform: folded ? `scale(${MINI / CARD})` : "none", transformOrigin: "100% 100%" } : undefined}
         onPointerMove={() => wake()}
         onPointerEnter={() => {
@@ -406,7 +411,10 @@ export default function MusicCard({
         {/* Le retournement : un plan 3D, deux faces dos à dos. Sans verso,
             aucune 3D — la case reste exactement celle d'avant. */}
         <div
-          className="relative h-full w-full transition-transform duration-500 ease-[cubic-bezier(.2,.7,.2,1)]"
+          /* Avec un verso, l'ombre est portée ICI, sur le plan qui tourne : sur
+             le cadre fixe, elle restait un grand carré sombre autour d'une
+             carte vue de profil. L'arrondi est celui du cadre (`inherit`). */
+          className={`relative h-full w-full transition-transform duration-500 ease-in-out ${back ? "rounded-[inherit] shadow-2xl" : ""}`}
           style={
             back
               ? { transformStyle: "preserve-3d", transform: `perspective(900px) rotateY(${flipped ? 180 : 0}deg)` }
