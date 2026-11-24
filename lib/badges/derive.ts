@@ -41,6 +41,10 @@ export type Snapshot = {
   feedHours?: number[];
   /** Le fil AniList lui-même : [secondes, id AniList, épisode]. */
   feedEvents?: [number, number, number][];
+  /** Les dates de diffusion (lib/badges/airingBackfill.ts). */
+  airing?: Record<number, { t: number | null; a: [number, number][] }>;
+  /** Toutes les dates ont été lues : une absence y prouve quelque chose. */
+  airingComplete?: boolean;
   /** Maintenant, injectable pour que les tests ne dépendent pas de l'horloge. */
   now: number;
 };
@@ -70,6 +74,14 @@ export type Derived = {
   neverSkippedIds: Set<number>;
   /** Le compte a un fil AniList chargé. */
   hasFeed: boolean;
+  /** Épisodes vus dans les 24 h suivant leur diffusion, par anime. */
+  onAirByAnime: Map<number, number>;
+  /** Le moment de chacun de ces visionnages, triés. */
+  onAirStamps: number[];
+  /** Anime dont le DERNIER épisode a été vu le jour de sa diffusion → quand. */
+  finalOnAir: Map<number, number>;
+  finalOnAirAt: number | null;
+  hasAiring: boolean;
   /** La première reprise d'un anime après plus de 30 jours, d'après le fil. */
   comebackAt: number | null;
   /** Jours locaux où au moins un épisode a été terminé. */
@@ -414,6 +426,34 @@ export function derive(s: Snapshot): Derived {
     }
   }
 
+  /* « Toujours à jour » : vu dans les 24 h qui SUIVENT la diffusion, une fois par
+     épisode. « Final le jour même » : le même, sur le dernier épisode connu. */
+  const airAt = new Map<string, number>();
+  for (const [id, info] of Object.entries(s.airing ?? {})) {
+    for (const [ep, at] of info.a ?? []) airAt.set(`${id}:${ep}`, at * 1000);
+  }
+  const firstOnAir = new Map<string, number>();
+  const onAirSee = (id: number, ep: number, at: number) => {
+    const k = `${id}:${ep}`;
+    const aired = airAt.get(k);
+    if (aired == null || at < aired || at - aired >= 86_400_000) return;
+    const cur = firstOnAir.get(k);
+    if (cur == null || at < cur) firstOnAir.set(k, at);
+  };
+  for (const [sec, id, ep] of feedSorted) {
+    const at = sane(sec * 1000, now);
+    if (at) onAirSee(id, ep, at);
+  }
+  for (const w of watched) if (w.at) onAirSee(w.aniId, Number(w.episode), w.at);
+  const onAirByAnime = new Map<number, number>();
+  const finalOnAir = new Map<number, number>();
+  for (const [k, at] of firstOnAir) {
+    const [id, ep] = k.split(":").map(Number);
+    onAirByAnime.set(id, (onAirByAnime.get(id) ?? 0) + 1);
+    if (s.airing?.[id]?.t === ep) finalOnAir.set(id, at);
+  }
+  const onAirStamps = [...firstOnAir.values()].sort((a, b) => a - b);
+
   /* « D'un coup » : la date de la liste, sauf si le fil la contredit (des épisodes
      vus avant, ou tous cochés en quelques secondes), ou le fil seul. */
   const sameDayAt = new Map<number, number>();
@@ -619,6 +659,11 @@ export function derive(s: Snapshot): Derived {
     onlyLastIds,
     neverSkippedIds,
     hasFeed: s.feedEvents !== undefined,
+    onAirByAnime,
+    onAirStamps,
+    finalOnAir,
+    finalOnAirAt: finalOnAir.size ? Math.min(...finalOnAir.values()) : null,
+    hasAiring: s.airingComplete === true,
     comebackAt,
     days,
     streak: currentRun(days, dayKey(now)),

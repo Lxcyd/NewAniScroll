@@ -39,6 +39,7 @@ import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import type { LocalEntry } from "@/lib/list/localList";
 import { backfillMetadata } from "@/lib/badges/metaBackfill";
+import { backfillAiring } from "@/lib/badges/airingBackfill";
 import { recordFlag } from "@/lib/badges/facts";
 import { revealAnchor, revealTarget } from "@/lib/badges/reveal";
 import { SECTION_ORDER, sectionOf } from "@/lib/badges/sections";
@@ -194,7 +195,11 @@ export default function ProfileBadges({
        la forcer maintenant la laisserait tomber une fois la portée refermée,
        c'est-à-dire en annonçant — précisément ce qu'on évite. */
     beginQuiet();
-    void backfillMetadata().finally(() => {
+    void backfillMetadata()
+      .catch(() => {})
+      .then(() => backfillAiring())
+      .catch(() => {})
+      .finally(() => {
       flush();
       endQuiet();
       const next = progressAll(undefined, stateRef.current);
@@ -1647,7 +1652,7 @@ function DetailPopup({
       {detail.kind === "grid" ? (
         <DetailGrid yearOf={yearOf} detail={detail} color={R.ic} />
       ) : (
-        <AnimeList yearOf={yearOf} items={detail.items} />
+        <AnimeList yearOf={yearOf} items={detail.items} episodes={detail.episodes} />
       )}
     </PopShell>
   );
@@ -1791,8 +1796,13 @@ function MissingLine({ def, derived }: { def: BadgeDef; derived: Derived }) {
 }
 
 /** Les anime d'une case ou d'un seuil : vignette, titre, année — et un lien. */
-function AnimeList({ yearOf, items }: { yearOf: (e: LocalEntry) => number | null; items: LocalEntry[] }) {
-  const { t } = useTranslation();
+function AnimeList({ yearOf, items, episodes }: {
+  yearOf: (e: LocalEntry) => number | null;
+  items: LocalEntry[];
+  episodes?: Map<number, number>;
+}) {
+  const { t, i18n } = useTranslation();
+  const epLabel = i18n.language?.startsWith("fr") ? "ép." : "ep";
   const titlePref = useTitlePref();
   const clickTarget = useClickTarget();
   if (!items.length) {
@@ -1824,7 +1834,11 @@ function AnimeList({ yearOf, items }: { yearOf: (e: LocalEntry) => number | null
             <span className="min-w-0 flex-1 truncate font-karla text-[13px] text-white/85">
               {pickTitle(e.title, titlePref)}
             </span>
-            {yearOf(e) ? (
+            {episodes?.has(e.mediaId) ? (
+              <span className="shrink-0 font-karla text-[11px] tabular-nums text-white/35">
+                {episodes.get(e.mediaId)} {epLabel}
+              </span>
+            ) : yearOf(e) ? (
               <span className="shrink-0 font-karla text-[11px] tabular-nums text-white/35">
                 {yearOf(e)}
               </span>

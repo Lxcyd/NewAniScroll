@@ -53,8 +53,12 @@ export type BadgeState = {
    */
   redated?: true;
   /** Les badges accordés par d'anciennes règles fausses ont été retirés (24/11/2026). */
-  regraded?: true;
+  regraded?: number;
 };
+
+/** À monter quand une règle corrigée doit repasser sur les collections. */
+export const CORRECTION_VERSION = 2;
+const versionOf = (s: BadgeState) => ((s.regraded as unknown) === true ? 1 : Number(s.regraded) || 0);
 
 const EMPTY: BadgeState = { v: 1, got: {} };
 
@@ -66,7 +70,7 @@ const EMPTY: BadgeState = { v: 1, got: {} };
 export const NO_DATE = 1;
 
 /** Les badges dont la règle a été corrigée le 24/11/2026. */
-export const REVISED_RULES = ["by-the-end", "never-op", "comeback", "one-sitting", "first-rating", "rated-50", "rated-200"];
+export const REVISED_RULES = ["by-the-end", "never-op", "comeback", "one-sitting", "first-rating", "rated-50", "rated-200", "day-one"];
 
 /** La plus ancienne des deux, une vraie date l'emportant toujours sur NO_DATE. */
 const earliest = (a: number, b: number) =>
@@ -86,7 +90,7 @@ function parse(raw: string | null): BadgeState {
       got,
       ...(p?.backfilled ? { backfilled: true as const } : {}),
       ...(p?.redated ? { redated: true as const } : {}),
-      ...(p?.regraded ? { regraded: true as const } : {}),
+      ...(p?.regraded ? { regraded: p.regraded === true ? 1 : Number(p.regraded) || 1 } : {}),
     };
   } catch {
     return EMPTY;
@@ -151,7 +155,7 @@ export function grant(
       got,
       ...(markBackfilled ? { backfilled: true as const } : {}),
       ...(state.redated ? { redated: true as const } : {}),
-      ...(state.regraded ? { regraded: true as const } : {}),
+      ...(state.regraded ? { regraded: state.regraded } : {}),
     });
   }
   return fresh;
@@ -165,7 +169,7 @@ export function applyCorrection(dates: Record<string, number>, wrong: string[]):
   const state = getBadgeState();
   const got = { ...state.got, ...dates };
   for (const id of wrong) delete got[id];
-  write({ ...state, got, redated: true, regraded: true });
+  write({ ...state, got, redated: true, regraded: CORRECTION_VERSION });
 }
 
 /**
@@ -183,11 +187,12 @@ export function mergeBadgeState(a: BadgeState, b: BadgeState): BadgeState {
   const got: Record<string, number> = { ...a.got };
   /* Une copie d'avant la correction ne ramène pas ce que la correction a retiré :
      la page affichait 72 badges (sa copie serveur + l'appareil) pour 70 réels. */
-  const corrected = a.regraded && !b.regraded ? a : b.regraded && !a.regraded ? b : null;
+  const [va, vb] = [versionOf(a), versionOf(b)];
+  const corrected = va > vb ? a : vb > va ? b : null;
   for (const [id, at] of Object.entries(b.got)) {
     if (got[id] == null) got[id] = at;
-    else if (a.regraded && !b.regraded) continue;
-    else if (b.regraded && !a.regraded) got[id] = at;
+    else if (va > vb) continue;
+    else if (vb > va) got[id] = at;
     else got[id] = earliest(got[id], at);
   }
   if (corrected) {
@@ -198,13 +203,13 @@ export function mergeBadgeState(a: BadgeState, b: BadgeState): BadgeState {
      n'ont pas été corrigées. L'évaluateur repasse sur l'ensemble. */
   const redated = a.redated && b.redated;
   /* Même logique : une copie ancienne peut ramener un badge retiré. */
-  const regraded = a.regraded && b.regraded;
+  const regraded = Math.min(va, vb);
   return {
     v: 1,
     got,
     ...(backfilled ? { backfilled: true as const } : {}),
     ...(redated ? { redated: true as const } : {}),
-    ...(regraded ? { regraded: true as const } : {}),
+    ...(regraded ? { regraded } : {}),
   };
 }
 

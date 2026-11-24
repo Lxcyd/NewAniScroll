@@ -129,9 +129,33 @@ const parLecteur = lecteurs.lecteurs ?? lecteurs;
 const displayedHosts = Object.entries(parLecteur).filter(([, v]) => v?.site === true).map(([k]) => k);
 const favourites = Array.isArray(K.favourites) ? K.favourites : null;
 
+/* Les dates de diffusion, comme les lit lib/badges/airingBackfill.ts. */
+const airing = {};
+let suite = [...new Set((K.anilist_feed?.e ?? []).map((e) => e[1]))].filter((id) => {
+  const first = new Date(Math.min(...K.anilist_feed.e.map((x) => x[0])) * 1000).getFullYear();
+  const e = list[id];
+  return !e || e.year == null || e.year >= first - 1 || e.mediaStatus === "RELEASING";
+});
+for (let p = 1; suite.length && p <= 60; p++) {
+  const next = [];
+  for (let i = 0; i < suite.length; i += 50) {
+    const r = await gql(
+      "query($ids:[Int],$p:Int){Page(perPage:50){media(id_in:$ids,type:ANIME){id episodes status airingSchedule(page:$p,perPage:25){pageInfo{hasNextPage} nodes{episode airingAt}}}}}",
+      { ids: suite.slice(i, i + 50), p },
+    );
+    for (const x of r?.Page?.media ?? []) {
+      const info = (airing[x.id] ??= { t: x.episodes ?? null, s: x.status, a: [] });
+      for (const n of x.airingSchedule?.nodes ?? []) info.a.push([n.episode, n.airingAt]);
+      if (x.airingSchedule?.pageInfo?.hasNextPage) next.push(x.id);
+    }
+    await new Promise((ok) => setTimeout(ok, 2200));
+  }
+  suite = next;
+}
+
 const d = derive({
   progress, list, facts, favourites, vocab, accountCreatedAt: null, displayedHosts,
-  feedEvents: K.anilist_feed?.e ?? [], now: Date.now(),
+  feedEvents: K.anilist_feed?.e ?? [], airing, airingComplete: true, now: Date.now(),
 });
 
 const date = (x) => (x == null ? "" : x === NO_DATE ? "sans date" : new Date(x).toLocaleDateString("fr-FR"));

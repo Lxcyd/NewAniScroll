@@ -32,7 +32,8 @@ import { clusters, inHourWindow, monthDay } from "./localtime";
 import { getFacts } from "./facts";
 import { dayKey, sane } from "./localtime";
 import { isBonusFormat, measure } from "./measure";
-import { applyCorrection, getBadgeState, grant, NO_DATE, REVISED_RULES, type BadgeState } from "./store";
+import { applyCorrection, CORRECTION_VERSION, getBadgeState, grant, NO_DATE, REVISED_RULES, type BadgeState } from "./store";
+import { readAiring } from "./airingBackfill";
 import { readVocab } from "./metaBackfill";
 import { announce } from "./achievementStore";
 
@@ -89,9 +90,12 @@ function readFeedEvents(): [number, number, number][] | undefined {
 }
 
 export function snapshot(now = Date.now()): Snapshot {
+  const airing = readAiring();
   return {
     feedHours: readFeedHours(),
     feedEvents: readFeedEvents(),
+    airing: airing?.m,
+    airingComplete: airing?.complete,
     progress: readProgressMap(),
     list: getLocalList(),
     facts: getFacts(),
@@ -121,6 +125,7 @@ function dateFor(def: BadgeDef, d: Derived): number | null {
 
   if (m.k === "flag") {
     if (m.name === "comeback" && d.comebackAt != null) return d.comebackAt;
+    if (m.name === "dayOne" && d.finalOnAirAt != null) return d.finalOnAirAt;
     const at = d.facts.flags[String(m.name)];
     if (at != null) return at;
     if (m.name !== "oav") return null;
@@ -131,6 +136,7 @@ function dateFor(def: BadgeDef, d: Derived): number | null {
       .filter((t): t is number => !!t);
     return dates.length ? Math.min(...dates) : null;
   }
+  if (m.k === "counter" && m.name === "onAirDay" && d.onAirStamps[m.n - 1]) return d.onAirStamps[m.n - 1];
   if (m.k === "counter") return d.facts.counters[String(m.name)]?.at ?? null;
 
   /* Les paliers d'épisodes : l'horodatage du n-ième épisode terminé. Les
@@ -247,7 +253,9 @@ function accountDataReady(s: Snapshot, d: Derived): boolean {
   const w = window as Window & { __aniscrollCloudPulled?: boolean };
   if (signedIn && !w.__aniscrollCloudPulled) return false;
   /* Compte AniList lié : attendre son fil, qui seul prouve certaines règles. */
-  return s.facts.flags.anilistLinked == null || s.feedEvents !== undefined;
+  if (s.facts.flags.anilistLinked != null && s.feedEvents === undefined) return false;
+  /* Un fil sans les dates de diffusion ne peut rien prouver sur « le jour même ». */
+  return !s.feedEvents?.length || s.airingComplete === true;
 }
 
 export type EvaluateResult = {
@@ -281,7 +289,7 @@ export function evaluate(opts?: { silent?: boolean; now?: number }): EvaluateRes
      appareil pas encore synchronisé, une liste partielle ferait retirer un badge
      valide ou poserait une date fausse. Les gestes gardent leur date ; tout le
      reste repart de sa preuve. Une mesure indisponible ne retire jamais rien. */
-  if (!state.regraded && accountDataReady(snap, d)) {
+  if ((state.regraded ?? 0) < CORRECTION_VERSION && accountDataReady(snap, d)) {
     const dates: Record<string, number> = {};
     for (const [id, was] of Object.entries(state.got)) {
       const def = BY_ID[id];

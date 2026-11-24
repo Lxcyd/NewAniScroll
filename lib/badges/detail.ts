@@ -45,7 +45,12 @@ export type Detail =
       /** Les cases portent des anime qu'on peut ouvrir (pas les lecteurs). */
       browsable: boolean;
     }
-  | { kind: "list"; items: LocalEntry[] };
+  | {
+      kind: "list";
+      items: LocalEntry[];
+      /** Un nombre d'épisodes à côté de chaque anime, à la place de l'année. */
+      episodes?: Map<number, number>;
+    };
 
 const GRID = new Set(["years", "alphabet", "allGenres", "allTags", "hosts", "studio", "works"]);
 const LIST = new Set([
@@ -65,7 +70,8 @@ const COUNT_OF = new Set(["completed", "rated", "rewatched"]);
  */
 export function detailKind(def: BadgeDef, d: Derived): "grid" | "list" | null {
   const k = def.metric.k;
-  if (k === "flag") return def.metric.name === "oav" ? "list" : null;
+  if (k === "flag") return def.metric.name === "oav" || def.metric.name === "dayOne" ? "list" : null;
+  if (k === "counter") return def.metric.name === "onAirDay" ? "list" : null;
   if ((k === "allGenres" || k === "allTags") && !d.vocab) return null;
   if (k === "count") {
     if (def.metric.of === "bingoPoints") return "grid";
@@ -196,8 +202,20 @@ export function detailOf(def: BadgeDef, d: Derived): Detail | null {
     /* ── Les anime qui comptent pour un seuil ─────────────────────────────── */
     case "flag":
       // Seul « Épisode bonus » a une liste : la même lecture que `flagUp`.
+      if (m.name === "dayOne") {
+        return { kind: "list", items: d.entries.filter((e) => d.finalOnAir.has(e.mediaId)).sort(byTitle) };
+      }
       if (m.name !== "oav") return null;
       return { kind: "list", items: d.seen.filter(isBonusFormat).sort(byTitle) };
+    case "counter":
+      if (m.name !== "onAirDay") return null;
+      return {
+        kind: "list",
+        episodes: d.onAirByAnime,
+        items: d.entries
+          .filter((e) => d.onAirByAnime.has(e.mediaId))
+          .sort((a, b) => (d.onAirByAnime.get(b.mediaId) ?? 0) - (d.onAirByAnime.get(a.mediaId) ?? 0) || byTitle(a, b)),
+      };
     case "genre":
       return { kind: "list", items: done.filter((e) => e.genres?.includes(String(m.name))).sort(byTitle) };
     case "tag":

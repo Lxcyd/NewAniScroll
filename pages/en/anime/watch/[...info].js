@@ -1818,10 +1818,9 @@ export default function Watch({
              l'anime, et le faire le jour ou l'episode est tombe. Un anime
              deja termine (`nextAiringEpisode` absent) ne peut plus donner ce
              badge, ce qui est exact : sa derniere sortie est passee. */
-          if (total && Number(episodeNumber) === total && next?.airingAt) {
-            const airedAt = (next.airingAt - 7 * 86400) * 1000;
-            if (Math.abs(Date.now() - airedAt) < 86400_000) facts.recordFlag("dayOne");
-          }
+          /* (24/11/2026) Plus de drapeau ici : `total` vaut le dernier épisode SORTI
+             quand la série est en cours, ce qui donnait le badge à tort. Il se
+             calcule depuis les dates de diffusion (lib/badges/airingBackfill.ts). */
         })
         .catch(() => {});
     },

@@ -65,7 +65,10 @@ export function measure(def: BadgeDef, d: Derived, state: BadgeState): Progress 
 
     /* ── Gestes ────────────────────────────────────────────────────────────── */
     case "flag": return bool(flagUp(d, String(m.name)));
-    case "counter": return [d.facts.counters[String(m.name)]?.n ?? 0, n];
+    case "counter": {
+      const cur = d.facts.counters[String(m.name)]?.n ?? 0;
+      return [m.name === "onAirDay" ? Math.max(cur, d.onAirStamps.length) : cur, n];
+    }
 
     /* ── Rythme de visionnage ──────────────────────────────────────────────── */
     case "window":
@@ -202,6 +205,12 @@ export function flagUp(d: Derived, name: string): boolean {
   if (name === "comeback") {
     const at = d.facts.flags.comeback;
     return d.comebackAt != null || (at != null && (!d.hasFeed || at >= RULES_CUTOFF));
+  }
+  /* L'ancienne mesure prenait le dernier épisode SORTI d'une série en cours pour
+     son dernier épisode : sur ce badge, seules les dates de diffusion font foi. */
+  if (name === "dayOne") {
+    const at = d.facts.flags.dayOne;
+    return d.finalOnAirAt != null || (at != null && (!d.hasAiring || at >= RULES_CUTOFF));
   }
   if (d.facts.flags[name] != null) return true;
   if (name === "customList") return d.facts.flags.customListAniList != null;

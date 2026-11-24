@@ -139,6 +139,7 @@ const PREFS_EXCLUDED = new Set<string>([
   /* Copies du fil AniList, déjà rangé sur le compte à part. */
   "aniscroll:anilistFeedHours",
   "aniscroll:anilistFeedEvents",
+  "aniscroll:badgeAiring",
   /* La file d'envoi vers AniList est propre à l'appareil : recopiée sur un
      autre, elle y serait rejouée une seconde fois, potentiellement après que
      celui-ci l'a déjà vidée (lib/list/anilistOutbox.ts). */

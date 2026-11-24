@@ -196,6 +196,8 @@ for (const [name, ids] of Object.entries(LADDERS)) {
     if (k !== "flag" && k !== "counter") continue;
     const name = b.metric.name;
     if (PENDING.has(name)) continue;
+    /* « Final le jour même » se calcule depuis les dates de diffusion (derive.ts). */
+    if (name === "dayOne") continue;
     ok(`geste « ${name} » enregistre quelque part (${b.id})`, called.has(name));
   }
   const stale = [...PENDING.keys()].filter((n) => called.has(n));
@@ -844,6 +846,39 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
     const { detailOf } = await load("lib/badges/detail.ts");
     const det = detailOf(BY_ID.thrice, derive(snap({ list: { 1: en(1, { repeat: 1 }), 2: en(2, { repeat: 2 }) } })));
     check("« trois fois » ne liste pas un titre vu deux fois", det.items.map((e) => e.mediaId), [2]);
+  }
+
+  /* Le jour de la diffusion */
+  {
+    const { detailOf } = await load("lib/badges/detail.ts");
+    const a0 = t - 3600;
+    const airing = { 7: { t: 12, a: Array.from({ length: 12 }, (_, i) => [i + 1, a0 + i * 7 * 86400]) } };
+    const vu = (ep, apres) => [a0 + (ep - 1) * 7 * 86400 + apres, 7, ep];
+    const list = { 7: en(7) };
+    check("diffusion : vu 3 h après → compte",
+      m("airday-50", snap({ list, airing, airingComplete: true, feedEvents: [vu(1, 3 * 3600)] })), [1, 50]);
+    check("diffusion : vu 25 h après → ne compte pas",
+      m("airday-50", snap({ list, airing, airingComplete: true, feedEvents: [vu(1, 25 * 3600)] })), [0, 50]);
+    check("diffusion : coché AVANT la sortie → ne compte pas",
+      m("airday-50", snap({ list, airing, airingComplete: true, feedEvents: [vu(1, -3600)] })), [0, 50]);
+    check("diffusion : le même épisode revu compte une fois",
+      m("airday-50", snap({ list, airing, airingComplete: true, feedEvents: [vu(1, 3600), vu(1, 7200)] })), [1, 50]);
+    check("diffusion : le compteur en direct n'est jamais réduit",
+      m("airday-50", snap({ list, airing, airingComplete: true, facts: { ...EMPTY_FACTS, counters: { onAirDay: { n: 6, at: 1 } } }, feedEvents: [vu(1, 3600)] })), [6, 50]);
+    check("final : le dernier épisode le jour même → obtenu",
+      m("day-one", snap({ list, airing, airingComplete: true, feedEvents: [[a0 + 11 * 7 * 86400 + 3600, 7, 12]].filter((r) => r[0] < local(2026, 9, 16) / 1000) })), [1, 1]);
+    check("final : un épisode du milieu → non",
+      m("day-one", snap({ list, airing, airingComplete: true, feedEvents: [vu(3, 3600)] })), [0, 1]);
+    const enCours = { 7: { t: null, a: airing[7].a } };
+    check("final : série en cours sans total connu → non",
+      m("day-one", snap({ list, airing: enCours, airingComplete: true, feedEvents: [vu(3, 3600)] })), [0, 1]);
+    check("final : ancien drapeau démenti par les diffusions → non",
+      m("day-one", snap({ list, airing, airingComplete: true, facts: { ...EMPTY_FACTS, flags: { dayOne: local(2026, 2, 1) } } })), [0, 1]);
+    check("final : ancien drapeau sans les diffusions → gardé",
+      m("day-one", snap({ list, facts: { ...EMPTY_FACTS, flags: { dayOne: local(2026, 2, 1) } } })), [1, 1]);
+    const det = detailOf(BY_ID["airday-50"], derive(snap({ list, airing, airingComplete: true, feedEvents: [vu(1, 3600), vu(2, 3600)] })));
+    check("diffusion : le détail liste l'anime", det.items.map((e) => e.mediaId), [7]);
+    check("diffusion : le détail donne ses épisodes", det.episodes.get(7), 2);
   }
 
   /* Le compte le plus lourd autorisé */
