@@ -185,7 +185,9 @@ export const metaPatch = (m: MediaRow) => ({
 function missingIds(): number[] {
   const list = getLocalList();
   return Object.values(list)
-    .filter((e) => e.genres === undefined || e.year === undefined)
+    /* Tags, relations et popularité ne voyagent pas avec le compte (cloudSync) :
+       sans ce contrôle, un nouvel appareil ne les récupérait jamais. */
+    .filter((e) => e.genres === undefined || e.year === undefined || e.tags === undefined || e.relIds === undefined || e.popularity === undefined)
     .map((e) => e.mediaId)
     .filter((id) => Number.isFinite(id));
 }
