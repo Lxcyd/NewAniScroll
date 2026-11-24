@@ -20,7 +20,9 @@
  * avancement qu'on n'a pas mesuré serait un chiffre faux.
  */
 
-import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { memo, startTransition, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Freeze } from "@/lib/profile/useKeepAliveTabs";
+import { BadgeViewSkeleton } from "./TabSkeletons";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import Link from "next/link";
@@ -77,6 +79,14 @@ const VIEW_KEY = "as-profile-badges-view";
 /** Sans accents ni majuscules : « legende » trouve « Légende ». */
 const norm = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 const famAnchor = (k: string) => `badges-fam-${k}`;
+/** L'élément `id` de la vue AFFICHÉE : les vues déjà ouvertes restent montées,
+ *  cachées (`.as-tab-off`), et portent les mêmes ancres. */
+function shownById(id: string): HTMLElement | null {
+  for (const el of document.querySelectorAll<HTMLElement>(`[id="${CSS.escape(id)}"]`)) {
+    if (!el.closest(".as-tab-off")) return el;
+  }
+  return null;
+}
 const TIER_TOKEN = 54;
 /** Le palier sélectionné dans le panneau : un cran au-dessus des autres. */
 const TIER_TOKEN_SEL = TIER_TOKEN + 12;
@@ -135,7 +145,17 @@ export default function ProfileBadges({
     } catch {}
     return "cards";
   });
-  const view = useDeferredValue(pickedView);
+  const deferredView = useDeferredValue(pickedView);
+  /* LES VUES DÉJÀ OUVERTES RESTENT MONTÉES (24/11/2026, Luc : « optimise bcp
+     pour que ça ne lag pas »), cachées et gelées comme les onglets du profil.
+     Y revenir est immédiat (pas de différé) ; une vue jamais ouverte montre son
+     squelette pendant que le différé la rend. */
+  const [mountedViews, setMountedViews] = useState<ReadonlySet<View>>(() => new Set([pickedView]));
+  useEffect(() => {
+    setMountedViews((s) => (s.has(deferredView) ? s : new Set(s).add(deferredView)));
+  }, [deferredView]);
+  const view = mountedViews.has(pickedView) ? pickedView : deferredView;
+  const renderedViews = VIEWS.filter((v) => mountedViews.has(v) || v === view);
   const [viewSwitched, setViewSwitched] = useState(false);
   const chooseView = (v: View) => {
     if (v !== pickedView) setViewSwitched(true);
@@ -268,8 +288,8 @@ export default function ProfileBadges({
         const tiers = def?.ladder ? LADDERS[def.ladder] ?? [] : [];
         const head = tiers.find((id) => gotRef.current[id] == null) ?? tiers[tiers.length - 1];
         const el =
-          document.getElementById(revealAnchor(cible)) ??
-          (head ? document.getElementById(revealAnchor(head)) : null);
+          shownById(revealAnchor(cible)) ??
+          (head ? shownById(revealAnchor(head)) : null);
         if (!el) {
           if (essais > 0) t = requestAnimationFrame(() => chercher(essais - 1));
           return;
@@ -410,8 +430,15 @@ export default function ProfileBadges({
     { k: "todo", label: t("badges.ui.todo", "À obtenir"), n: BADGES.length - gotCount - secretCount },
   ];
 
-  const sections = SECTION_ORDER.map((section) => ({ section, rows: rowsOf(section) }));
-  const secretRows = SECRETS.filter(keep);
+  /* MÉMOÏSÉES : les listes sont en `memo`, un tableau neuf à chaque rendu
+     (un clic sur les boutons de vue, une lettre tapée) les re-rendait toutes. */
+  const sections = useMemo(
+    () => SECTION_ORDER.map((section) => ({ section, rows: rowsOf(section) })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [terms, searchIndex, got, rarity, filter, ladderHead],
+  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const secretRows = useMemo(() => SECRETS.filter(keep), [terms, searchIndex, got, rarity, filter]);
   const nothing = !secretRows.length && sections.every((s) => !s.rows.length);
   const navItems: NavItem[] = [
     ...sections.map(({ section, rows }) => {
@@ -501,38 +528,87 @@ export default function ProfileBadges({
       ) : (
         <div className="mt-2 grid items-start gap-5 lg:grid-cols-[190px_minmax(0,1fr)]">
           <BadgeNav items={navItems} done={gotCount} total={MAIN.length} secrets={secretCount} />
-          <div
-            key={view}
-            className={`flex min-w-0 flex-col gap-8${viewSwitched ? " as-list-viewin" : ""}${pickedView !== view ? " is-pending" : ""}`}
-          >
-            {sections.map(({ section, rows }) => {
-              if (!rows.length) return null;
+          <div className="min-w-0">
+            {/* La vue choisie pas encore rendue : sa forme tout de suite. */}
+            {pickedView !== view ? <BadgeViewSkeleton view={pickedView} /> : null}
+            {renderedViews.map((v) => {
+              const on = v === view && pickedView === view;
               return (
-                <section key={section} id={famAnchor(section)} className="flex scroll-mt-40 flex-col gap-3 lg:scroll-mt-24">
-                  <div className="as-stat-card flex items-baseline gap-3 rounded-lg border-l-2 border-as-accent py-2 pl-3 pr-4">
-                    <h3 className="font-outfit m-0 text-lg font-semibold text-white">
-                      {t(`badges.ui.section.${section}`, section)}
-                    </h3>
-                    <span className="font-karla text-[12px] text-white/40">
-                      {t(`badges.ui.sectionDesc.${section}`, "")}
-                    </span>
-                  </div>
-                  <BadgeList
-                    rows={rows}
-                    view={view}
-                    state={state}
-                    progress={progress}
-                    live={live}
-                    filter={filter}
-                    derived={derived}
-                  />
-                </section>
+                <div
+                  key={v}
+                  aria-hidden={on ? undefined : true}
+                  className={on ? (viewSwitched ? "as-list-viewin" : "") : "as-tab-off"}
+                >
+                  <Freeze active={on}>
+                    <ViewBody
+                      view={v}
+                      sections={sections}
+                      secretRows={secretRows}
+                      state={state}
+                      progress={progress}
+                      live={live}
+                      filter={filter}
+                      derived={derived}
+                    />
+                  </Freeze>
+                </div>
               );
             })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
-            {/* Les secrets, à part et hors du total. */}
-            <SecretSection
-              rows={secretRows}
+/* ── Une vue ────────────────────────────────────────────────────────────────── */
+
+/** Combien de sections une vue rend à son premier affichage, avant le reste. */
+const FIRST_SECTIONS = 2;
+
+/**
+ * Les sections dans UNE vue. À son premier montage, elle rend d'abord ses
+ * premières sections — ce qui est à l'écran — et le reste au tour suivant, en
+ * transition : le squelette cède la place plus vite, et le reste ne bloque
+ * pas un clic.
+ */
+function ViewBody({
+  view, sections, secretRows, state, progress, live, filter, derived,
+}: {
+  view: View;
+  sections: { section: string; rows: BadgeDef[] }[];
+  secretRows: BadgeDef[];
+  state: BadgeState;
+  progress: Map<string, Progress>;
+  live: boolean;
+  filter: Filter;
+  derived: Derived | null;
+}) {
+  const { t } = useTranslation();
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => startTransition(() => setFull(true)));
+    return () => cancelAnimationFrame(id);
+  }, []);
+  let shown = 0;
+  return (
+    <div className="flex min-w-0 flex-col gap-8">
+      {sections.map(({ section, rows }) => {
+        if (!rows.length) return null;
+        if (!full && shown >= FIRST_SECTIONS) return null;
+        shown += 1;
+        return (
+          <section key={section} id={famAnchor(section)} className="flex scroll-mt-40 flex-col gap-3 lg:scroll-mt-24">
+            <div className="as-stat-card flex items-baseline gap-3 rounded-lg border-l-2 border-as-accent py-2 pl-3 pr-4">
+              <h3 className="font-outfit m-0 text-lg font-semibold text-white">
+                {t(`badges.ui.section.${section}`, section)}
+              </h3>
+              <span className="font-karla text-[12px] text-white/40">
+                {t(`badges.ui.sectionDesc.${section}`, "")}
+              </span>
+            </div>
+            <BadgeList
+              rows={rows}
               view={view}
               state={state}
               progress={progress}
@@ -540,9 +616,22 @@ export default function ProfileBadges({
               filter={filter}
               derived={derived}
             />
-          </div>
-        </div>
-      )}
+          </section>
+        );
+      })}
+
+      {/* Les secrets, à part et hors du total. */}
+      {full ? (
+        <SecretSection
+          rows={secretRows}
+          view={view}
+          state={state}
+          progress={progress}
+          live={live}
+          filter={filter}
+          derived={derived}
+        />
+      ) : null}
     </div>
   );
 }
@@ -672,7 +761,7 @@ function BadgeNav({
       /* Sous 1024 px, le sommaire collant porte aussi le total : il est plus haut. */
       const seuil = window.innerWidth < 1024 ? 170 : 140;
       for (const k of keys) {
-        const el = document.getElementById(famAnchor(k));
+        const el = shownById(famAnchor(k));
         if (el && el.getBoundingClientRect().top <= seuil) cur = k;
       }
       /* Tout en bas, la dernière section est trop courte pour monter jusqu'au
@@ -727,7 +816,7 @@ function BadgeNav({
           aria-current={active === it.key ? "true" : undefined}
           onClick={() => {
             setActive(it.key);
-            const el = document.getElementById(famAnchor(it.key));
+            const el = shownById(famAnchor(it.key));
             if (!el) return;
             el.scrollIntoView({ behavior: "smooth", block: "start" });
             /* Les lignes hors écran ont une hauteur estimée (content-visibility) :
@@ -772,7 +861,7 @@ const SLOT = 42;
 const SLOT_GAP = 4;
 
 /** Les lignes d'une section, dans la vue choisie. */
-function BadgeList({
+function BadgeListImpl({
   rows, view, state, progress, live, filter, derived, hidden = false,
 }: {
   rows: BadgeDef[];
@@ -820,7 +909,7 @@ function BadgeList({
 
 /* ── Une ligne ──────────────────────────────────────────────────────────────── */
 
-function BadgeRow({
+function BadgeRowImpl({
   def, view = "cards", slots = 0, state, progress, live, filter, ladderProgress, derived, hidden = false,
 }: {
   def: BadgeDef;
@@ -1894,7 +1983,7 @@ function AnimeList({ yearOf, items, episodes }: {
 
 /* ── Les secrets ────────────────────────────────────────────────────────────── */
 
-function SecretSection({
+function SecretSectionImpl({
   rows, view, state, progress, live, filter, derived,
 }: {
   rows: BadgeDef[];
@@ -1938,3 +2027,9 @@ function SecretSection({
 
 export { RARITY_ORDER };
 export type { Rarity };
+
+/* EN `memo` (24/11/2026) : le clic sur un bouton de vue, une lettre tapée dans
+   la recherche re-rendaient les ~176 lignes avant même de changer d'image. */
+const BadgeList = memo(BadgeListImpl);
+const BadgeRow = memo(BadgeRowImpl);
+const SecretSection = memo(SecretSectionImpl);

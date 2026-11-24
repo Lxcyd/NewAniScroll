@@ -92,6 +92,60 @@ export function BadgesSkeleton() {
   );
 }
 
+/** Badges, au changement de vue (24/11/2026, Luc) : la forme de la vue
+ *  CHOISIE, le temps qu'elle se rende — mêmes hauteurs que ses vraies lignes
+ *  (les `contain-intrinsic-size` de `.as-badge-row`, globals.css). */
+export function BadgeViewSkeleton({ view }: { view: "cards" | "grid" | "compact" }) {
+  const head = (
+    <Card className="flex items-center gap-3 !rounded-lg py-2.5 pl-3 pr-4">
+      <Bone className="h-5 w-36" />
+      <Bone className="h-3 w-48 max-sm:hidden" />
+    </Card>
+  );
+  const body =
+    view === "grid" ? (
+      <Card className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2 p-2.5 sm:p-3">
+        {Array.from({ length: 8 }, (_, i) => (
+          <div key={i} className="flex h-[223px] flex-col items-center gap-2 rounded-xl p-2.5 ring-1 ring-white/[.06]">
+            <Bone className="h-[84px] w-[84px] !rounded-full" delay={i * 50} />
+            <Bone className="h-3.5 w-3/4" delay={i * 50} />
+            <Bone className="h-3 w-1/2" delay={i * 50} />
+            <Bone className="mt-auto h-1.5 w-full" delay={i * 50} />
+          </div>
+        ))}
+      </Card>
+    ) : view === "compact" ? (
+      <Card className="overflow-hidden !rounded-xl">
+        {Array.from({ length: 9 }, (_, i) => (
+          <div key={i} className="flex h-[60px] items-center gap-3 px-3 shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)] last:shadow-none">
+            <Bone className="h-12 w-12 shrink-0 !rounded-full" delay={i * 50} />
+            <Bone className="h-3.5 w-40" delay={i * 50} />
+            <Bone className="ml-auto h-1.5 w-1/4" delay={i * 50} />
+          </div>
+        ))}
+      </Card>
+    ) : (
+      <div className="flex flex-col gap-1.5">
+        {Array.from({ length: 5 }, (_, i) => (
+          <Card key={i} className="flex h-[118px] items-center gap-4 !rounded-xl p-3">
+            <Bone className="h-[100px] w-[100px] shrink-0 !rounded-full" delay={i * 60} />
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              <Bone className="h-4 w-1/3" delay={i * 60} />
+              <Bone className="h-3 w-2/3" delay={i * 60} />
+              <Bone className="mt-1 h-1.5 w-full" delay={i * 60} />
+            </div>
+          </Card>
+        ))}
+      </div>
+    );
+  return (
+    <div aria-hidden className="flex min-w-0 flex-col gap-3">
+      {head}
+      {body}
+    </div>
+  );
+}
+
 /** Amis : la grille de cartes (même forme que le chargement de ProfileFriends). */
 export function FriendsSkeleton() {
   return (
