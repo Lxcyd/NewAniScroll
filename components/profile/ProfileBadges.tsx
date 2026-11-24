@@ -1087,31 +1087,15 @@ function BadgeRowImpl({
 
           <Condition def={def} hidden={hidden && !unlocked} unlocked={unlocked} />
 
-          {/* Sous le texte jusqu'à la tablette ; au-delà, dans sa colonne à droite. */}
-          <div className="lg:hidden">
-            <ProgressLine
-              def={def}
-              progress={progress}
-              unlocked={unlocked}
-              live={live}
-              color={R.ic}
-              fixed
-            />
-          </div>
-          {!unlocked && derived && !hidden ? <MissingLine def={def} derived={derived} /> : null}
-        </div>
-
-        {/* La barre à une position FIXE sur ordinateur : colonne de largeur
-            constante, et la colonne des boutons après elle aussi (24/11/2026). */}
-        <div className="as-badge-row-in hidden w-[300px] shrink-0 lg:block">
           <ProgressLine
             def={def}
             progress={progress}
             unlocked={unlocked}
             live={live}
             color={R.ic}
-            column
+            fixed
           />
+          {!unlocked && derived && !hidden ? <MissingLine def={def} derived={derived} /> : null}
         </div>
 
         {/* Le détail : QUOI remplit le badge, case par case. Jamais sur un
@@ -1120,11 +1104,9 @@ function BadgeRowImpl({
             (« Pépite méconnue ») : sa liste serait vide. */}
         {(() => {
           const detail = derived && !(hidden && !unlocked) && (unlocked || (progress && progress[1] > 1));
-          /* Sur ordinateur la colonne existe toujours, même vide : c'est elle
-             qui tient la barre à la même place sur toutes les lignes. */
-          if (!detail && !def.ladder) return <div className="hidden w-[164px] shrink-0 lg:block" />;
+          if (!detail && !def.ladder) return null;
           return (
-            <div className="flex shrink-0 items-center gap-1.5 lg:w-[164px] lg:justify-end">
+            <div className="flex shrink-0 items-center gap-1.5">
               {detail && derived ? <DetailButton def={def} derived={derived} progress={progress} got={state.got} /> : null}
               {/* L'échelle complète s'ouvre dans un panneau : les six paliers,
                   celui du moment compris et mis en avant. */}
@@ -1267,7 +1249,7 @@ function progressText(
 }
 
 function ProgressLine({
-  def, progress, unlocked, live, color, fixed = false, column = false,
+  def, progress, unlocked, live, color, fixed = false,
 }: {
   def: BadgeDef;
   progress: Progress;
@@ -1276,8 +1258,6 @@ function ProgressLine({
   color: string;
   /** Vue Cartes : même longueur de barre sur toutes les lignes dès la tablette. */
   fixed?: boolean;
-  /** Vue Liste sur ordinateur : la barre dans sa colonne, longueur fixe. */
-  column?: boolean;
 }) {
   const { t, i18n } = useTranslation();
   if (!live) return null;
@@ -1296,8 +1276,8 @@ function ProgressLine({
   /* Obtenu, le compteur ne dit jamais moins que la cible : la barre est pleine. */
   const cur = unlocked ? Math.max(measured, target) : measured;
   return (
-    <div className={column ? "flex items-center gap-2" : "mt-1.5 flex items-center gap-2"}>
-      <div className={column ? "w-[200px] flex-none" : fixed ? "min-w-0 flex-1 sm:w-[280px] sm:flex-none" : "min-w-0 flex-1"}>
+    <div className="mt-1.5 flex items-center gap-2">
+      <div className={fixed ? "min-w-0 flex-1 sm:w-[280px] sm:flex-none" : "min-w-0 flex-1"}>
         <Bar pct={unlocked ? 100 : Math.min(100, (cur / target) * 100)} color={color} />
       </div>
       <span className="shrink-0 font-karla text-[10.5px] tabular-nums text-white/65">
