@@ -366,10 +366,16 @@ export const MAX_BLUR = 64;
     désormais la même teinte à tous les niveaux (ProfileHero) ; 0 retire
     seulement le flou, et son calque. */
 export const MIN_BLUR = 0;
+/** Le flou d'un profil qui ne l'a jamais réglé (24/11/2026, Luc : « par
+    défaut le blur est à 0, c'est un bug » — un nouveau compte avait ses
+    cartes sans flou sur son fond). 24 = « 12 px » dans le studio. Un 0
+    ENREGISTRÉ reste un choix : seule l'absence du champ prend ce défaut. */
+export const DEFAULT_BLUR = 24;
 
 export function clampBlur(v: unknown): number {
+  if (v === undefined || v === null || v === "") return DEFAULT_BLUR;
   const n = Number(v);
-  if (!Number.isFinite(n)) return MIN_BLUR;
+  if (!Number.isFinite(n)) return DEFAULT_BLUR;
   return Math.max(MIN_BLUR, Math.min(MAX_BLUR, Math.round(n)));
 }
 
@@ -653,7 +659,7 @@ export function emptyDressing(): Dressing {
     videoVolume: 0,
     videoCover: null,
     music: null,
-    blur: 0,
+    blur: DEFAULT_BLUR,
     wall: null,
     layout: "band",
     frame: null,
