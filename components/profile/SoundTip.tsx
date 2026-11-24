@@ -1,7 +1,7 @@
 /**
  * LA MUSIQUE PASSE AVANT LE SON DE LA VIDÉO (24/11/2026, Luc) : une bulle du
  * style du tour (StudioTour) posée au-dessus de l'icône de volume de la
- * vidéo (`data-sound-tip`), avec le même cadre autour. Remplace la fenêtre
+ * vidéo (`data-sound-tip`), sans cadre autour (Luc). Remplace la fenêtre
  * centrée qui ne s'affichait qu'une fois par navigateur : celle-ci revient à
  * chaque fois qu'une vidéo a du son alors qu'une musique est choisie.
  */
@@ -15,8 +15,7 @@ const W = 280;
 const GAP = 14;
 const EDGE = 16;
 
-type Box = { left: number; top: number; width: number; height: number };
-type Pos = { x: number; y: number; arrow: number; ring: Box };
+type Pos = { x: number; y: number; arrow: number };
 
 function findAnchor(): HTMLElement | null {
   for (const el of document.querySelectorAll<HTMLElement>("[data-sound-tip]")) if (el.getClientRects().length) return el;
@@ -42,7 +41,6 @@ export default function SoundTip({ show, onClose }: { show: boolean; onClose: ()
       x,
       y: Math.max(EDGE, r.top - GAP - h),
       arrow: Math.min(Math.max(18, cx - x), w - 18),
-      ring: { left: r.left - 3, top: r.top - 3, width: r.width + 6, height: r.height + 6 },
     });
   }, []);
 
@@ -78,15 +76,6 @@ export default function SoundTip({ show, onClose }: { show: boolean; onClose: ()
 
   return createPortal(
     <>
-      {pos ? (
-        <div
-          aria-hidden
-          className="pointer-events-none fixed left-0 top-0 z-[10009]"
-          style={{ transform: `translate3d(${pos.ring.left}px,${pos.ring.top}px,0)`, width: pos.ring.width, height: pos.ring.height }}
-        >
-          <div className={`as-tour-ring h-full w-full rounded-full ${leaving ? "is-leaving" : ""}`} />
-        </div>
-      ) : null}
       <div
         className="fixed left-0 top-0 z-[10010]"
         style={{
