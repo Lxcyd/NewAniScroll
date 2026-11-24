@@ -85,6 +85,7 @@ import {
   WIDGETS_SAVE_EVENT,
   type WidgetPreview,
 } from "@/lib/profile/widgetBridge";
+import { useTabLive } from "@/lib/profile/useKeepAliveTabs";
 import WidgetAddIcon from "./WidgetAddIcon";
 import type { ProfileCharacter, ProfileEntry, ProfileTitle } from "@/lib/profile/types";
 
@@ -741,7 +742,12 @@ export default function ProfileOverview({
   const previewRef = useRef<(id: string) => WidgetPreview | null>(() => null);
   const menuPreview = useRef(false);
   const widgetsMenuOpen = useWidgetsMenuOpen();
-  const bridged = isOwner && variant !== "stats" && !!layout;
+  /* L'ONGLET AFFICHÉ, pas seulement monté (24/11/2026, Luc : le voile du menu
+     Widgets ne venait plus sur les autres onglets). Depuis que les onglets
+     restent montés (useKeepAliveTabs), l'Aperçu n'est plus démonté en le
+     quittant : c'était ce démontage qui retirait `add` et levait le voile. */
+  const tabLive = useTabLive();
+  const bridged = isOwner && variant !== "stats" && !!layout && tabLive;
   useEffect(() => {
     if (!bridged) return;
     publishWidgets({
