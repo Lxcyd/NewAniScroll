@@ -140,14 +140,14 @@ export default function SoundTip({ show, onClose }: { show: boolean; onClose: ()
                 }
                 close();
               }}
-              className="shrink-0 rounded-full bg-white/[0.06] px-3.5 py-1.5 font-outfit text-[11.5px] font-bold text-white/60 transition-all duration-200 hover:bg-white/[0.14] hover:text-white"
+              className="as-tour-cta as-cta-grow shrink-0 rounded-full bg-white/[0.1] px-3.5 py-1.5 font-outfit text-[11.5px] font-bold text-white hover:bg-white/[0.16]"
             >
               {t("profile.studioSoundTipNever", { defaultValue: "Ne plus me le rappeler" })}
             </button>
             <button
               type="button"
               onClick={close}
-              className="as-tour-cta shrink-0 rounded-full bg-action px-4 py-1.5 font-outfit text-[11.5px] font-bold text-white"
+              className="as-tour-cta as-cta-grow shrink-0 rounded-full bg-action px-4 py-1.5 font-outfit text-[11.5px] font-bold text-white"
             >
               {t("profile.studioSoundTipOk", { defaultValue: "Compris" })}
             </button>

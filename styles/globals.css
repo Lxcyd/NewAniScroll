@@ -6168,6 +6168,9 @@ body.as-sticky-page { overflow-x: clip; }
 .as-tour-cta:hover { transform: translateY(-1px); }
 .as-tour-cta::after { content: ""; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.35) 50%, transparent 70%); transform: translateX(-120%); }
 .as-tour-cta:hover::after { transform: translateX(120%); transition: transform .6s ease; }
+/* La bulle du son (SoundTip, 24/11, Luc) : le bouton grossit au survol au
+   lieu de monter. */
+.as-tour-cta.as-cta-grow:hover { transform: scale(1.05); }
 
 /* LA FICHE DU TIRAGE AU HASARD (RandomReveal, 20/11/2026, Luc) : centrée à
    toutes les largeurs, l'affiche floutée en fond, puis affiche + infos. Le
