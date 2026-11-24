@@ -145,6 +145,11 @@ export function snapshot(now = Date.now()): Snapshot {
 function dateFor(def: BadgeDef, d: Derived): number | null {
   const m = def.metric;
 
+  /* « Un an déjà » : le jour anniversaire du compte. */
+  if (m.k === "accountAge") {
+    return accountCreatedAt == null ? null : accountCreatedAt + Number(m.days) * 86_400_000;
+  }
+
   if (m.k === "flag") {
     if (m.name === "comeback" && d.comebackAt != null) return d.comebackAt;
     if (m.name === "dayOne" && d.finalOnAirAt != null) return d.finalOnAirAt;

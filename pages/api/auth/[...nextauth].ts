@@ -126,6 +126,9 @@ function accountClaims(user: UserRecord) {
     anilistName: user.anilistName ?? null,
     // The resolved picture: the account's own, AniList's when it has none.
     avatarUrl: pickAvatar(user),
+    /* Pour le badge « Un an déjà » : _app.tsx la lisait sur la session, qui ne
+       l'a jamais portée — le badge restait non mesurable (24/11/2026). */
+    createdAt: user.createdAt ?? null,
     ...profileLook(user),
   };
 }
@@ -455,6 +458,12 @@ export const authOptions: NextAuthOptions = {
         const record = await findById(String((token as any).uid)).catch(() => null);
         if (record) Object.assign(token, profileLook(record));
       }
+      /* Sessions ouvertes avant la date de création dans le jeton : une
+         lecture, puis le jeton réémis la porte. */
+      if ((token as any).uid && (token as any).createdAt === undefined) {
+        const record = await findById(String((token as any).uid)).catch(() => null);
+        if (record) (token as any).createdAt = record.createdAt ?? null;
+      }
 
       // Display name: the AniList name when linked, else the AniScroll pseudo.
       (token as any).name =
@@ -477,6 +486,7 @@ export const authOptions: NextAuthOptions = {
         avatarUrl: t.avatarUrl ?? null,
         profileAvatar: t.profileAvatar ?? null,
         frame: t.frame ?? null,
+        createdAt: t.createdAt ?? null,
         id: t.id,
         sub: t.sub,
         token: t.token,
