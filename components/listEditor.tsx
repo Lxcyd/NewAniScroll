@@ -535,7 +535,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
       customLists,
     };
     const queueIt = () => {
-      queueSave(animeId, outboxFields);
+      queueSave(animeId, outboxFields, { manual: true });
       notify.success(t("listEditor.queued"));
     };
 
@@ -598,8 +598,8 @@ const ListEditor: React.FC<ListEditorProps> = ({
           const why = String(json?.errors?.[0]?.message || "");
           const expired = httpStatus === 401 || /invalid token|unauthor/i.test(why);
           // Expiré OU en panne : gardé dans la file, rejoué plus tard.
-          if (isRetryable(httpOk ? 200 : httpStatus, json)) queueSave(animeId, outboxFields);
-          if (expired) notify.error(t("listEditor.anilistExpired"));
+          if (isRetryable(httpOk ? 200 : httpStatus, json)) queueSave(animeId, outboxFields, { manual: true });
+  if (expired) notify.error(t("listEditor.anilistExpired"));
           else if (isRetryable(httpOk ? 200 : httpStatus, json)) notify.success(t("listEditor.queued"));
           else notify.error(t("listEditor.error"));
           return;

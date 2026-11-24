@@ -38,7 +38,9 @@ export type OutboxFields = {
 };
 
 export type OutboxOp =
-  | { mediaId: number; at: number; kind: "save"; fields: OutboxFields }
+  /** `manual` : rangé par l'éditeur de liste, le seul à pouvoir réécrire une
+   *  date ou rétrograder un statut (cf. protectHistory, anilistPush.ts). */
+  | { mediaId: number; at: number; kind: "save"; fields: OutboxFields; manual?: boolean }
   | { mediaId: number; at: number; kind: "delete" };
 
 type Store = {
@@ -81,14 +83,15 @@ function write(s: Store): void {
 }
 
 /** Une modification à envoyer : fusionnée avec ce qui attend déjà pour cet anime. */
-export function queueSave(mediaId: number, fields: OutboxFields): void {
+export function queueSave(mediaId: number, fields: OutboxFields, opts: { manual?: boolean } = {}): void {
   if (typeof window === "undefined" || !Number.isFinite(mediaId)) return;
   const s = read();
   const prev = s.ops[mediaId];
   const base = prev?.kind === "save" ? prev.fields : {};
   const clean: OutboxFields = {};
   for (const [k, v] of Object.entries(fields)) if (v !== undefined) (clean as any)[k] = v;
-  s.ops[mediaId] = { mediaId, at: Date.now(), kind: "save", fields: { ...base, ...clean } };
+  const manual = !!opts.manual || (prev?.kind === "save" && !!prev.manual);
+  s.ops[mediaId] = { mediaId, at: Date.now(), kind: "save", fields: { ...base, ...clean }, ...(manual ? { manual } : {}) };
   write(s);
 }
 

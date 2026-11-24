@@ -254,7 +254,7 @@ async function flushOutbox(
         outbox.clearSent(op.mediaId, "all");
         continue;
       }
-      const r = await push.sendSave(token, payload);
+      const r = await push.sendSave(token, payload, { manual: !!op.manual });
       if (r.ok) {
         outbox.clearSent(op.mediaId, "all");
         const base = remote ?? local(op.mediaId);
@@ -520,7 +520,11 @@ export async function fullSyncToAniList(): Promise<{ ok: boolean; count: number 
     if (result.startedAt) payload.startedAt = result.startedAt;
     if (result.completedAt) payload.completedAt = result.completedAt;
 
-    const saved = await saveMediaListEntry(token, payload);
+    const saved = await saveMediaListEntry(token, payload, {
+      remote: remote
+        ? { status: remote.status ?? null, startedAt: remote.startedAt ?? null, completedAt: remote.completedAt ?? null }
+        : null,
+    });
     if (!saved) continue;
     count++;
     // Keep the client AniList cache consistent with what we just wrote.

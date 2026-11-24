@@ -14,6 +14,9 @@
 import type { Status, FuzzyDate } from "./types";
 import { clearSent, isRetryable, queueDelete, queueSave, type OutboxFields } from "./anilistOutbox";
 import { anilistWritesAllowed } from "../anilist/writeGuard";
+import { protectHistory, type RemoteState } from "./protectHistory";
+
+export type { RemoteState };
 
 const ENDPOINT = "https://graphql.anilist.co/";
 
@@ -56,10 +59,45 @@ const FIELDS = [
   "customLists",
 ] as const;
 
+export type SaveOptions = {
+  /** Un geste de l'utilisateur dans l'éditeur de liste : il a le droit de
+   *  réécrire une date ou de rétrograder un statut. */
+  manual?: boolean;
+  /** L'état d'AniList quand l'appelant le connaît déjà (synchro complète) ;
+   *  sinon il est relu à la source. */
+  remote?: RemoteState;
+};
+
+async function readRemote(token: string, mediaId: number): Promise<RemoteState | undefined> {
+  try {
+    const res = await fetch(ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        query: `query($m:Int){Media(id:$m){mediaListEntry{status
+          startedAt{year month day} completedAt{year month day}}}}`,
+        variables: { m: mediaId },
+      }),
+    });
+    const j = await res.json().catch(() => null);
+    if (!j?.data?.Media) return undefined;
+    const e = j.data.Media.mediaListEntry;
+    return e ? { status: e.status ?? null, startedAt: e.startedAt ?? null, completedAt: e.completedAt ?? null } : null;
+  } catch {
+    return undefined;
+  }
+}
+
 /** L'appel lui-même, sans file : `flushOutbox` s'en sert pour rejouer. */
-export async function sendSave(token: string, payload: SavePayload): Promise<SaveResult> {
+export async function sendSave(token: string, payload: SavePayload, opts: SaveOptions = {}): Promise<SaveResult> {
   // Hors prod : jamais envoyé, jamais rangé dans la file (lib/anilist/writeGuard).
   if (!anilistWritesAllowed()) return { ok: false, retryable: false };
+  if (!opts.manual && (payload.startedAt !== undefined || payload.completedAt !== undefined || payload.status)) {
+    const remote = "remote" in opts ? opts.remote : await readRemote(token, payload.mediaId);
+    /* S'il ne reste que l'id, l'envoi part quand même : sur une entrée
+       existante il ne change rien et rend l'état réel aux appelants. */
+    payload = protectHistory(payload, remote);
+  }
   const variables: Record<string, unknown> = { mediaId: payload.mediaId };
   for (const f of FIELDS) if (payload[f] !== undefined) variables[f] = payload[f];
 
@@ -144,13 +182,14 @@ function fieldsOf(payload: SavePayload): OutboxFields {
 export async function saveMediaListEntry(
   token: string,
   payload: SavePayload,
+  opts: SaveOptions = {},
 ): Promise<SavedEntry | null> {
-  const r = await sendSave(token, payload);
+  const r = await sendSave(token, payload, opts);
   if (r.ok) {
     clearSent(payload.mediaId, Object.keys(fieldsOf(payload)));
     return r.saved;
   }
-  if (r.retryable) queueSave(payload.mediaId, fieldsOf(payload));
+  if (r.retryable) queueSave(payload.mediaId, fieldsOf(payload), { manual: opts.manual });
   return null;
 }
 
