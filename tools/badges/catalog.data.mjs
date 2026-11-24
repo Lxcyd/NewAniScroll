@@ -490,7 +490,7 @@ export const CATALOG = {
     ["showcase-open", "c", "gridFull", "", flag("badgesTab"),
       "Salle des trophées", "Ouvre ta page de badges.",
       "Trophy room", "Open your badges page."],
-    ["secret-50", "l", "question", "50", { k: "secretCount", n: 50 },
+    ["secret-50", "m", "question", "50", { k: "secretCount", n: 50 },
       "Chasseur de secrets", "Obtiens 50 badges secrets.",
       "Secret hunter", "Earn 50 secret badges."],
     ["complete", "m", "hexCluster", "100 %", { k: "allBadges", n: 0 },

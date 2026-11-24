@@ -760,10 +760,11 @@ function BadgeNav({
 /** Le bouton Détail s'affiche-t-il sur cette ligne ? */
 function showsDetail(
   def: BadgeDef, unlocked: boolean, hidden: boolean, progress: Progress, derived: Derived | null,
+  got?: Record<string, number>,
 ): boolean {
   if (!derived || (hidden && !unlocked)) return false;
   if (!unlocked && !(progress && progress[1] > 1)) return false;
-  return !!detailKind(def, derived);
+  return !!detailKind(def, derived, got);
 }
 
 /** Largeur d'un bouton de ligne en vue Compacte, et leur écart. */
@@ -787,7 +788,7 @@ function BadgeList({
      les dates et les barres se décalent d'une ligne à l'autre. */
   const slots = view !== "compact" ? 0 :
     (rows.some((b) => b.ladder) ? 1 : 0) +
-    (rows.some((b) => showsDetail(b, state.got[b.id] != null, hidden, live ? progress.get(b.id) ?? null : null, live ? derived : null)) ? 1 : 0);
+    (rows.some((b) => showsDetail(b, state.got[b.id] != null, hidden, live ? progress.get(b.id) ?? null : null, live ? derived : null, state.got)) ? 1 : 0);
   const items = rows.map((b) => (
     <BadgeRow
       key={b.id}
@@ -841,8 +842,8 @@ function BadgeRow({
   const R = RARITY[def.rarity];
 
   if (view !== "cards") {
-    const detailBtn = showsDetail(def, unlocked, hidden, progress, derived) && derived ? (
-      <DetailButton def={def} derived={derived} progress={progress} small />
+    const detailBtn = showsDetail(def, unlocked, hidden, progress, derived, state.got) && derived ? (
+      <DetailButton def={def} derived={derived} progress={progress} got={state.got} small />
     ) : null;
     const ladderBtn = def.ladder ? (
       <LadderButton ladder={def.ladder} state={state} progress={ladderProgress} live={live} color={R.ic} small />
@@ -1011,7 +1012,7 @@ function BadgeRow({
           if (!detail && !def.ladder) return null;
           return (
             <div className="flex shrink-0 items-center gap-1.5">
-              {detail && derived ? <DetailButton def={def} derived={derived} progress={progress} /> : null}
+              {detail && derived ? <DetailButton def={def} derived={derived} progress={progress} got={state.got} /> : null}
               {/* L'échelle complète s'ouvre dans un panneau : les six paliers,
                   celui du moment compris et mis en avant. */}
               {def.ladder ? (
@@ -1556,18 +1557,20 @@ function LadderPopup({
  * d'anime.
  */
 function DetailButton({
-  def, derived, progress, small = false,
+  def, derived, progress, got, small = false,
 }: {
   def: BadgeDef;
   derived: Derived;
   progress: Progress;
+  /** Les badges obtenus : le détail de « Chasseur de secrets » les liste. */
+  got?: Record<string, number>;
   /** Le format des vues Grille et Compacte : l'icône seule. */
   small?: boolean;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const kind = detailKind(def, derived);
-  const detail = useMemo(() => (open ? detailOf(def, derived) : null), [open, def, derived]);
+  const kind = detailKind(def, derived, got);
+  const detail = useMemo(() => (open ? detailOf(def, derived, got) : null), [open, def, derived, got]);
   if (!kind) return null;
   const Icon = kind === "grid" ? MdGridView : MdFormatListBulleted;
 
@@ -1777,6 +1780,7 @@ function cellLabel(
   t: TFunction,
 ): string {
   if (detail.labels === "genre") return genreLabel(t, c.label);
+  if (detail.labels === "badge") return t(`badges.${c.label}.name`);
   if (detail.labels === "season") {
     const [year, season] = c.label.split("-");
     return season ? `${t(`profile.blocks.bingo.season.${season.toLowerCase()}`)} ${year}` : c.label;

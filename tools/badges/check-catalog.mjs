@@ -726,6 +726,15 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
     check("« VO et VF » : un détail", detailKind(vf, dv), "list");
     check("« VO et VF » : l'anime vu dans les deux langues", detailOf(vf, dv).items.map((e) => e.mediaId), [3]);
   }
+  {
+    const sc = all.find((b) => b.id === "secret-50");
+    const secrets = all.filter((b) => b.secret).slice(0, 2).map((b) => b.id);
+    const got = { [secrets[1]]: 20, [secrets[0]]: 10, "fin-1": 5 };
+    check("« Chasseur de secrets » : pas de détail sans la collection", detailKind(sc, d), null);
+    check("« Chasseur de secrets » : les secrets obtenus, dans l'ordre",
+      detailOf(sc, d, got).cells.map((c) => c.key), secrets);
+    check("« Chasseur de secrets » : mythique", sc.rarity, "m");
+  }
   ok("« Impatient » : pas de détail",
     !detailKind(all.find((b) => b.metric.k === "planningUnaired"), d));
   {

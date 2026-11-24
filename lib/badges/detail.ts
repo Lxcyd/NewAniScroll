@@ -41,7 +41,7 @@ export type Detail =
       cells: DetailCell[];
       /** Les libellés sont à traduire à l'affichage : des genres AniList, ou
        *  des saisons de bingo (« 2026-FALL »). */
-      labels?: "genre" | "season";
+      labels?: "genre" | "season" | "badge";
       /** Les cases portent des anime qu'on peut ouvrir (pas les lecteurs). */
       browsable: boolean;
     }
@@ -71,12 +71,13 @@ const COUNT_OF = new Set(["completed", "rated", "rewatched", "favourites"]);
  * encore les données (le vocabulaire des genres et des tags est récupéré à
  * part, cf. metaBackfill.ts).
  */
-export function detailKind(def: BadgeDef, d: Derived): "grid" | "list" | null {
+export function detailKind(def: BadgeDef, d: Derived, got?: Record<string, number>): "grid" | "list" | null {
   const k = def.metric.k;
   if (k === "flag") return ["oav", "dayOne", "bothLangs"].includes(String(def.metric.name)) ? "list" : null;
   if (k === "counter") return def.metric.name === "onAirDay" ? "list" : null;
   if ((k === "allGenres" || k === "allTags") && !d.vocab) return null;
   if (k === "franchise") return d.franchises ? "list" : null;
+  if (k === "secretCount") return got ? "grid" : null;
   if (k === "count") {
     if (def.metric.of === "bingoPoints") return "grid";
     if (def.metric.of === "favourites" && !d.favouriteIds) return null;
@@ -126,11 +127,25 @@ function cellsOf(
   });
 }
 
-export function detailOf(def: BadgeDef, d: Derived): Detail | null {
+export function detailOf(def: BadgeDef, d: Derived, got?: Record<string, number>): Detail | null {
   const m = def.metric;
   const done = d.completed;
 
   switch (m.k) {
+    /* « Chasseur de secrets » : les secrets OBTENUS, du premier au dernier.
+       Ceux qui manquent ne sont pas montrés : leur nom les dévoilerait. */
+    case "secretCount": {
+      if (!got) return null;
+      const ids = Object.keys(got)
+        .filter((id) => d.defs[id]?.secret)
+        .sort((a, b) => got[a] - got[b]);
+      return {
+        kind: "grid",
+        browsable: false,
+        labels: "badge",
+        cells: ids.map((id) => ({ key: id, label: id, items: [], done: true })),
+      };
+    }
     /* ── Ensembles à couvrir ──────────────────────────────────────────────── */
     case "years": {
       // Mêmes bornes que `measure` : de `from` à l'année EN COURS incluse.
