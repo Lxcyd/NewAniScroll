@@ -1583,6 +1583,7 @@
     "studioSoundTipTitle": "La musique passe en premier",
     "studioSoundTipBody": "Tant qu'une musique est choisie, elle est prioritaire sur le son de la vidéo, même en pause. Retire-la pour entendre la vidéo.",
     "studioSoundTipOk": "Compris",
+    "studioSearchClear": "Effacer la recherche",
     "studioSoundTipNever": "Ne plus me le rappeler",
     "studioVideoVolumeMusic": "Son de la vidéo — coupé tant qu'une musique est choisie",
     "studioVideoMutedByMusic": "Muette : musique choisie",

@@ -1583,6 +1583,7 @@
     "studioSoundTipTitle": "Music comes first",
     "studioSoundTipBody": "While a music track is selected, it takes priority over the video's sound, even when paused. Remove it to hear the video.",
     "studioSoundTipOk": "Got it",
+    "studioSearchClear": "Clear search",
     "studioSoundTipNever": "Don't remind me again",
     "studioVideoVolumeMusic": "Video sound — muted while a music track is chosen",
     "studioVideoMutedByMusic": "Muted: music chosen",

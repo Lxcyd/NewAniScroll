@@ -6073,6 +6073,22 @@ export default function BannerStudio({
                       )}
                       className="min-w-0 flex-1 bg-transparent font-karla text-[15px] text-white outline-none placeholder:text-white/35"
                     />
+                    {/* Effacer la recherche d'un clic (24/11/2026, Luc), dans
+                        tous les menus ; le curseur reste dans le champ. */}
+                    {query ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setQuery("");
+                          search.current?.focus();
+                        }}
+                        aria-label={t("profile.studioSearchClear", { defaultValue: "Effacer la recherche" })}
+                        title={t("profile.studioSearchClear", { defaultValue: "Effacer la recherche" })}
+                        className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+                      >
+                        <XMarkIcon className="h-4 w-4" strokeWidth={2} />
+                      </button>
+                    ) : null}
                     {scope === "music" || scope === "video" || scope === "oped" ? (
                       <button
                         type="button"
