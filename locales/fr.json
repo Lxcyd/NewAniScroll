@@ -2703,7 +2703,7 @@
     },
     "dead-end": {
       "name": "Perdu ?",
-      "cond": "Tombe trois fois sur la page 404."
+      "cond": "Tombe quatre fois sur la page 404."
     },
     "konami": {
       "name": "Code secret",

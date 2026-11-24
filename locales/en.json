@@ -2703,7 +2703,7 @@
     },
     "dead-end": {
       "name": "Lost?",
-      "cond": "Land on the 404 page three times."
+      "cond": "Land on the 404 page four times."
     },
     "konami": {
       "name": "Secret code",

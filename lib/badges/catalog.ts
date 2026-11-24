@@ -159,7 +159,7 @@ export const BADGES: BadgeDef[] = [
   { id: "staff", family: "secret", rarity: "m", icon: "shieldCheck", tag: "STAFF", metric: {"k":"granted","n":1}, secret: true },
   { id: "beta", family: "secret", rarity: "l", icon: "bookmark", tag: "BETA", metric: {"k":"betaAccount","n":1}, secret: true },
   { id: "changelog", family: "secret", rarity: "c", icon: "film", tag: "", metric: {"k":"flag","name":"changelog","n":1}, secret: true },
-  { id: "dead-end", family: "secret", rarity: "u", icon: "screenBroken", tag: "404", metric: {"k":"counter","name":"notFound","n":3}, secret: true },
+  { id: "dead-end", family: "secret", rarity: "u", icon: "screenBroken", tag: "404", metric: {"k":"counter","name":"notFound","n":4}, secret: true },
   { id: "konami", family: "secret", rarity: "e", icon: "dpad", tag: "", metric: {"k":"flag","name":"konami","n":1}, secret: true },
   { id: "devtools", family: "secret", rarity: "r", icon: "console", tag: "", metric: {"k":"flag","name":"devtools","n":1}, secret: true },
   { id: "dmca", family: "secret", rarity: "r", icon: "gavel", tag: "", metric: {"k":"flag","name":"dmca","n":1}, secret: true },
