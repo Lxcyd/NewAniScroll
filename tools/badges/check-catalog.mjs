@@ -617,6 +617,13 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
   check("une vraie date bat « sans date »", mergeBadgeState(sans, date).got["ep-1"], 500);
   check("…dans les deux sens", mergeBadgeState(date, sans).got["ep-1"], 500);
   check("deux « sans date » le restent", mergeBadgeState(sans, sans).got["ep-1"], 1);
+  /* Un badge retiré ne revient d'aucune copie, ni d'un côté ni de l'autre
+     (24/11/2026 : « Spoilé » ramené à chaque synchro par une copie ancienne). */
+  const retire = { v: 1, got: { "ep-1": 5 }, revoked: { "by-the-end": 900 } };
+  const ancien = { v: 1, got: { "ep-1": 5, "by-the-end": 100 } };
+  check("retiré : une copie ancienne ne le ramène pas", "by-the-end" in mergeBadgeState(retire, ancien).got, false);
+  check("…dans les deux sens", "by-the-end" in mergeBadgeState(ancien, retire).got, false);
+  check("…et le retrait voyage", mergeBadgeState(ancien, retire).revoked, { "by-the-end": 900 });
 }
 
 /* ── Les badges qui comptent des badges ───────────────────────────────────── */

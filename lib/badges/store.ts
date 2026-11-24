@@ -54,6 +54,15 @@ export type BadgeState = {
   redated?: true;
   /** Les badges accordés par d'anciennes règles fausses ont été retirés (24/11/2026). */
   regraded?: number;
+  /**
+   * LES BADGES RETIRÉS PAR LA CORRECTION, id → date du retrait (24/11/2026,
+   * Luc : « Spoilé est toujours valide sans raison »). La fusion est une UNION :
+   * sans trace du retrait, n'importe quelle autre copie (un onglet resté ouvert,
+   * l'ordinateur, la prod) ramenait le badge au passage suivant. Un id présent
+   * ici n'est plus repris d'aucune copie ; il en sort quand l'évaluateur
+   * l'accorde de nouveau, preuve à l'appui.
+   */
+  revoked?: Record<string, number>;
 };
 
 /** À monter quand une règle corrigée doit repasser sur les collections. */
@@ -85,12 +94,19 @@ function parse(raw: string | null): BadgeState {
       const n = Number(at);
       if (Number.isFinite(n) && n > 0) got[id] = n;
     }
+    const revoked: Record<string, number> = {};
+    for (const [id, at] of Object.entries(p?.revoked ?? {})) {
+      const n = Number(at);
+      if (Number.isFinite(n) && n > 0) revoked[id] = n;
+    }
+    for (const id of Object.keys(revoked)) delete got[id];
     return {
       v: 1,
       got,
       ...(p?.backfilled ? { backfilled: true as const } : {}),
       ...(p?.redated ? { redated: true as const } : {}),
       ...(p?.regraded ? { regraded: p.regraded === true ? 1 : Number(p.regraded) || 1 } : {}),
+      ...(Object.keys(revoked).length ? { revoked } : {}),
     };
   } catch {
     return EMPTY;
@@ -145,6 +161,9 @@ export function grant(
     }
   }
   const markBackfilled = opts?.backfilled || state.backfilled;
+  /* Accordé de nouveau, preuve à l'appui : le retrait ne tient plus. */
+  const revoked = { ...state.revoked };
+  for (const id of fresh) delete revoked[id];
   const changed =
     fresh.length > 0 ||
     !!markBackfilled !== !!state.backfilled ||
@@ -156,6 +175,7 @@ export function grant(
       ...(markBackfilled ? { backfilled: true as const } : {}),
       ...(state.redated ? { redated: true as const } : {}),
       ...(state.regraded ? { regraded: state.regraded } : {}),
+      ...(Object.keys(revoked).length ? { revoked } : {}),
     });
   }
   return fresh;
@@ -168,9 +188,15 @@ export function grant(
 export function applyCorrection(dates: Record<string, number>, wrong: string[], final = true): void {
   const state = getBadgeState();
   const got = { ...state.got, ...dates };
-  for (const id of wrong) delete got[id];
+  const revoked = { ...state.revoked };
+  const now = Date.now();
+  for (const id of wrong) {
+    delete got[id];
+    revoked[id] = now;
+  }
+  const next = { ...state, got, ...(Object.keys(revoked).length ? { revoked } : {}) };
   /* `final` faux : un retrait partiel, la correction complète reste à faire. */
-  write(final ? { ...state, got, redated: true, regraded: CORRECTION_VERSION } : { ...state, got });
+  write(final ? { ...next, redated: true, regraded: CORRECTION_VERSION } : next);
 }
 
 /**
@@ -205,12 +231,18 @@ export function mergeBadgeState(a: BadgeState, b: BadgeState): BadgeState {
   const redated = a.redated && b.redated;
   /* Même logique : une copie ancienne peut ramener un badge retiré. */
   const regraded = Math.min(va, vb);
+  /* Un retrait vu d'un côté vaut pour les deux : aucune copie ne ramène un
+     badge retiré. Le plus récent retrait l'emporte. */
+  const revoked: Record<string, number> = { ...a.revoked };
+  for (const [id, at] of Object.entries(b.revoked ?? {})) revoked[id] = Math.max(revoked[id] ?? 0, at);
+  for (const id of Object.keys(revoked)) delete got[id];
   return {
     v: 1,
     got,
     ...(backfilled ? { backfilled: true as const } : {}),
     ...(redated ? { redated: true as const } : {}),
     ...(regraded ? { regraded } : {}),
+    ...(Object.keys(revoked).length ? { revoked } : {}),
   };
 }
 
