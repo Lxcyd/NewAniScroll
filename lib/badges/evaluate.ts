@@ -48,11 +48,15 @@ export function setAccountCreatedAt(at: number | null): void {
   accountCreatedAt = sane(at ?? 0) ?? null;
 }
 
-/** Les favoris AniList, quand la session en a mis en cache. */
+/** Les favoris AniList, quand le site en a mis en cache. La copie vit dans
+ *  `localStorage` depuis le 23/10/2026 (lib/anilist/favouritesCache.ts) : lue
+ *  seulement en `sessionStorage`, elle restait introuvable, et le détail des
+ *  badges « coup de cœur » ne s'affichait jamais (24/11/2026). */
 function readFavourites(): number[] | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.sessionStorage.getItem("aniscroll.favourites");
+    const raw =
+      window.localStorage.getItem("aniscroll.favourites") ?? window.sessionStorage.getItem("aniscroll.favourites");
     if (!raw) return null;
     const ids = JSON.parse(raw)?.ids;
     return Array.isArray(ids) ? ids.map(Number).filter(Number.isFinite) : null;
