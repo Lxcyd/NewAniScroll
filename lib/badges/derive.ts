@@ -141,6 +141,8 @@ export type Derived = {
   /** Le plus grand nombre de visionnages d'une même série. */
   mostRepeats: number;
   favourites: number | null;
+  /** Les ids des favoris, pour le détail des badges « coup de cœur ». */
+  favouriteIds: number[] | null;
 
   /* ── Métadonnées (null = la liste ne les porte pas encore) ──────────────── */
   /** Anime terminés portant ce genre. `null` si aucun n'a de genres. */
@@ -754,6 +756,7 @@ export function derive(s: Snapshot): Derived {
     rewatched,
     mostRepeats,
     favourites: s.favourites ? s.favourites.length : null,
+    favouriteIds: s.favourites,
 
     genre: countGenre,
     tag: countTag,

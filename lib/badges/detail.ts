@@ -60,7 +60,7 @@ const LIST = new Set([
 ]);
 /** Les compteurs `count` qui se ramènent à des anime de la liste. Les épisodes,
  *  les minutes ou la série de jours n'en sont pas : pas de liste à montrer. */
-const COUNT_OF = new Set(["completed", "rated", "rewatched"]);
+const COUNT_OF = new Set(["completed", "rated", "rewatched", "favourites"]);
 
 /**
  * La forme du détail d'un badge, SANS le calculer — de quoi décider d'afficher
@@ -75,6 +75,7 @@ export function detailKind(def: BadgeDef, d: Derived): "grid" | "list" | null {
   if ((k === "allGenres" || k === "allTags") && !d.vocab) return null;
   if (k === "count") {
     if (def.metric.of === "bingoPoints") return "grid";
+    if (def.metric.of === "favourites" && !d.favouriteIds) return null;
     return COUNT_OF.has(String(def.metric.of)) ? "list" : null;
   }
   /* Une œuvre en un seul morceau (« Termine Death Note ») n'a rien à
@@ -312,6 +313,13 @@ export function detailOf(def: BadgeDef, d: Derived): Detail | null {
           return { kind: "list", items: d.seen.filter((e) => (e.score ?? 0) > 0).sort(byTitle) };
         case "rewatched":
           return { kind: "list", items: d.entries.filter((e) => (e.repeat ?? 0) >= 1).sort(byTitle) };
+        /* Un favori absent de la liste n'a pas d'entrée à montrer : il compte,
+           mais n'apparaît pas ici. */
+        case "favourites": {
+          if (!d.favouriteIds) return null;
+          const ids = new Set(d.favouriteIds);
+          return { kind: "list", items: d.entries.filter((e) => ids.has(e.mediaId)).sort(byTitle) };
+        }
         default: return null;
       }
     default:
