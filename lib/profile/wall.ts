@@ -62,7 +62,8 @@ export function defaultWall(): DressingWall {
     scores: [0, 10],
     unrated: true,
     anim: true,
-    dir: "up",
+    /* Sens contraires par défaut (25/11/2026, Luc). */
+    dir: "alt",
     speed: WALL_SPEED_DEFAULT,
     excluded: [],
   };
