@@ -1564,11 +1564,8 @@ export default function BannerStudio({
   const [wantPlay, setWantPlay] = useState(false);
   /* LA MUSIQUE QUI JOUAIT SUR LE PROFIL JOUE ICI (22/10/2026, Luc), depuis
      le début ; en pause sur le profil, elle reste en pause. */
-  /* EN SORTANT (22/10/2026, Luc) : la musique repart seulement si on l'a
-     changée et enregistrée (`exitPlay`, posé par `finish`) ; sinon le profil
-     la reprend dans l'état où le studio la laisse. */
-  const playingRef = useRef(false);
-  playingRef.current = playing;
+  /* EN SORTANT : une musique changée et enregistrée repart (`exitPlay`, posé
+     par `finish`) ; sinon le choix du visiteur reste celui de la case. */
 
   /* La case en bas à droite suit le cadre en CSS (`.as-scene-follow`) ;
      montée après le départ du recul, elle rattrape le temps perdu (mesuré au
@@ -1595,7 +1592,13 @@ export default function BannerStudio({
     if (!bgPausedRef.current) remote.current?.seek(value?.videoFrom ?? 0);
     if (profileMusicNow().playing && value?.music) setWantPlay(true);
     return () => {
-      if (value?.music || exitPlay.current) rememberAutoplay(exitPlay.current ?? playingRef.current);
+      /* Seule une musique NOUVELLE réécrit le choix (elle repart). Sortir du
+         studio avec la musique arrêtée ne vaut PAS pause (24/11/2026, Luc) :
+         le studio ne la lance que si elle jouait sur le profil, donc un profil
+         qui ne démarrait pas enregistrait « pas de lecture auto » à chaque
+         passage, pour toujours. Comme le fond vidéo : seule une pause donnée
+         sur la case du profil est retenue. */
+      if (exitPlay.current) rememberAutoplay(true);
       /* Le retour au début en sortant est fait par le fond lui-même
          (PlateBackground) : ici la télécommande est déjà reprise. */
     };
