@@ -996,7 +996,7 @@ function BadgeRowImpl({
           "as-badge-row as-badge-row-compact scroll-mt-28 flex items-center gap-2 px-3 py-1.5 shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)] transition-[background-color] last:shadow-none hover:bg-white/[0.06]" +
           (unlocked ? "" : " is-locked")
         }
-        style={unlocked ? { backgroundImage: `linear-gradient(90deg, ${R.ic}33, transparent 55%)` } : undefined}
+        style={unlocked ? { backgroundImage: `linear-gradient(90deg, ${R.ic}33, transparent 75%)` } : undefined}
       >
         <div className="as-badge-row-in flex min-w-0 flex-1 items-center gap-3">
           <div className="shrink-0">{token(COMPACT_TOKEN)}</div>
