@@ -255,6 +255,21 @@ export default function ProfileHero({
   /* Partagé avec le studio : une pause posée ici y vaut aussi. */
   const [bgPaused, setBgPaused] = useBgPaused();
   const toggleBg = () => setBgPaused((p) => !p);
+  /* LE VERSO DE LA CASE MUSIQUE (24/11/2026, Luc) : musique + fond vidéo, la
+     case du fond n'est pas là (une seule case au coin) — elle se retrouve au
+     dos de celle de la musique. */
+  const bgBack =
+    banner.music && (trailer || (video && !!banner.url))
+      ? {
+          art:
+            banner.videoCover ||
+            (banner.trailerId ? `https://i.ytimg.com/vi/${banner.trailerId}/hqdefault.jpg` : "") ||
+            fondPoster(banner.url) ||
+            "",
+          playing: !bgPaused,
+          onToggle: toggleBg,
+        }
+      : null;
   /* Le mur d'animés : un fond d'écran sans fichier, fait des affiches de la
      liste que la page tient déjà (lib/profile/wall.ts). */
   const wall = banner.kind === "wall";
@@ -1036,6 +1051,7 @@ export default function ProfileHero({
             onVolume={changeVol}
             fallback={PROFILE_DEFAULT_VOLUME}
             minimizable
+            back={bgBack}
           />
         </div>
       ) : null}
@@ -1143,6 +1159,7 @@ export default function ProfileHero({
               onVolume: changeVol,
               fallback: PROFILE_DEFAULT_VOLUME,
               minimizable: true,
+              back: bgBack,
             }}
             onError={() => setSound(false)}
             onBrowserMute={() => {

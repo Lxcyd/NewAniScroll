@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from "react";
 import { MdPause, MdPlayArrow } from "react-icons/md";
+import { ArrowPathRoundedSquareIcon } from "@heroicons/react/24/outline";
 import HoverVolume from "@/components/shared/HoverVolume";
 import { eqLevels, eqVoice, type EqVoice } from "@/lib/profile/eqMotion";
 import TrailerAmbient from "@/components/shared/HoverPreview/TrailerAmbient";
@@ -15,6 +16,13 @@ export type MusicCardControls = {
   fallback?: number;
   /** Se tasse en petit carré hors survol, avec l'égaliseur (profil et studio). */
   minimizable?: boolean;
+  /**
+   * LE VERSO : LE FOND VIDÉO (24/11/2026, Luc). Quand une musique joue SUR un
+   * fond vidéo, la case du fond n'existe pas — on ne pouvait arrêter que le
+   * son. Un bouton en haut à gauche (au survol) retourne la carte : au dos,
+   * l'image du fond et sa lecture / pause, indépendante de la musique.
+   */
+  back?: { art: string; playing: boolean; onToggle: () => void } | null;
 };
 
 type Props = MusicCardControls & {
@@ -275,6 +283,28 @@ export default function MusicCard({
   );
   const folded = canMini && mini;
 
+  /* Le verso : la carte se retourne au clic, revient à l'endroit en se
+     tassant (le petit carré est toujours la musique). */
+  const back = card.back ?? null;
+  const backArt = useHiResArt(back?.art ?? "");
+  const [flipped, setFlipped] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const hasBack = !!back;
+  useEffect(() => {
+    if (folded || !hasBack) setFlipped(false);
+  }, [folded, hasBack]);
+  const flipBtn = (
+    <button
+      type="button"
+      onClick={() => setFlipped((f) => !f)}
+      aria-label={flipped ? "Musique" : "Fond"}
+      title={flipped ? "Revenir à la musique" : "Lecture / pause du fond"}
+      className={`as-preview-videobtn absolute left-2 top-2 h-7 w-7 transition-opacity duration-200 ${hovered ? "opacity-100" : "pointer-events-none opacity-0"}`}
+    >
+      <ArrowPathRoundedSquareIcon className="h-4 w-4" strokeWidth={2} />
+    </button>
+  );
+
   const chrome = `transition-opacity duration-200 ${awake || !card.playing ? "opacity-100" : "pointer-events-none opacity-0"}`;
   return (
     <div className={`relative isolate ${className ?? ""}`}>
@@ -338,10 +368,24 @@ export default function MusicCard({
         onPointerMove={() => wake()}
         onPointerEnter={() => {
           wake();
+          setHovered(true);
           if (canMini) grow();
         }}
-        onPointerLeave={canMini ? () => shrinkIn(0) : undefined}
+        onPointerLeave={() => {
+          setHovered(false);
+          if (canMini) shrinkIn(0);
+        }}
       >
+        {/* Le retournement : un plan 3D, deux faces dos à dos. Sans verso,
+            aucune 3D — la case reste exactement celle d'avant. */}
+        <div
+          className="relative h-full w-full transition-transform duration-500 ease-[cubic-bezier(.2,.7,.2,1)]"
+          style={
+            back
+              ? { transformStyle: "preserve-3d", transform: `perspective(900px) rotateY(${flipped ? 180 : 0}deg)` }
+              : undefined
+          }
+        >
         <div
           /* Pas de liseré : sur une image claire il se lisait comme un bord bleu.
              Réduite, le rayon l'est avec la case : 40 px ici font ~10 px à
@@ -355,7 +399,13 @@ export default function MusicCard({
              le fond noir ne servait à rien, il est retiré. Un seul masque
              (`clip-path`) découpe le tout. */
           className="relative h-full w-full transition-[clip-path] duration-300 ease-out"
-          style={{ clipPath: `inset(0 round ${folded ? 40 : 12}px)` }}
+          style={{
+            clipPath: `inset(0 round ${folded ? 40 : 12}px)`,
+            /* La face cachée ne prend pas les clics : seule celle qu'on voit répond. */
+            ...(back
+              ? { backfaceVisibility: "hidden", WebkitBackfaceVisibility: "hidden", pointerEvents: flipped ? "none" : undefined }
+              : null),
+          }}
         >
           {children}
           {showArt ? (
@@ -426,8 +476,56 @@ export default function MusicCard({
                   />
                 </div>
               )}
+              {back && !flipped ? flipBtn : null}
             </>
           )}
+        </div>
+        {back ? (
+          /* LE DOS : l'image du fond, sa lecture au centre. La musique, elle,
+             continue — on ne touche ici qu'au fond. */
+          <div
+            aria-hidden={!flipped}
+            className="absolute inset-0"
+            style={{
+              clipPath: `inset(0 round ${folded ? 40 : 12}px)`,
+              transform: "rotateY(180deg)",
+              backfaceVisibility: "hidden",
+              WebkitBackfaceVisibility: "hidden",
+              pointerEvents: flipped ? undefined : "none",
+            }}
+          >
+            {back.art ? (
+              <img
+                alt=""
+                src={backArt.src}
+                onLoad={backArt.onLoad}
+                onError={backArt.onError}
+                className={`pointer-events-none absolute inset-0 h-full w-full object-cover transition-[filter] duration-300 ${back.playing ? "" : "brightness-75 saturate-75"}`}
+              />
+            ) : (
+              <div className="absolute inset-0 bg-[#15171d]" />
+            )}
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent" />
+            {flipped && !folded ? (
+              <>
+                <div className="absolute inset-0 grid place-items-center">
+                  <button
+                    type="button"
+                    onClick={back.onToggle}
+                    aria-label={back.playing ? "Pause du fond" : "Lecture du fond"}
+                    className="as-preview-videobtn h-11 w-11"
+                  >
+                    {back.playing ? <MdPause size={28} /> : <MdPlayArrow size={28} />}
+                  </button>
+                </div>
+                <span className="pointer-events-none absolute bottom-3 left-3 font-outfit text-[12px] font-bold uppercase tracking-[0.12em] text-white/85">
+                  Fond
+                </span>
+                {flipBtn}
+              </>
+            ) : null}
+          </div>
+        ) : null}
         </div>
       </div>
     </div>

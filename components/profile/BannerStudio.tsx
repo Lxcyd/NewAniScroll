@@ -5545,6 +5545,9 @@ export default function BannerStudio({
       )?.thumb) ??
     trailerAnime?.cover ??
     null;
+  /* Le verso de la case musique : le fond vidéo, quand il y en a un sous la
+     musique (24/11/2026, Luc ; même chose sur le profil). */
+  const musicBack = videoDraft ? { art: videoThumb ?? "", playing: vPlaying, onToggle: toggleVideo } : null;
   /* Le bouton « garder en preset » des deux cartes : un clic garde le choix
      tel qu'il est (bornes, fondu), un second le retire. */
   const curVideo = videoSnap(draft);
@@ -6932,6 +6935,7 @@ export default function BannerStudio({
                 setVol(v);
               },
               fallback: PREVIEW_DEFAULT_VOLUME,
+              back: musicBack,
             }}
             onPlay={() => {
               setPlaying(true);
@@ -7015,6 +7019,7 @@ export default function BannerStudio({
             }}
             fallback={PREVIEW_DEFAULT_VOLUME}
             minimizable
+            back={musicBack}
           />
         </div>
         </>
