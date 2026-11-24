@@ -1004,12 +1004,9 @@ function BadgeRowImpl({
           <div className="hidden min-w-0 flex-1 sm:block [&>p]:mt-0 [&>p]:line-clamp-2">
             <Condition def={def} hidden={hidden && !unlocked} unlocked={unlocked} />
           </div>
-          {/* La barre des badges à obtenir ; la colonne reste vide sur PC pour
-              garder les boutons alignés, et rend sa place sur téléphone. */}
-          <div className={`w-[72px] shrink-0 justify-end sm:flex sm:w-[150px] [&>div]:mt-0 [&>div]:w-full [&>p]:mt-0 [&>p]:leading-tight max-sm:[&>div>div:first-child]:hidden max-sm:[&>div]:justify-end ${unlocked ? "hidden" : "flex"}`}>
-            {unlocked ? null : (
-              <ProgressLine def={def} progress={progress} unlocked={unlocked} live={live} color={R.ic} />
-            )}
+          {/* La barre, pleine pour un badge obtenu (24/11/2026). */}
+          <div className="flex w-[72px] shrink-0 justify-end sm:w-[150px] [&>div]:mt-0 [&>div]:w-full [&>p]:mt-0 [&>p]:leading-tight max-sm:[&>div>div:first-child]:hidden max-sm:[&>div]:justify-end">
+            <ProgressLine def={def} progress={progress} unlocked={unlocked} live={live} color={R.ic} />
           </div>
         </div>
         {slots > 0 ? (
