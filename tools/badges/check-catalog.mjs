@@ -714,11 +714,13 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
   }
   check("A : Akira et Another Show", az.cells.find((c) => c.key === "A").items.map((e) => e.mediaId), [1, 4]);
   for (const [k, ids] of [
-    ["titleLength", [8]], ["sameDayFinish", [8]], ["planningUnaired", [9]], ["repeatSame", [8]],
+    ["titleLength", [8]], ["sameDayFinish", [8]], ["repeatSame", [8]],
   ]) {
     const det = detailOf(all.find((b) => b.metric.k === k), d);
     check(`${k} : l'anime qui l'a fait tomber`, det.items.map((e) => e.mediaId), ids);
   }
+  ok("« Impatient » : pas de détail",
+    !detailKind(all.find((b) => b.metric.k === "planningUnaired"), d));
   ok("pas de vocabulaire, pas de détail des genres",
     !detailKind(all.find((b) => b.metric.k === "allGenres"), derive(snap())));
 }

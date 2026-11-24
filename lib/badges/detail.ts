@@ -55,7 +55,7 @@ export type Detail =
 const GRID = new Set(["years", "alphabet", "allGenres", "allTags", "hosts", "studio", "works"]);
 const LIST = new Set([
   "genre", "tag", "format", "yearBefore", "popularityUnder", "studioNamed",
-  "titleLength", "sameDayFinish", "onlyLastEpisode", "planningUnaired", "repeatSame",
+  "titleLength", "sameDayFinish", "onlyLastEpisode", "repeatSame",
   "worksEpisodes", "onDate", "neverSkipOp",
 ]);
 /** Les compteurs `count` qui se ramènent à des anime de la liste. Les épisodes,
@@ -251,11 +251,6 @@ export function detailOf(def: BadgeDef, d: Derived): Detail | null {
       return {
         kind: "list",
         items: d.entries.filter((e) => d.onlyLastIds.has(e.mediaId)).sort(byTitle),
-      };
-    case "planningUnaired":
-      return {
-        kind: "list",
-        items: d.entries.filter((e) => e.mediaStatus === "NOT_YET_RELEASED").sort(byTitle),
       };
     /* Les plus revus d'abord : c'est le premier qui porte « trois fois ». */
     case "repeatSame":
