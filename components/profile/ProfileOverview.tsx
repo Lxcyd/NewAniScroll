@@ -1253,7 +1253,9 @@ export default function ProfileOverview({
         const item = layout?.find((o) => o.i === id);
         return (
           <ResumeBlock
-            stacked={item?.h === 2 && (item?.w === 2 || item?.w === 3)}
+            /* 3×2 côte à côte (24/11/2026, Luc : « met l'image à gauche ») ;
+               seul le 2×2, trop étroit pour deux colonnes, reste empilé. */
+            stacked={item?.h === 2 && item?.w === 2}
             rows={served}
             other={!isOwner}
             titles={titlesById}
