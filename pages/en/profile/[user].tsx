@@ -540,8 +540,9 @@ function ProfileView({
             onIntent={preloadProfileTab}
           />
           {/* RÉINITIALISER LES WIDGETS (08/11/2026, Luc) : dans le studio
-              seulement, À LA PLACE de « Personnaliser le profil ». */}
-          {isOwner && picker ? <ResetWidgetsButton /> : null}
+              seulement, À LA PLACE de « Personnaliser le profil », et sur les
+              deux onglets à widgets (24/11/2026). */}
+          {isOwner && picker && (tab === "overview" || tab === "stats") ? <ResetWidgetsButton tab={tab} /> : null}
           {/* PERSONNALISER LE PROFIL, à la place de « Pour toi » (08/11/2026,
               Luc) : LE bouton qui ouvre le studio. */}
           {isOwner && !picker && (

@@ -647,13 +647,16 @@ export default function ProfileOverview({
     setLayout(defaultLayout(isOwner, variant));
   }
   /* Le bouton « Réinitialiser » de l'en-tête du profil (08/11/2026, Luc) :
-     la grille de l'onglet affiché, Aperçu ou Statistiques — une seule est
-     montée à la fois. */
+     la grille de l'onglet affiché. Aperçu et Statistiques restent montés tous
+     les deux (KeepAlivePanel) : l'événement nomme celui qui repart. */
   const resetRef = useRef(resetLayout);
   resetRef.current = resetLayout;
   useEffect(() => {
     if (!isOwner) return;
-    const go = () => resetRef.current();
+    const mine = variant ?? "overview";
+    const go = (e: Event) => {
+      if ((e as CustomEvent).detail === mine) resetRef.current();
+    };
     window.addEventListener(WIDGETS_RESET_EVENT, go);
     return () => window.removeEventListener(WIDGETS_RESET_EVENT, go);
   }, [isOwner, variant]);

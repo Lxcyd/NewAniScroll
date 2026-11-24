@@ -27,7 +27,7 @@ export function popIn(el: HTMLElement | null) {
  * premier jet n'était pas clair, même jour). Échap ou un clic ailleurs
  * annulent.
  */
-export default function ResetWidgetsButton() {
+export default function ResetWidgetsButton({ tab }: { tab: "overview" | "stats" }) {
   const { t } = useTranslation();
   const [asking, setAsking] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
@@ -119,7 +119,8 @@ export default function ResetWidgetsButton() {
               type="button"
               onClick={() => {
                 close();
-                window.dispatchEvent(new Event(WIDGETS_RESET_EVENT));
+                /* Les deux onglets restent montés : seul celui qu'on regarde repart. */
+                window.dispatchEvent(new CustomEvent(WIDGETS_RESET_EVENT, { detail: tab }));
               }}
               className="inline-flex items-center gap-1.5 rounded-full bg-action px-4 py-2 font-karla text-[13px] font-bold text-white transition-[filter] hover:brightness-110"
             >
