@@ -509,7 +509,7 @@ export const CATALOG = {
     ["staff", "m", "shieldCheck", "STAFF", { k: "granted", n: 1 },
       "Équipe AniScroll", "Réservé à l'équipe d'AniScroll.",
       "AniScroll team", "Only for the AniScroll team."],
-    ["beta", "l", "bookmark", "BETA", { k: "granted", n: 1 },
+    ["beta", "l", "bookmark", "BETA", { k: "betaAccount", n: 1 },
       "Là depuis la bêta", "Ton compte date de la bêta.",
       "Here since the beta", "Your account dates back to the beta."],
     ["changelog", "c", "film", "", flag("changelog"),

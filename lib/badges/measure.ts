@@ -27,6 +27,13 @@ import { WORKS } from "./works";
 import type { Derived } from "./derive";
 import type { BadgeState } from "./store";
 
+/**
+ * FIN DE LA BÊTA (epoch ms). Tant qu'elle vaut null, la bêta dure : tout compte
+ * créé reçoit « Là depuis la bêta ». Le jour où le logo perd son « Beta »,
+ * y écrire la date — les comptes créés après ne l'auront plus.
+ */
+export const BETA_ENDS_AT: number | null = null;
+
 /** (courant, objectif). `null` = pas mesurable pour l'instant. */
 export type Progress = [number, number] | null;
 
@@ -176,9 +183,15 @@ export function measure(def: BadgeDef, d: Derived, state: BadgeState): Progress 
       return target > 0 ? [countGot(state, d, false), target] : null;
     }
 
+    /* « Là depuis la bêta » : un compte créé avant la fin de la bêta. */
+    case "betaAccount":
+      return d.accountCreatedAt == null
+        ? null
+        : [d.accountCreatedAt < (BETA_ENDS_AT ?? Infinity) ? 1 : 0, 1];
+
     /* ── Accordés de l'extérieur ───────────────────────────────────────────── */
     case "granted":
-      /* Équipe, bêta : ils ne se mesurent pas, ils se donnent. Leur progression
+      /* Équipe : il ne se mesure pas, il se donne. Sa progression
          n'est donc pas « 0 / 1 » mais « on ne peut pas savoir ». */
       return null;
 

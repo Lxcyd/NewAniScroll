@@ -150,6 +150,9 @@ function dateFor(def: BadgeDef, d: Derived): number | null {
     return accountCreatedAt == null ? null : accountCreatedAt + Number(m.days) * 86_400_000;
   }
 
+  /* « Là depuis la bêta » : le jour de création du compte. */
+  if (m.k === "betaAccount") return accountCreatedAt;
+
   if (m.k === "flag") {
     if (m.name === "comeback" && d.comebackAt != null) return d.comebackAt;
     if (m.name === "dayOne" && d.finalOnAirAt != null) return d.finalOnAirAt;
@@ -269,7 +272,7 @@ function fuzzyToMs(d: { year: number | null; month: number | null; day: number |
 }
 
 /** Ces badges ont une date vraie par nature : le geste, ou le don. */
-const KEEPS_ITS_DATE = new Set(["flag", "counter", "granted", "accountAge"]);
+const KEEPS_ITS_DATE = new Set(["flag", "counter", "granted", "accountAge", "betaAccount"]);
 /** Après ce jour, une date vient de la règle actuelle : rien à corriger. */
 const REDATE_CUTOFF = Date.UTC(2026, 10, 25);
 let lastDataKey = "";

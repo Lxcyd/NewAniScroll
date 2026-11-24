@@ -191,6 +191,8 @@ export type Derived = {
   /** Un anime terminé dont aucun épisode n'a vu son opening sauté. */
   neverSkippedOp: boolean;
   accountAgeDays: number | null;
+  /** Création du compte AniScroll (epoch ms), null hors connexion. */
+  accountCreatedAt: number | null;
 
   /* ── Le catalogue lui-même ──────────────────────────────────────────────────
      Porté ici pour que `measure` reste une fonction de (badge, mesures) : les
@@ -823,6 +825,7 @@ export function derive(s: Snapshot): Derived {
       s.accountCreatedAt == null
         ? null
         : Math.floor((now - s.accountCreatedAt) / 86_400_000),
+    accountCreatedAt: s.accountCreatedAt,
 
     defs: BY_ID,
     mainCount: MAIN.length,
