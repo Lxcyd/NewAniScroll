@@ -155,9 +155,10 @@
     "showPassword": "Show password",
     "hidePassword": "Hide password",
     "cloudReplace": {
-      "title": "Warning",
-      "body": "Your account data will replace the data in this browser.",
-      "confirm": "Replace"
+      "title": "Which data should we keep?",
+      "body": "You're signed in. Your account and this browser each have a different list, progress or settings. Pick the version to keep: the other one will be replaced.",
+      "confirm": "Keep the account's",
+      "keepDevice": "Keep this browser's"
     },
     "code": {
       "send": "Get a code",

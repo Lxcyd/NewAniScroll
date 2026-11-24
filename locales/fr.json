@@ -155,9 +155,10 @@
     "showPassword": "Afficher le mot de passe",
     "hidePassword": "Masquer le mot de passe",
     "cloudReplace": {
-      "title": "Attention",
-      "body": "Les données de votre compte vont remplacer celles de ce navigateur.",
-      "confirm": "Remplacer"
+      "title": "Quelles données garder ?",
+      "body": "Vous êtes bien connecté. Votre compte et ce navigateur ont chacun une liste, une progression ou des réglages différents. Choisissez la version à garder : l'autre sera remplacée.",
+      "confirm": "Garder celles du compte",
+      "keepDevice": "Garder celles de ce navigateur"
     },
     "code": {
       "send": "Recevoir un code",

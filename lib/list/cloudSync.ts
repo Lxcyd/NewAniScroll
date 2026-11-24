@@ -239,6 +239,15 @@ function writeKind(payload: unknown): void {
   }
 }
 
+/** Les deux copies d'une catégorie portent-elles exactement les mêmes clés et
+ *  valeurs (dans n'importe quel ordre) ? */
+function sameData(local: Record<string, string>, remote: unknown): boolean {
+  if (!remote || typeof remote !== "object") return false;
+  const r = remote as Record<string, unknown>;
+  const keys = Object.keys(local);
+  return keys.length === Object.keys(r).length && keys.every((k) => r[k] === local[k]);
+}
+
 function readRevs(): Record<string, number> {
   try {
     return JSON.parse(localStorage.getItem(REV_KEY) || "{}") || {};
@@ -331,6 +340,13 @@ export async function pullAll(options?: { force?: boolean }): Promise<PullResult
         result.applied.push(entry.kind);
         mergedSincePull.add(entry.kind);
       } else nextRevs[entry.kind] = entry.rev;
+    } else if (known == null && sameData(local, entry.payload)) {
+      /* LE COMPTE QUI VIENT D'ÊTRE CRÉÉ (24/11/2026) : l'inscription emporte les
+         données du navigateur (`snapshotAll`), et le premier pull les retrouvait
+         des deux côtés sans révision connue — un « conflit » entre deux copies
+         identiques, et une fenêtre « remplacer ? » incompréhensible au premier
+         contact. Identiques : rien à arbitrer, on prend la révision. */
+      nextRevs[entry.kind] = entry.rev;
     } else if (known == null) {
       // Both sides have data and this device never synced: only the user knows.
       result.conflicts.push(entry.kind);

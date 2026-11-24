@@ -21,6 +21,7 @@ export default function DangerConfirmModal({
   title,
   body,
   confirmLabel,
+  cancelLabel,
   onConfirm,
   onCancel,
   busy = false,
@@ -31,6 +32,8 @@ export default function DangerConfirmModal({
   title: string;
   body: string;
   confirmLabel: string;
+  /** Quand « Annuler » ne dit pas ce que fait le second bouton. */
+  cancelLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
   busy?: boolean;
@@ -68,7 +71,7 @@ export default function DangerConfirmModal({
             onClick={onCancel}
             className="w-full px-4 py-2.5 rounded-lg text-sm text-white/70 hover:text-white hover:bg-white/5 disabled:opacity-50"
           >
-            {t("settings.list.clearCancel")}
+            {cancelLabel ?? t("settings.list.clearCancel")}
           </button>
         </div>
       </div>

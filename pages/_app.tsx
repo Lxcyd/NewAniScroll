@@ -426,13 +426,23 @@ function CloudSyncBootstrap() {
     }
   };
 
-  const decline = () => {
+  /* « Garder ce navigateur » (24/11/2026) : ce bouton s'appelait « Annuler »,
+     et un nouveau membre a cru annuler sa connexion — qui avait déjà eu lieu.
+     Il dit maintenant ce qu'il fait, et le fait : ce navigateur part sur le
+     compte, au lieu d'un entre-deux qui reposait la question plus tard. */
+  const decline = async () => {
     try {
       sessionStorage.setItem(DECLINED, "1");
     } catch {
       /* best-effort */
     }
-    setConflicts([]);
+    setBusy(true);
+    try {
+      await (await import("@/lib/list/cloudSync")).pushAll();
+    } finally {
+      setBusy(false);
+      setConflicts([]);
+    }
   };
 
   return (
@@ -441,6 +451,7 @@ function CloudSyncBootstrap() {
       title={t("auth.cloudReplace.title")}
       body={t("auth.cloudReplace.body")}
       confirmLabel={t("auth.cloudReplace.confirm")}
+      cancelLabel={t("auth.cloudReplace.keepDevice")}
       onConfirm={replaceWithAccount}
       onCancel={decline}
       busy={busy}
