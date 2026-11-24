@@ -3477,6 +3477,19 @@ html.as-dragging .as-nudge {
   display: grid;
   place-items: center;
 }
+/* LE TEXTE CENTRÉ SUR LA PASTILLE AU CENTRE OPTIQUE (24/11/2026, Luc). Centrée
+   sur la boîte de ligne, la pastille visait le milieu ascendante-descendante :
+   le texte paraissait décalé. On rogne la ligne aux majuscules (de la ligne de
+   base au haut des capitales) et on rend la hauteur perdue en marge égale des
+   deux côtés : même hauteur d'option, mais le centre de la boîte est celui des
+   lettres. */
+@supports (text-box: trim-both cap alphabetic) {
+  .as-dd-mark + .le-dd-option-text,
+  .as-dd-mark + .le-dd-trigger-text {
+    text-box: trim-both cap alphabetic;
+    padding-block: calc((1lh - 1cap) / 2);
+  }
+}
 
 /* Le panneau de reglages d'un widget (components/profile/WidgetSettings.tsx).
    Il s'ouvre TOUJOURS au-dessus de sa carte, ancre par son coin bas-droit
