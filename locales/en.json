@@ -2245,7 +2245,8 @@
         "empty": "No finished anime counts yet.",
         "animeCount_one": "{{count}} anime",
         "animeCount_other": "{{count}} anime",
-        "missingInline": "Still missing:"
+        "missingInline": "Still missing:",
+        "seasonsPlus": "{{count}}+ seasons"
       },
       "unit": {
         "h": "h",

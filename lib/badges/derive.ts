@@ -173,8 +173,10 @@ export type Derived = {
   /** Taille du vocabulaire du catalogue — la CIBLE de « tous les genres ». */
   vocabGenres: number | null;
   vocabTags: number | null;
-  /** Franchises entièrement terminées, par nombre de saisons. */
-  franchiseOf: (minSeasons: number) => number | null;
+  /** Le nombre de saisons de la plus longue franchise entièrement terminée. */
+  longestFranchise: number | null;
+  /** Ces franchises elles-mêmes (leurs titres), pour le détail. `null` sans relations. */
+  franchises: LocalEntry[][] | null;
 
   /** Le vocabulaire lui-même, et les lecteurs proposés : le DÉTAIL d'un badge
    *  (lib/badges/detail.ts) montre chaque case, pas seulement leur nombre. */
@@ -638,7 +640,7 @@ export function derive(s: Snapshot): Derived {
      même requête AniList qui apporte les genres. On regroupe les entrées par
      composante connexe — une franchise est un ensemble de titres reliés — puis
      on demande si TOUS ses membres présents dans la liste sont terminés. */
-  const franchiseSizes = hasRelations(entries) ? completedFranchises(entries, FINISHED) : null;
+  const franchises = hasRelations(entries) ? completedFranchises(entries, FINISHED) : null;
 
   /* ── Les faits ──────────────────────────────────────────────────────────── */
   const hostSet = new Set(s.facts.hosts.filter((h) => s.displayedHosts.includes(h)));
@@ -808,8 +810,8 @@ export function derive(s: Snapshot): Derived {
       : s.vocab.tags.filter((g) => tagCounts().has(g)).length,
     vocabGenres: s.vocab ? s.vocab.genres.length : null,
     vocabTags: s.vocab ? s.vocab.tags.length : null,
-    franchiseOf: (minSeasons) =>
-      franchiseSizes == null ? null : franchiseSizes.filter((n) => n >= minSeasons).length,
+    longestFranchise: franchises ? Math.max(0, ...franchises.map((g) => g.length)) : null,
+    franchises,
     vocab: s.vocab,
     displayedHosts: s.displayedHosts,
 
@@ -841,7 +843,7 @@ function hasRelations(entries: LocalEntry[]): boolean {
   return entries.some((e) => e.relIds?.length);
 }
 
-function completedFranchises(entries: LocalEntry[], finished: Set<string>): number[] {
+function completedFranchises(entries: LocalEntry[], finished: Set<string>): LocalEntry[][] {
   const present = new Set(entries.map((e) => e.mediaId));
   const parent = new Map<number, number>();
   const find = (x: number): number => {
@@ -874,11 +876,11 @@ function completedFranchises(entries: LocalEntry[], finished: Set<string>): numb
     else groups.set(root, [e]);
   }
 
-  const out: number[] = [];
+  const out: LocalEntry[][] = [];
   for (const members of groups.values()) {
     if (members.length < 2) continue;
     const allDone = members.every((e) => finished.has(String(e.status ?? "").toUpperCase()));
-    if (allDone) out.push(members.length);
+    if (allDone) out.push(members);
   }
   return out;
 }

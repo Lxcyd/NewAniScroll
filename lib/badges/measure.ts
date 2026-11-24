@@ -118,7 +118,8 @@ export function measure(def: BadgeDef, d: Derived, state: BadgeState): Progress 
     case "popularityUnder": return maybe(d.underPopularity(Number(m.max)), n);
     case "alphabet": return [d.initials, n];
     case "titleLength": return bool(d.longestTitle > Number(m.min));
-    case "franchise": return maybe(d.franchiseOf(Number(m.seasons)), n);
+    /* La plus longue saga terminée : 2 puis 4 saisons, une seule échelle. */
+    case "franchise": return maybe(d.longestFranchise, n);
 
     /* ── Cibles qui dépendent des données ──────────────────────────────────── */
     case "allGenres":

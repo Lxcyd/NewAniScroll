@@ -125,8 +125,8 @@ export const BADGES: BadgeDef[] = [
   { id: "g-food", family: "genres", rarity: "r", icon: "chef", tag: "5", metric: {"k":"tag","name":"Food","n":5} },
   { id: "all-genres", family: "genres", rarity: "e", icon: "genresAll", tag: "", metric: {"k":"allGenres","n":0} },
   { id: "all-tags", family: "genres", rarity: "m", icon: "tagsAll", tag: "", metric: {"k":"allTags","n":0} },
-  { id: "saga-2", family: "franchise", rarity: "r", icon: "rings", tag: "", metric: {"k":"franchise","seasons":2,"n":1} },
-  { id: "saga-4", family: "franchise", rarity: "e", icon: "rings", tag: "4", metric: {"k":"franchise","seasons":4,"n":1} },
+  { id: "saga-2", family: "franchise", rarity: "r", icon: "rings", tag: "2", metric: {"k":"franchise","n":2}, ladder: "saga" },
+  { id: "saga-4", family: "franchise", rarity: "e", icon: "rings", tag: "4", metric: {"k":"franchise","n":4}, ladder: "saga" },
   { id: "streak-7", family: "regularity", rarity: "c", icon: "calendarCheck", tag: "7 J", metric: {"k":"count","of":"streak","n":7}, ladder: "streak" },
   { id: "streak-30", family: "regularity", rarity: "u", icon: "calendarCheck", tag: "30 J", metric: {"k":"count","of":"streak","n":30}, ladder: "streak" },
   { id: "streak-90", family: "regularity", rarity: "r", icon: "calendarCheck", tag: "90 J", metric: {"k":"count","of":"streak","n":90}, ladder: "streak" },
@@ -288,6 +288,10 @@ export const LADDERS: Record<string, string[]> = {
   "favourite": [
     "fav-1",
     "fav-10"
+  ],
+  "saga": [
+    "saga-2",
+    "saga-4"
   ],
   "rewatch": [
     "rewatch-1",

@@ -50,6 +50,9 @@ export type Detail =
       items: LocalEntry[];
       /** Un nombre d'épisodes à côté de chaque anime, à la place de l'année. */
       episodes?: Map<number, number>;
+      /** La liste en parties : « N saisons et plus », chaque anime dans UNE
+       *  seule (les sagas : 4+ puis 2+). `items` les réunit toutes. */
+      groups?: { min: number; items: LocalEntry[] }[];
     };
 
 const GRID = new Set(["years", "alphabet", "allGenres", "allTags", "hosts", "studio", "works"]);
@@ -73,6 +76,7 @@ export function detailKind(def: BadgeDef, d: Derived): "grid" | "list" | null {
   if (k === "flag") return def.metric.name === "oav" || def.metric.name === "dayOne" ? "list" : null;
   if (k === "counter") return def.metric.name === "onAirDay" ? "list" : null;
   if ((k === "allGenres" || k === "allTags") && !d.vocab) return null;
+  if (k === "franchise") return d.franchises ? "list" : null;
   if (k === "count") {
     if (def.metric.of === "bingoPoints") return "grid";
     if (def.metric.of === "favourites" && !d.favouriteIds) return null;
@@ -252,6 +256,21 @@ export function detailOf(def: BadgeDef, d: Derived): Detail | null {
         kind: "list",
         items: d.entries.filter((e) => d.onlyLastIds.has(e.mediaId)).sort(byTitle),
       };
+    /* LES SAGAS EN DEUX PARTIES (24/11/2026, Luc) : 4 saisons et plus, puis 2
+       et plus, sans qu'un anime revienne dans les deux. Une saga reste groupée,
+       dans l'ordre de sortie. */
+    case "franchise": {
+      if (!d.franchises) return null;
+      const byYear = (a: LocalEntry, b: LocalEntry) => (a.year ?? 9999) - (b.year ?? 9999) || byTitle(a, b);
+      const sagas = d.franchises
+        .map((g) => g.slice().sort(byYear))
+        .sort((a, b) => byTitle(a[0], b[0]));
+      const groups = [4, 2].map((min) => ({
+        min,
+        items: sagas.filter((g) => g.length >= min && (min === 4 || g.length < 4)).flat(),
+      }));
+      return { kind: "list", items: groups.flatMap((g) => g.items), groups };
+    }
     /* Les plus revus d'abord : c'est le premier qui porte « trois fois ». */
     case "repeatSame":
       return {

@@ -1651,6 +1651,20 @@ function DetailPopup({
       </p>
       {detail.kind === "grid" ? (
         <DetailGrid yearOf={yearOf} detail={detail} color={R.ic} />
+      ) : detail.groups ? (
+        detail.items.length ? (
+          detail.groups.filter((g) => g.items.length).map((g) => (
+            <div key={g.min} className="mb-4 last:mb-0">
+              <p className="m-0 mb-2 font-outfit text-[12px] font-semibold" style={{ color: R.ic }}>
+                {t("badges.ui.detail.seasonsPlus", { count: g.min, defaultValue: "{{count}} saisons et plus" })} ·{" "}
+                {t("badges.ui.detail.animeCount", { count: g.items.length, defaultValue: "{{count}} anime" })}
+              </p>
+              <AnimeList yearOf={yearOf} items={g.items} />
+            </div>
+          ))
+        ) : (
+          <AnimeList yearOf={yearOf} items={[]} />
+        )
       ) : (
         <AnimeList yearOf={yearOf} items={detail.items} episodes={detail.episodes} />
       )}

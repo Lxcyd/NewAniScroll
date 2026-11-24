@@ -669,7 +669,8 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
     const det = detailOf(def, d);
     check(`${def.id} : forme du détail`, det?.kind, kind);
     const p = measure(def, d, state());
-    if (!p || !det) continue;
+    /* Les sagas listent des anime, le badge compte des saisons : testé à part. */
+    if (!p || !det || det.groups) continue;
     if (det.kind === "list" && def.metric.k === "repeatSame") {
       // Le premier de la liste est le plus revu : c'est lui que le badge compte.
       check(`${def.id} : le plus revu = courant`,
@@ -721,6 +722,19 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
   }
   ok("« Impatient » : pas de détail",
     !detailKind(all.find((b) => b.metric.k === "planningUnaired"), d));
+  {
+    /* Les sagas : 4+ puis 2+, aucun anime dans les deux parties. */
+    const saga = (ids, title) => ids.map((id, i) =>
+      mk(id, `${title} ${i + 1}`, 2000 + i, { relIds: ids.filter((x) => x !== id) }));
+    const sl = {};
+    [...saga([20, 21, 22, 23], "Long"), ...saga([30, 31, 32], "Trois"), ...saga([40, 41], "Deux"),
+      ...saga([50, 51], "Pas finie").map((e, i) => (i ? { ...e, status: "CURRENT" } : e))]
+      .forEach((e) => (sl[e.mediaId] = e));
+    const det = detailOf(all.find((b) => b.id === "saga-2"), derive(snap({ list: sl })));
+    check("sagas : 4 saisons et plus", det.groups[0].items.map((e) => e.mediaId), [20, 21, 22, 23]);
+    check("sagas : 2 et plus, sans la longue ni la pas finie", det.groups[1].items.map((e) => e.mediaId), [40, 41, 30, 31, 32]);
+    check("sagas : items = les deux parties", det.items.length, 9);
+  }
   ok("pas de vocabulaire, pas de détail des genres",
     !detailKind(all.find((b) => b.metric.k === "allGenres"), derive(snap())));
 }

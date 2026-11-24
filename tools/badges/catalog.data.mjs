@@ -87,6 +87,8 @@ export const LADDERS = {
      l'autre dans le dépli alors qu'aucun des deux n'est le palier suivant. */
   collection: ["badges-50", "badges-75", "complete"],
   favourite: ["fav-1", "fav-10"],
+  /* Les deux sagas ne font qu'un badge qui évolue (24/11/2026, Luc). */
+  saga: ["saga-2", "saga-4"],
   /* Les deux revisionnages ne font qu'un badge qui évolue (24/11/2026, Luc). */
   rewatch: ["rewatch-1", "rewatch-10"],
   bingo: ["bingo-50", "bingo-200", "bingo-500", "bingo-1000", "bingo-2000", "bingo-3500"],
@@ -388,10 +390,10 @@ export const CATALOG = {
      client à partir des relations AniList déjà en cache sur les entrées de la
      liste (`relIds`), sans interroger notre propre base. */
   franchise: [
-    ["saga-2", "r", "rings", "", { k: "franchise", seasons: 2, n: 1 },
+    ["saga-2", "r", "rings", "2", { k: "franchise", n: 2 },
       "Toutes les saisons", "Termine toutes les saisons d'une franchise (au moins 2).",
       "All seasons", "Finish every season of a franchise (at least 2)."],
-    ["saga-4", "e", "rings", "4", { k: "franchise", seasons: 4, n: 1 },
+    ["saga-4", "e", "rings", "4", { k: "franchise", n: 4 },
       "Longue saga", "Termine toutes les saisons d'une franchise qui en compte au moins 4.",
       "Long saga", "Finish every season of a franchise that has at least 4."],
   ],
