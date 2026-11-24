@@ -798,7 +798,7 @@ function BadgeNav({
         <span className="sr-only"> {t("badges.ui.total", "badges obtenus")}</span>
       </p>
       {secrets > 0 ? (
-        <p className="font-outfit m-0 shrink-0 whitespace-nowrap text-[11px] font-semibold text-[#FF7F57]">
+        <p className="font-outfit m-0 shrink-0 whitespace-nowrap text-[11px] font-semibold text-white/45">
           + {secrets} {t("badges.ui.secretsShort", "secrets")}
         </p>
       ) : null}
