@@ -17,6 +17,16 @@ const EDGE = 16;
 
 type Pos = { x: number; y: number; arrow: number };
 
+/* « Ne plus me le rappeler » : retenu dans ce navigateur. */
+const NEVER_KEY = "as-studio-sound-tip-never";
+export function soundTipNever(): boolean {
+  try {
+    return localStorage.getItem(NEVER_KEY) != null;
+  } catch {
+    return false;
+  }
+}
+
 function findAnchor(): HTMLElement | null {
   for (const el of document.querySelectorAll<HTMLElement>("[data-sound-tip]")) if (el.getClientRects().length) return el;
   return null;
@@ -119,7 +129,21 @@ export default function SoundTip({ show, onClose }: { show: boolean; onClose: ()
                 "Tant qu'une musique est choisie, elle est prioritaire sur le son de la vidéo, même en pause. Retire-la pour entendre la vidéo.",
             })}
           </p>
-          <div className="as-tour-rise mt-4 flex justify-end" style={{ animationDelay: "115ms" }}>
+          <div className="as-tour-rise mt-4 flex flex-wrap justify-center gap-2" style={{ animationDelay: "115ms" }}>
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  localStorage.setItem(NEVER_KEY, "1");
+                } catch {
+                  /* stockage refusé : elle reviendra */
+                }
+                close();
+              }}
+              className="shrink-0 rounded-full bg-white/[0.06] px-3.5 py-1.5 font-outfit text-[11.5px] font-bold text-white/60 transition-all duration-200 hover:bg-white/[0.14] hover:text-white"
+            >
+              {t("profile.studioSoundTipNever", { defaultValue: "Ne plus me le rappeler" })}
+            </button>
             <button
               type="button"
               onClick={close}

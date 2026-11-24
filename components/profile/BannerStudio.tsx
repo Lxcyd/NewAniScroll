@@ -92,7 +92,7 @@ import WidgetMenuTile from "@/components/profile/WidgetMenuTile";
 import { BLOCKS } from "@/lib/profile/blocks";
 import YouTubeMusic, { type MusicMedia } from "@/components/profile/YouTubeMusic";
 import HoverVolume from "@/components/shared/HoverVolume";
-import SoundTip from "@/components/profile/SoundTip";
+import SoundTip, { soundTipNever } from "@/components/profile/SoundTip";
 import { availableServers, fetchEpisodes, serverLabel, type StudioEpisode } from "@/lib/profile/episodeStream";
 import { DEFAULT_SERVER_ID } from "@/lib/servers";
 import type { StudioBridge } from "@/components/profile/ProfileHero";
@@ -1362,7 +1362,7 @@ export default function BannerStudio({
       setSoundTip(false);
       return;
     }
-    if (soundTipFor.current === soundTipKey) return;
+    if (soundTipFor.current === soundTipKey || soundTipNever()) return;
     soundTipFor.current = soundTipKey;
     setSoundTip(true);
   }, [soundTipKey]);
