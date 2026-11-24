@@ -164,6 +164,12 @@ CREATE TABLE IF NOT EXISTS frembed_probe (
   checked_at  INTEGER NOT NULL,
   PRIMARY KEY (tmdb_id, kind)
 );`);
+/* Index PARTIEL des seuls heberges (~500 lignes sur ~5 400) : c'est tout ce que
+   lit lib/db/frembedCatalog.ts. Sans lui, chaque lecture du catalogue
+   parcourait la sonde entiere, deux fois (mesure du 24/11/2026). */
+await db.execute(
+  "CREATE INDEX IF NOT EXISTS idx_frembed_probe_hosted ON frembed_probe(kind, tmdb_id) WHERE hosted = 1",
+);
 
 async function sonde(tmdbId, kind) {
   const q =

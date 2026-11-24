@@ -93,6 +93,12 @@ async function main() {
   await db.execute(
     "CREATE INDEX IF NOT EXISTS idx_fribb_tmdb_tv ON fribb_map(tmdb_tv_id)"
   );
+  /* Le pendant film (24/11/2026) : sans lui, la jointure frembed_probe ⋈
+     fribb_map de lib/db/frembedCatalog.ts parcourait les ~21 000 lignes de
+     fribb_map pour retrouver 59 films — 29 919 lignes lues par appel. */
+  await db.execute(
+    "CREATE INDEX IF NOT EXISTS idx_fribb_tmdb_movie ON fribb_map(tmdb_movie_id)"
+  );
 
   // Conditional request: skip the download entirely if unchanged.
   const prevEtag = FORCE ? null : await getState();

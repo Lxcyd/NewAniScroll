@@ -224,6 +224,23 @@ const CASES = [
     max: 10,
   },
   {
+    /* Lu à chaque lambda froide (memo 10 min) par /api/v2/source et
+       /api/v2/frembed-catalog. 29 919 lignes le 24/11/2026 : SCAN de fribb_map
+       côté films, faute d'index sur tmdb_movie_id. Avec idx_fribb_tmdb_movie
+       et l'index partiel idx_frembed_probe_hosted : ~1 500 attendues. */
+    name: "titres frembed sondés (getFrembedAnilistIds)",
+    db: "cache",
+    source: ["lib/db/frembedCatalog.ts", "JOIN fribb_map f ON f.tmdb_movie_id = p.tmdb_id"],
+    sql: `SELECT f.anilist_id FROM frembed_probe p
+          JOIN fribb_map f ON f.tmdb_tv_id = p.tmdb_id
+          WHERE p.hosted = 1 AND p.kind = 'tv'
+          UNION
+          SELECT f.anilist_id FROM frembed_probe p
+          JOIN fribb_map f ON f.tmdb_movie_id = p.tmdb_id
+          WHERE p.hosted = 1 AND p.kind = 'movie'`,
+    max: 5_000,
+  },
+  {
     /* Lue à chaque vue d'un profil qui montre heatmap, calendrier, objectif,
        bingo ou binge (03/11/2026). La clé primaire (user_id, kind) : 1 ligne. */
     name: "fil d'activité AniList d'un compte (getAnilistFeed)",
