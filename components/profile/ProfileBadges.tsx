@@ -1025,15 +1025,16 @@ function BadgeRowImpl({
             <ProgressLine def={def} progress={progress} unlocked={unlocked} live={live} color={R.ic} />
           </div>
         </div>
-        {slots > 0 ? (
-          <div
-            className="flex shrink-0 items-center justify-end"
-            style={{ width: slots * SLOT + (slots - 1) * SLOT_GAP, gap: SLOT_GAP }}
-          >
-            {detailBtn}
-            {ladderBtn}
-          </div>
-        ) : null}
+        {/* Dès la tablette, la place de DEUX boutons est toujours réservée,
+            même dans une section qui n'en a aucun : sinon la barre se décale
+            d'une section à l'autre. Sur téléphone, seulement ce qu'il faut. */}
+        <div
+          className={`flex shrink-0 items-center justify-end sm:!w-[88px] ${slots > 0 ? "" : "max-sm:hidden"}`}
+          style={{ width: slots > 0 ? slots * SLOT + (slots - 1) * SLOT_GAP : 0, gap: SLOT_GAP }}
+        >
+          {detailBtn}
+          {ladderBtn}
+        </div>
       </div>
     );
   }
