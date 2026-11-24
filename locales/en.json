@@ -2535,7 +2535,7 @@
     },
     "g-sports": {
       "name": "Team spirit",
-      "cond": "Finish 10 sports anime."
+      "cond": "Finish 5 sports anime."
     },
     "g-music": {
       "name": "On the beat",

@@ -117,7 +117,7 @@ export const BADGES: BadgeDef[] = [
   { id: "g-mystery", family: "genres", rarity: "r", icon: "magnifier", tag: "15", metric: {"k":"genre","name":"Mystery","n":15} },
   { id: "g-drama", family: "genres", rarity: "r", icon: "teardrop", tag: "20", metric: {"k":"genre","name":"Drama","n":20} },
   { id: "g-comedy", family: "genres", rarity: "r", icon: "laugh", tag: "25", metric: {"k":"genre","name":"Comedy","n":25} },
-  { id: "g-sports", family: "genres", rarity: "r", icon: "volley", tag: "10", metric: {"k":"genre","name":"Sports","n":10} },
+  { id: "g-sports", family: "genres", rarity: "r", icon: "volley", tag: "5", metric: {"k":"genre","name":"Sports","n":5} },
   { id: "g-music", family: "genres", rarity: "r", icon: "note", tag: "10", metric: {"k":"genre","name":"Music","n":10} },
   { id: "g-psycho", family: "genres", rarity: "r", icon: "knightPiece", tag: "10", metric: {"k":"genre","name":"Psychological","n":10} },
   { id: "g-thriller", family: "genres", rarity: "r", icon: "eye", tag: "10", metric: {"k":"genre","name":"Thriller","n":10} },

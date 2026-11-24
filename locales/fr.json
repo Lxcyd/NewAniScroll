@@ -2535,7 +2535,7 @@
     },
     "g-sports": {
       "name": "Esprit d'équipe",
-      "cond": "Termine 10 anime de sport."
+      "cond": "Termine 5 anime de sport."
     },
     "g-music": {
       "name": "En rythme",
