@@ -165,11 +165,12 @@ export function grant(
  * LA SEULE EXCEPTION à l'invariant 1, et elle ne joue qu'une fois : retirer ce
  * qu'une règle fausse a accordé, quand la règle corrigée prouve le contraire.
  */
-export function applyCorrection(dates: Record<string, number>, wrong: string[]): void {
+export function applyCorrection(dates: Record<string, number>, wrong: string[], final = true): void {
   const state = getBadgeState();
   const got = { ...state.got, ...dates };
   for (const id of wrong) delete got[id];
-  write({ ...state, got, redated: true, regraded: CORRECTION_VERSION });
+  /* `final` faux : un retrait partiel, la correction complète reste à faire. */
+  write(final ? { ...state, got, redated: true, regraded: CORRECTION_VERSION } : { ...state, got });
 }
 
 /**

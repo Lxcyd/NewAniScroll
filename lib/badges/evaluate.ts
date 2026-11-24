@@ -269,16 +269,24 @@ const KEEPS_ITS_DATE = new Set(["flag", "counter", "granted", "accountAge"]);
 const REDATE_CUTOFF = Date.UTC(2026, 10, 25);
 let lastDataKey = "";
 
-function accountDataReady(s: Snapshot, d: Derived): boolean {
+/** Le compte, la liste et le fil sont là — sans compter les dates de diffusion. */
+function accountBaseReady(s: Snapshot, d: Derived): boolean {
   if (!d.entries.length) return false;
   /* Connecté : attendre que la copie du compte soit arrivée sur cet appareil. */
   const w = window as Window & { __aniscrollCloudPulled?: boolean };
   if (signedIn && !w.__aniscrollCloudPulled) return false;
   /* Compte AniList lié : attendre son fil, qui seul prouve certaines règles. */
   if (s.facts.flags.anilistLinked != null && s.feedEvents === undefined) return false;
-  /* Un fil sans les dates de diffusion ne peut rien prouver sur « le jour même ». */
-  return !s.feedEvents?.length || (s.airingComplete === true && s.feedCompletions !== undefined);
+  return !s.feedEvents?.length || s.feedCompletions !== undefined;
 }
+
+function accountDataReady(s: Snapshot, d: Derived): boolean {
+  /* Un fil sans les dates de diffusion ne peut rien prouver sur « le jour même ». */
+  return accountBaseReady(s, d) && (!s.feedEvents?.length || s.airingComplete === true);
+}
+
+/** Les règles corrigées qui lisent les dates de diffusion : elles seules les attendent. */
+const NEEDS_AIRING = new Set(["day-one"]);
 
 export type EvaluateResult = {
   /** Badges débloqués à ce passage, dans l'ordre du catalogue. */
@@ -325,6 +333,22 @@ export function evaluate(opts?: { silent?: boolean; now?: number }): EvaluateRes
     });
     applyCorrection(dates, wrong);
     state = getBadgeState();
+  } else if ((state.regraded ?? 0) < CORRECTION_VERSION && accountBaseReady(snap, d)) {
+    /* LES DATES DE DIFFUSION PEUVENT NE JAMAIS FINIR (24/11/2026, Luc : « Spoilé »
+       et « Jamais sans l'opening » obtenus sur 0 anime). Leur chargement ne
+       s'enregistre qu'à la fin, minutes de 429 AniList comprises : sur un
+       téléphone qu'on quitte avant, la correction attendait pour toujours. Les
+       règles qui ne les lisent pas sont corrigées sans elles ; la correction
+       complète (dates et « Jour J ») passera quand elles seront là. */
+    const wrong = REVISED_RULES.filter((id) => {
+      if (NEEDS_AIRING.has(id) || state.got[id] == null) return false;
+      const p = measure(BY_ID[id], d, state);
+      return !!p && p[0] < p[1];
+    });
+    if (wrong.length) {
+      applyCorrection({}, wrong, false);
+      state = getBadgeState();
+    }
   }
 
   /* Le fil peut arriver après coup : un badge sans date reçoit alors la sienne. */
