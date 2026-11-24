@@ -1,3 +1,4 @@
+import { WIDGETS_SAVE_EVENT } from "@/lib/profile/widgetBridge";
 import Image from "next/image";
 import { audioFirst } from "@/lib/animethemes/audioUrl";
 import { useScrollMemory } from "@/lib/profile/scrollMemory";
@@ -5138,6 +5139,8 @@ export default function BannerStudio({
      silence maintenant qu'on les règle directement sur le profil. */
   const changed = JSON.stringify(draft) !== JSON.stringify(value ?? emptyDressing());
   const finish = () => {
+    /* Seul ce bouton écrit les widgets ; Annuler les ramène à l'état d'avant. */
+    window.dispatchEvent(new Event(WIDGETS_SAVE_EVENT));
     /* UNE NOUVELLE MUSIQUE ENREGISTRÉE REPART (22/10/2026, Luc) ; la même
        garde l'état où on l'a laissée (voir `exitPlay`). Un nouveau fond
        repart aussi, avec son son (`resumeVideo`) ; le même reste comme il

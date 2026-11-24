@@ -82,6 +82,7 @@ import {
   useWidgetsMenuOpen,
   WIDGETS_MENU_EVENT,
   WIDGETS_RESET_EVENT,
+  WIDGETS_SAVE_EVENT,
   type WidgetPreview,
 } from "@/lib/profile/widgetBridge";
 import WidgetAddIcon from "./WidgetAddIcon";
@@ -266,6 +267,14 @@ function stashRemoved(o: GridItem) {
     /* best-effort */
   }
 }
+function restoreRemoved(raw: string | null) {
+  try {
+    if (raw == null) localStorage.removeItem(REMOVED_KEY);
+    else localStorage.setItem(REMOVED_KEY, raw);
+  } catch {
+    /* best-effort */
+  }
+}
 /** La taille gardée, ramenée dans les bornes actuelles du bloc. */
 function clampSize(id: string, w: number, h: number): [number, number] {
   const b = blockBounds(id);
@@ -385,6 +394,17 @@ export default function ProfileOverview({
      pixel. */
   const [layout, setLayout] = useState<GridItem[] | null>(null);
 
+  /* LE STUDIO TRAVAILLE SUR UN BROUILLON (24/11/2026, Luc : « Annuler enregistre
+     quand même »). Chaque geste était écrit aussitôt, il ne restait rien à
+     annuler. Pendant l'édition, l'écran change mais rien n'est écrit :
+     `baseline` garde l'état d'avant, `staged` la dernière version, et seul
+     « Enregistrer » (WIDGETS_SAVE_EVENT) l'envoie. */
+  const stagingRef = useRef(false);
+  stagingRef.current = controlled && !!editing;
+  const baseline = useRef<{ layout: GridItem[]; removed: string | null } | null>(null);
+  const staged = useRef<{ next: GridItem[] | null } | null>(null);
+  const committing = useRef(false);
+
   /* La reprise des dispositions rangées AVANT que la grille ne devienne
      publique : elles sont dans le localStorage de leur auteur et nulle part sur
      son compte. Sans ça, tout le monde retrouverait la grille par défaut le
@@ -393,6 +413,8 @@ export default function ProfileOverview({
 
   useEffect(() => {
     if (!loaded) return;
+    /* Une donnée rafraîchie pendant l'édition n'écrase pas le brouillon. */
+    if (stagingRef.current && baseline.current) return;
     if (variant === "stats") {
       let mine: GridItem[] | null = null;
       try {
@@ -410,7 +432,7 @@ export default function ProfileOverview({
     if (onAccount && isOwner && !base && device.loaded && device.layout && !migrated.current) {
       migrated.current = true;
       base = device.layout;
-      save(base);
+      persist(base);
     }
     const items = base
       ? sanitizeLayout(base, isKnownBlock, blockBounds)
@@ -482,6 +504,15 @@ export default function ProfileOverview({
 
   function save(next: GridItem[] | null) {
     if (!isOwner) return;
+    if (stagingRef.current) {
+      staged.current = { next };
+      return;
+    }
+    persist(next);
+  }
+
+  function persist(next: GridItem[] | null) {
+    if (!isOwner) return;
     if (variant === "stats") {
       try {
         if (next) localStorage.setItem(STATS_KEY, JSON.stringify(next));
@@ -506,6 +537,53 @@ export default function ProfileOverview({
       }, 500),
     };
   }
+
+  useEffect(() => {
+    if (!controlled || !editing || !layout || baseline.current) return;
+    let removed: string | null = null;
+    try {
+      removed = localStorage.getItem(REMOVED_KEY);
+    } catch {}
+    baseline.current = { layout, removed };
+    committing.current = false;
+  }, [controlled, editing, layout]);
+
+  useEffect(() => {
+    const onSave = () => {
+      committing.current = true;
+    };
+    window.addEventListener(WIDGETS_SAVE_EVENT, onSave);
+    return () => window.removeEventListener(WIDGETS_SAVE_EVENT, onSave);
+  }, []);
+
+  useEffect(() => {
+    if (editing) return;
+    const base = baseline.current;
+    if (!base) return;
+    baseline.current = null;
+    const draft = staged.current;
+    staged.current = null;
+    const keep = committing.current;
+    committing.current = false;
+    if (keep) {
+      if (draft) {
+        persist(draft.next);
+        flush();
+      }
+      return;
+    }
+    setLayout(base.layout);
+    restoreRemoved(base.removed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+
+  /* Quitter la page en pleine édition vaut Annuler. */
+  useEffect(
+    () => () => {
+      if (baseline.current) restoreRemoved(baseline.current.removed);
+    },
+    [],
+  );
 
   function commit(next: GridItem[]) {
     /* UN WIDGET RETIRÉ GARDE SES RÉGLAGES (03/11/2026, Luc) : remis plus tard,

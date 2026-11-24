@@ -32,6 +32,10 @@ export const WIDGETS_MENU_EVENT = "as-studio-widgets";
 /** Le bouton « Réinitialiser » de l'en-tête du profil remet la grille de
     l'Aperçu à sa disposition par défaut. */
 export const WIDGETS_RESET_EVENT = "as-widgets-reset";
+/** « Enregistrer » du studio : les grilles écrivent leur brouillon. Sans cet
+    événement, fermer le studio (Annuler, Échap, quitter) les ramène à l'état
+    d'avant l'édition. */
+export const WIDGETS_SAVE_EVENT = "as-widgets-save";
 
 export const NO_WIDGETS: Bridge = { posed: new Set(), count: 0, add: null, preview: null };
 let state: Bridge = NO_WIDGETS;
