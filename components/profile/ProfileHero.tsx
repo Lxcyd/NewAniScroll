@@ -510,6 +510,12 @@ export default function ProfileHero({
      marches. Une boucle d'animation la rend continue, et elle ne tourne que
      pendant la lecture d'un extrait fondu. */
   const fade = banner.music?.fade ?? 0;
+  /** Hors de l'extrait réglé au studio : avant son début, ou après sa fin. */
+  const outOfClip = (t: number) => {
+    const f = banner.music?.from ?? 0;
+    const to = banner.music?.to ?? 0;
+    return (f > 0 && t < f - 0.5) || (to > f && t > to);
+  };
   useEffect(() => {
     const el = audio.current;
     if (!el || viaYouTube || !sound || !(fade > 0)) return;
@@ -893,15 +899,20 @@ export default function ProfileHero({
           onPlay={(e) => {
             setAudioStarted(true);
             const el = e.currentTarget;
-            const f = banner.music?.from ?? 0;
-            const to = banner.music?.to ?? 0;
-            if (to > f && (el.currentTime < f || el.currentTime > to)) el.currentTime = f;
+            if (outOfClip(el.currentTime)) el.currentTime = banner.music?.from ?? 0;
+          }}
+          /* AVANT LE DÉBUT AUSSI (24/11/2026, Luc : la case repartait de 0 au
+             retour du studio). Le contrôle ne regardait que la fin, et seulement
+             quand une fin était posée ; et un `currentTime` posé avant que le
+             fichier n'ait ses métadonnées (`preload="none"`) est perdu. On
+             recale donc aussi quand elles arrivent, et à chaque battement. */
+          onLoadedMetadata={(e) => {
+            const el = e.currentTarget;
+            if (outOfClip(el.currentTime)) el.currentTime = banner.music?.from ?? 0;
           }}
           onTimeUpdate={(e) => {
             const el = e.currentTarget;
-            const f = banner.music?.from ?? 0;
-            const to = banner.music?.to ?? 0;
-            if (to > f && el.currentTime > to) el.currentTime = f;
+            if (outOfClip(el.currentTime)) el.currentTime = banner.music?.from ?? 0;
           }}
         />
       ) : null}

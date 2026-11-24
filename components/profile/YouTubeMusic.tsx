@@ -387,7 +387,9 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
       const end = to > from ? to : st.duration;
       if (hasClip && st.playing) {
         const t = now();
-        if (to > from && t >= to) {
+        /* Avant le début aussi : un lecteur qui repart de 0 (retour du studio,
+           preset appliqué) restait hors de l'extrait (24/11/2026). */
+        if ((to > from && t >= to) || (from > 0 && t < from - 1)) {
           st.t = from;
           st.at = performance.now();
           post("seekTo", [from, true]);
