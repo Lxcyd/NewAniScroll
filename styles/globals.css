@@ -3484,8 +3484,8 @@ html.as-dragging .as-nudge {
    deux côtés : même hauteur d'option, mais le centre de la boîte est celui des
    lettres. */
 @supports (text-box: trim-both cap alphabetic) {
-  .as-dd-mark + .le-dd-option-text,
-  .as-dd-mark + .le-dd-trigger-text {
+  .as-dd-mark + span,
+  .as-list-opt > .as-glow-dot + span {
     text-box: trim-both cap alphabetic;
     padding-block: calc((1lh - 1cap) / 2);
   }
