@@ -26,7 +26,7 @@ import { BadgeViewSkeleton } from "./TabSkeletons";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import Link from "next/link";
-import { MdFormatListBulleted, MdGridView } from "react-icons/md";
+import { MdFormatListBulleted } from "react-icons/md";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import {
@@ -1673,7 +1673,8 @@ function DetailButton({
   const kind = detailKind(def, derived, got);
   const detail = useMemo(() => (open ? detailOf(def, derived, got) : null), [open, def, derived, got]);
   if (!kind) return null;
-  const Icon = kind === "grid" ? MdGridView : MdFormatListBulleted;
+  /* Une seule icône pour le bouton Détail, quel que soit son contenu (Luc). */
+  const Icon = MdFormatListBulleted;
 
   return (
     <>
