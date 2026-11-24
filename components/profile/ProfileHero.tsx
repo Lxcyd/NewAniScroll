@@ -953,6 +953,36 @@ export default function ProfileHero({
         } as React.CSSProperties
       }
     >
+      {/* LE HALO DE LA BANNIÈRE (25/11/2026, Luc : « un dégradé de couleur vers
+          le bas », puis « plus long »). La même image, très floue, posée à
+          l'étage du papier peint (z-0, sous l'en-tête et le contenu, tous deux
+          en z-10) : ses couleurs descendent sous l'identité, les onglets et le
+          haut des widgets, puis s'éteignent. Le cadre coupe sur les côtés (le
+          flou agrandi déborderait en barre de défilement) et porte le masque :
+          posé sur l'image agrandie, il finissait hors cadre et coupait net. */}
+      {mode === "band" && banner.url ? (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 z-0 overflow-hidden"
+          style={{
+            height: "calc(100% + 36rem)",
+            WebkitMaskImage: "linear-gradient(to bottom, #000 22%, rgba(0,0,0,.5) 48%, rgba(0,0,0,.18) 72%, transparent 100%)",
+            maskImage: "linear-gradient(to bottom, #000 22%, rgba(0,0,0,.5) 48%, rgba(0,0,0,.18) 72%, transparent 100%)",
+          }}
+        >
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `url(${JSON.stringify(banner.url)})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center top",
+              filter: "blur(90px) saturate(1.1)",
+              transform: "scale(1.2)",
+              opacity: 0.3,
+            }}
+          />
+        </div>
+      ) : null}
       {/* La musique du profil. `loop` parce que le rip d'AnimeThemes dure 90
           secondes et qu'un profil se lit plus longtemps que ça. Jamais
           `autoPlay` : voir la note sur le son plus haut. Court-circuité dès
@@ -1247,6 +1277,10 @@ export default function ProfileHero({
         style={showcase ? { height: "calc(100svh - 6.5rem)" } : bandStyle}
       >
         {!asPage && banner.url ? (
+          /* En bandeau, l'image s'efface vers le bas avec la courbe du fondu de
+             la page d'info — mais vers la TRANSPARENCE, pas vers le fond : le
+             halo (plus haut) prend le relais sans coupure. */
+          <div className={mode === "band" ? "as-strip-fade absolute inset-0" : "absolute inset-0"}>
           <PlateBackground
             dressing={{
               kind: banner.kind ?? "banner",
@@ -1261,6 +1295,7 @@ export default function ProfileHero({
             priority
             paused={bgPaused}
           />
+          </div>
         ) : null}
         {!banner.url && !flat && !trailer && !wall ? (
           /* No list, no artwork: the site's own colour. */
@@ -1274,14 +1309,9 @@ export default function ProfileHero({
             damaging the artwork for nothing. It gets a foot fade instead, to
             meet the page. */}
         {mode === "none" ? <div className="as-hero-scrim absolute inset-0" /> : null}
-        {/* LE FONDU DE LA PAGE D'INFO (25/11/2026, Luc : « plus long, et le
-            fond pareil que la page d'info ») : le même dégradé que la bannière
-            d'un anime (components/anime/v2/Hero.tsx, `bannerFade`), sur toute
-            la hauteur de la bande, jusqu'au fond exact de la page (--bg-0).
-            Plus de halo coloré sous la bande. Sans image, le pied d'avant. */}
-        {mode === "band" && banner.url ? (
-          <div className="as-strip-fade pointer-events-none absolute inset-0" />
-        ) : mode === "band" ? (
+        {/* Sans image, le pied sombre d'avant ; avec, le masque `as-strip-fade`
+            et le halo font la jonction. */}
+        {mode === "band" && !banner.url ? (
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 as-strip-foot" />
         ) : null}
         {/* PLUS DE HALO SOUS LA PLAQUE. C'était un rectangle de 192 px de haut
