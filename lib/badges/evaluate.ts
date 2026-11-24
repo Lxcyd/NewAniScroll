@@ -409,14 +409,31 @@ export function evaluate(opts?: { silent?: boolean; now?: number }): EvaluateRes
     if (second.length) fresh.push(...grant(second));
   }
 
-  if (fresh.length && !backfill) {
+  /* UN GESTE FAIT À L'INSTANT S'ANNONCE MÊME EN SILENCE (24/11/2026, Luc :
+     Konami et DMCA obtenus sans popup). Le rattrapage de l'onglet Badges ouvre
+     une portée silencieuse qui peut durer des minutes — voire ne jamais se
+     refermer quand AniList répond 429 — et elle avalait tout. Le silence vise ce
+     qui n'a pas été fait maintenant ; un drapeau ou un compteur daté d'il y a
+     quelques secondes, si. */
+  const shown = backfill
+    ? fresh.filter((id) => {
+        const def = BY_ID[id];
+        if (def.metric.k !== "flag" && def.metric.k !== "counter") return false;
+        const at = dateFor(def, d);
+        return at != null && d.now - at <= JUST_NOW_MS;
+      })
+    : fresh;
+  if (shown.length) {
     /* L'ordre du catalogue plutôt que l'ordre de détection : quand trois badges
        tombent ensemble, ils défilent dans l'ordre où l'onglet les montre. */
-    const ordered = BADGES.filter((b) => fresh.includes(b.id)).map((b) => b.id);
+    const ordered = BADGES.filter((b) => shown.includes(b.id)).map((b) => b.id);
     announce(ordered);
   }
   return { unlocked: fresh, backfill };
 }
+
+/** Un geste plus récent que ça vient d'être fait (débounce de 2 s compris). */
+const JUST_NOW_MS = 30_000;
 
 /** Les métriques qui comptent d'autres badges — cf. le second tour ci-dessus. */
 const SELF_REFERRING = new Set(["rarityCount", "secretCount", "allBadges"]);
