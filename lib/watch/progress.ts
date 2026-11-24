@@ -50,25 +50,30 @@ type ProgressMap = Record<string, ProgressEntry>;
  * position ne compte que si elle tient dans le temps écoulé (vitesse ×2.5 au
  * plus) : un saut en avant n'est pas du visionnage.
  */
-const played = new Map<string, { t: number; at: number; w: number }>();
+/** `w` : le total regardé (séances précédentes comprises) ; `s` : ce qui a été
+ *  regardé depuis l'ouverture de CETTE page. */
+const played = new Map<string, { t: number; at: number; w: number; s: number }>();
 
-function trackPlayed(key: string, time: number): number {
+function trackPlayed(key: string, time: number): { w: number; s: number } {
   const now = Date.now();
   let a = played.get(key);
   if (!a) {
     /* Une reprise poursuit le compte ; un épisode TERMINÉ qu'on rouvre est un
        nouveau visionnage, qui repart de zéro. */
     const stored = readMap()[key];
-    a = { t: time, at: now, w: isCompleted(stored) ? 0 : Number(stored?.watched) || 0 };
+    a = { t: time, at: now, w: isCompleted(stored) ? 0 : Number(stored?.watched) || 0, s: 0 };
     played.set(key, a);
-    return a.w;
+    return a;
   }
   const d = time - a.t;
   const elapsed = (now - a.at) / 1000;
-  if (d > 0 && d <= elapsed * 2.5 + 2) a.w += d;
+  if (d > 0 && d <= elapsed * 2.5 + 2) {
+    a.w += d;
+    a.s += d;
+  }
   a.t = time;
   a.at = now;
-  return a.w;
+  return a;
 }
 
 /** Sous une minute réellement regardée, un épisode n'est pas « vu ». */
@@ -236,6 +241,9 @@ export function saveProgress(
   episode: number | string,
   time: number,
   duration: number,
+  /** `force` : un lien horodaté atteint, qui fixe le point de reprise sans
+   *  qu'on ait rien regardé (cf. UniversalPlayer). */
+  opts: { force?: boolean } = {},
 ): void {
   if (aniId == null || episode == null) return;
   if (!Number.isFinite(time)) return;
@@ -243,8 +251,22 @@ export function saveProgress(
   // ne persiste pas (les premieres secondes, la zone de fin) sont justement
   // celles ou la barre doit continuer d'avancer a l'ecran.
   emitTick({ aniId, episode, time, duration });
-  const watched = trackPlayed(progressKey(aniId, episode), time);
+  const { w: watched, s: session } = trackPlayed(progressKey(aniId, episode), time);
   if (time < MIN_SAVE_SECONDS) return;
+  const known = readMap()[progressKey(aniId, episode)];
+  if (known && !opts.force) {
+    /* RIEN REGARDÉ SUR CETTE PAGE, RIEN DE RÉÉCRIT (24/11/2026, Luc). Rouvrir
+       un vieil onglet replace la vidéo au point de reprise : ce saut remonte une
+       position, et l'épisode était re-daté à maintenant (Ramparts of Ice S2
+       ép. 8, « il y a 8 h » sans l'avoir revu). */
+    if (session <= 0) return;
+    /* UN RETOUR EN ARRIÈRE NE S'ÉCRIT QU'APRÈS UNE MINUTE RÉELLEMENT REGARDÉE.
+       Une reprise qui n'a pas pris (lecteur parti de 0, clic, une seconde de
+       lecture) écrasait le point de reprise : ép. 4 à 15 s sur 25:52 le 17/11,
+       ép. 8 remis à zéro le 24/11. Revenir en arrière exprès pour revoir une
+       scène s'écrit dès qu'on l'a regardée une minute. */
+    if (!isCompleted(known) && time < Number(known.time) && session < GLANCE_SECONDS) return;
+  }
   /* RIEN N'EST ENREGISTRE AVANT UNE MINUTE REELLEMENT REGARDEE (10/11/2026,
      Luc : « on est d'accord, une minute minimum avant »). Ni point de reprise,
      ni date, ni ligne d'historique : un episode ouvert puis quitte n'a rien

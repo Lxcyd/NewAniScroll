@@ -49,6 +49,11 @@ jobs:
         # ou retrograder un Termine (cf. scripts/check-anilist-history.mjs).
         run: node scripts/check-anilist-history.mjs
 
+      - name: Point de reprise protege (lib/watch/progress.ts)
+        # Echoue si une ouverture sans lecture peut de nouveau re-dater ou
+        # faire reculer un point de reprise (cf. scripts/check-progress.mjs).
+        run: node scripts/check-progress.mjs
+
       - name: Build the Next.js app
         env:
           # Parsed for schema validation only — never connected to.

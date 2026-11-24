@@ -5115,7 +5115,7 @@ export default function UniversalPlayer({
         if (lien) {
           if (cibleLien) cibleLien = { ...cibleLien, atteinte: true };
           // Le point de reprise suit le lien, meme en pause.
-          try { saveProgress(aniListId, episodeNumber, at, dur); } catch {}
+          try { saveProgress(aniListId, episodeNumber, at, dur, { force: true }); } catch {}
         }
         /* « Reprise » : un episode repris la ou on l'avait laisse. Le drapeau
            est pose ICI parce que c'est la seule ligne qui prouve qu'il y avait

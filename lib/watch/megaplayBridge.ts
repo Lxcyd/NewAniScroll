@@ -140,6 +140,7 @@ export function ouvrePont(
   let finTiree = false;
   let vuCompte = false;
   let dureePubliee = false;
+  let premierT: number | null = null;
 
   const envoie = (charge: Record<string, unknown>) => {
     if (mort) return;
@@ -200,6 +201,11 @@ export function ouvrePont(
         publishDuration(aniListId, episodeNumber, d);
       }
       saveProgress(aniListId, episodeNumber, t, Number.isFinite(d) ? d : 0);
+      /* La position est demandée toutes les 5 s, MÊME EN PAUSE : un onglet
+         rouvert, arrêté dans la zone de fin, marquait l'épisode terminé et le
+         re-datait sans qu'une image ait défilé (24/11/2026). */
+      if (premierT == null) premierT = t;
+      const aAvance = t > premierT + 1;
       if (!vuCompte && t >= 120) {
         vuCompte = true;
         // Import paresseux : le compteur de serie n'a rien a faire dans le
@@ -208,7 +214,7 @@ export function ouvrePont(
           .then((m) => m.recordWatchToday())
           .catch(() => {});
       }
-      if (!finTiree && Number.isFinite(d) && d > 0 && t >= d - MARGE_FIN) {
+      if (!finTiree && aAvance && Number.isFinite(d) && d > 0 && t >= d - MARGE_FIN) {
         finTiree = true;
         markComplete(aniListId, episodeNumber, d);
         surFin?.();
