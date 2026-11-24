@@ -934,6 +934,10 @@ function BadgeRowImpl({
   const at = state.got[def.id];
   const unlocked = at != null;
   const R = RARITY[def.rarity];
+  /* Opacité de la teinte des badges obtenus. Le jaune du légendaire est bien
+     plus lumineux que les autres couleurs : il prend un peu plus de la moitié. */
+  const tint = (hex: string) =>
+    def.rarity === "l" ? Math.round(parseInt(hex, 16) * 0.55).toString(16).padStart(2, "0") : hex;
 
   if (view !== "cards") {
     const detailBtn = showsDetail(def, unlocked, hidden, progress, derived, state.got) && derived ? (
@@ -975,7 +979,7 @@ function BadgeRowImpl({
               ? "ring-1 ring-white/[.08] hocus:ring-white/[.16]"
               : "is-locked outline-dashed outline-1 -outline-offset-1 outline-white/[.16] hocus:outline-white/30")
           }
-          style={unlocked ? { backgroundImage: `linear-gradient(180deg, ${R.ic}4a, transparent 80%)` } : undefined}
+          style={unlocked ? { backgroundImage: `linear-gradient(180deg, ${R.ic}${tint("4a")}, transparent 80%)` } : undefined}
         >
           <div className="as-badge-row-in flex min-w-0 flex-1 flex-col items-center">
             {token(TILE_TOKEN)}
@@ -1001,7 +1005,7 @@ function BadgeRowImpl({
           "as-badge-row as-badge-row-compact scroll-mt-28 flex items-center gap-2 px-3 py-1.5 shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)] transition-[background-color] last:shadow-none hover:bg-white/[0.06]" +
           (unlocked ? "" : " is-locked")
         }
-        style={unlocked ? { backgroundImage: `linear-gradient(90deg, ${R.ic}42, transparent 75%)` } : undefined}
+        style={unlocked ? { backgroundImage: `linear-gradient(90deg, ${R.ic}${tint("42")}, transparent 75%)` } : undefined}
       >
         <div className="as-badge-row-in flex min-w-0 flex-1 items-center gap-3">
           <div className="shrink-0">{token(COMPACT_TOKEN)}</div>
@@ -1050,7 +1054,7 @@ function BadgeRowImpl({
       style={
         unlocked
           ? ({
-              background: `linear-gradient(90deg, ${R.ic}4a, transparent 68%), linear-gradient(145deg, rgba(20,22,28,var(--as-plate-a1,.72)), rgba(12,13,16,var(--as-plate-a2,.58)))`,
+              background: `linear-gradient(90deg, ${R.ic}${tint("4a")}, transparent 68%), linear-gradient(145deg, rgba(20,22,28,var(--as-plate-a1,.72)), rgba(12,13,16,var(--as-plate-a2,.58)))`,
               "--tw-ring-color": `${R.ic}61`,
             } as CSSProperties)
           : { background: "transparent" }
