@@ -409,15 +409,6 @@ export function derive(s: Snapshot): Derived {
   /* ── La liste ───────────────────────────────────────────────────────────── */
   const entries = Object.values(s.list);
   const completed = entries.filter((e) => FINISHED.has(String(e.status ?? "").toUpperCase()));
-  const seen = entries.filter(
-    (e) =>
-      FINISHED.has(String(e.status ?? "").toUpperCase()) ||
-      ((e.progress ?? 0) > 0 && String(e.status ?? "").toUpperCase() !== "PLANNING") ||
-      perAnime.has(e.mediaId),
-  );
-  /* Une note sur un titre seulement planifié n'est pas un avis sur ce qu'on a vu. */
-  const rated = seen.filter((e) => (e.score ?? 0) > 0).length;
-  const rewatched = entries.filter((e) => (e.repeat ?? 0) >= 1).length;
 
   /* Ce que le fil dit, anime par anime : commencé et fini le même jour, et
      repris après plus de trente jours. */
@@ -429,6 +420,20 @@ export function derive(s: Snapshot): Derived {
     if (!rows) feedByAnime.set(aniId, (rows = []));
     rows.push({ at, ep });
   }
+
+  /* Un épisode daté dans le fil AniList est un épisode VU, même si le titre a
+     été remis en « Planifié » depuis (Killing Bites, vu le 31/10/2025, replanifié :
+     Halloween restait à 0 sur le compte de Luc). */
+  const seen = entries.filter(
+    (e) =>
+      FINISHED.has(String(e.status ?? "").toUpperCase()) ||
+      ((e.progress ?? 0) > 0 && String(e.status ?? "").toUpperCase() !== "PLANNING") ||
+      perAnime.has(e.mediaId) ||
+      feedByAnime.has(e.mediaId),
+  );
+  /* Une note sur un titre seulement planifié n'est pas un avis sur ce qu'on a vu. */
+  const rated = seen.filter((e) => (e.score ?? 0) > 0).length;
+  const rewatched = entries.filter((e) => (e.repeat ?? 0) >= 1).length;
   /* « Repris en main » : un épisode qui CONTINUE après trente jours. Une relecture
      repart en arrière, et un anime déjà au bout n'était pas laissé de côté. */
   let comebackAt: number | null = null;
