@@ -510,14 +510,28 @@ export default function ProfileHero({
     const el = audio.current;
     if (!el || viaYouTube) return;
     if (sound) {
-      void el.play().catch((err: unknown) => {
-        /* Son refusé sans geste : on joue MUET, comme le lecteur YouTube, et
-           le premier geste sur la page rend le son (cf. `browserMuted`). */
-        if ((err as { name?: string })?.name !== "NotAllowedError" || el.muted) return setSound(false);
-        el.muted = true;
-        setBrowserMuted(true);
-        void el.play().catch(() => setSound(false));
-      });
+      let tries = 0;
+      const start = (): void => {
+        void el.play().catch((err: unknown) => {
+          const name = (err as { name?: string })?.name;
+          /* Interrompu par un rechargement (`AbortError`) : ce n'est pas un
+             refus, on retente quand le fichier est là. Il coupait la musique
+             pour de bon — le « parfois ne démarre pas » (24/11/2026). */
+          if (name === "AbortError" && tries++ < 3) {
+            el.addEventListener("canplay", start, { once: true });
+            return;
+          }
+          /* Son refusé sans geste : on joue MUET, comme le fond vidéo, et le
+             premier geste sur la page rend le son (cf. `browserMuted`). */
+          if (name === "NotAllowedError" && !el.muted) {
+            el.muted = true;
+            setBrowserMuted(true);
+            return start();
+          }
+          setSound(false);
+        });
+      };
+      start();
     } else el.pause();
   }, [sound, viaYouTube, banner.music?.url]);
 
@@ -526,6 +540,11 @@ export default function ProfileHero({
      marches. Une boucle d'animation la rend continue, et elle ne tourne que
      pendant la lecture d'un extrait fondu. */
   const fade = banner.music?.fade ?? 0;
+  /** L'adresse du fichier, ouverte sur la borne de début (fragment média `#t=`). */
+  const atClipStart = (u: string) => {
+    const f = banner.music?.from ?? 0;
+    return f > 0 ? `${u}#t=${Math.floor(f * 10) / 10}` : u;
+  };
   /** Hors de l'extrait réglé au studio : avant son début, ou après sa fin. */
   const outOfClip = (t: number) => {
     const f = banner.music?.from ?? 0;
@@ -911,14 +930,19 @@ export default function ProfileHero({
           playsInline
           aria-hidden
           className="pointer-events-none fixed left-0 top-0 h-px w-px opacity-0"
-          src={audioFirst(banner.music.url)}
+          /* `#t=` + `preload="auto"` (24/11/2026, mesuré au CDP sur dev : 5,3 s
+             avant le son, dont 4 s d'attente du serveur d'AnimeThemes et du saut
+             au début de l'extrait). Le navigateur commence à télécharger DÈS LE
+             HTML, déjà placé sur la borne de début, au lieu d'attendre
+             l'hydratation puis le `play()`. Rien quand le visiteur a mis en pause. */
+          src={atClipStart(audioFirst(banner.music.url))}
           /* L'OGG tenté par audioFirst n'existe pas : la vidéo d'origine. */
           onError={(e) => {
             const url = banner.music?.url;
-            if (url && e.currentTarget.src !== url) e.currentTarget.src = url;
+            if (url && !e.currentTarget.src.startsWith(url)) e.currentTarget.src = atClipStart(url);
           }}
           loop={!(banner.music.to && banner.music.to > (banner.music.from ?? 0))}
-          preload="none"
+          preload={cookiePaused ? "none" : "auto"}
           onPlay={(e) => {
             setAudioStarted(true);
             const el = e.currentTarget;
