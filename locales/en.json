@@ -2715,7 +2715,7 @@
     },
     "dmca": {
       "name": "I assure you there's nothing illegal",
-      "cond": "Stay on the DMCA page for three minutes."
+      "cond": "Stay on the DMCA page for one minute."
     },
     "recursive": {
       "name": "AnimeCeption",

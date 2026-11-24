@@ -162,7 +162,7 @@ export const BADGES: BadgeDef[] = [
   { id: "dead-end", family: "secret", rarity: "u", icon: "screenBroken", tag: "404", metric: {"k":"counter","name":"notFound","n":3}, secret: true },
   { id: "konami", family: "secret", rarity: "e", icon: "dpad", tag: "", metric: {"k":"flag","name":"konami","n":1}, secret: true },
   { id: "devtools", family: "secret", rarity: "r", icon: "console", tag: "", metric: {"k":"flag","name":"devtools","n":1}, secret: true },
-  { id: "dmca", family: "secret", rarity: "r", icon: "gavel", tag: "3 MIN", metric: {"k":"flag","name":"dmca","n":1}, secret: true },
+  { id: "dmca", family: "secret", rarity: "r", icon: "gavel", tag: "", metric: {"k":"flag","name":"dmca","n":1}, secret: true },
   { id: "recursive", family: "secret", rarity: "r", icon: "loupeSelf", tag: "", metric: {"k":"flag","name":"recursive","n":1}, secret: true },
   { id: "not-here", family: "secret", rarity: "u", icon: "noEntry", tag: "", metric: {"k":"flag","name":"notHere","n":1}, secret: true },
   { id: "polyglot", family: "secret", rarity: "u", icon: "translate", tag: "10", metric: {"k":"flag","name":"polyglot","n":1}, secret: true },

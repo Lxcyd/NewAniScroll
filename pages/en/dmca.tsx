@@ -10,7 +10,7 @@ export default function DMCA() {
   /* « Lecture attentive » : trois minutes SUR la page. Le minuteur se suspend
      quand l'onglet passe en arriere-plan -- un onglet oublie n'est pas une
      lecture (cf. lib/badges/gestures.ts). */
-  useEffect(() => dwell("dmca", 3 * 60_000), []);
+  useEffect(() => dwell("dmca", 60_000), []);
   return (
     <>
       <Head>
