@@ -337,7 +337,7 @@ export default function ProfileHero({
      un navigateur refuse le son sans geste, et c'est tant mieux : un profil qui
      se met à jouer de la musique à l'ouverture serait une agression. Le bouton
      est donc la seule façon de l'entendre, et il dit ce qu'il joue. */
-  const audio = useRef<HTMLAudioElement | null>(null);
+  const audio = useRef<HTMLVideoElement | null>(null);
   const [sound, setSound] = useState(false);
   /* Le niveau du son du profil — musique, version YouTube, fond vidéo —,
      réglé au rail de la case YouTube (HoverVolume, le même que les aperçus au
@@ -902,8 +902,15 @@ export default function ProfileHero({
         /* `loop` natif tant que le morceau est entier ; dès qu'un extrait a été
            découpé dans le studio, c'est nous qui rebouclons, sur sa borne de
            fin — le navigateur, lui, ne sait reboucler que sur le fichier. */
-        <audio
+        /* UN <video> ET NON UN <audio> (24/11/2026, mesuré au CDP sur dev) :
+           Chrome laisse démarrer seul un <video> MUET, jamais un <audio>, même
+           muet. Le fichier du générique se lit pareil dans les deux ; seul le
+           <video> peut partir sans geste, et le premier geste rend le son. */
+        <video
           ref={audio}
+          playsInline
+          aria-hidden
+          className="pointer-events-none fixed left-0 top-0 h-px w-px opacity-0"
           src={audioFirst(banner.music.url)}
           /* L'OGG tenté par audioFirst n'existe pas : la vidéo d'origine. */
           onError={(e) => {
