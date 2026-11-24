@@ -1144,6 +1144,8 @@ function progressText(
 ): string {
   const fmt = (n: number) => n.toLocaleString(lang || undefined);
   const m = def.metric;
+  /* « Un an déjà » compte des jours : « 85 / 365j » (24/11/2026, Luc). */
+  if (m.k === "accountAge") return `${fmt(cur)} / ${fmt(target)}${t("badges.ui.unit.d", "j")}`;
   if (m.k !== "count" || m.of !== "minutes") return `${fmt(cur)} / ${fmt(target)}`;
   const days = target % 1440 === 0;
   const div = days ? 1440 : 60;
