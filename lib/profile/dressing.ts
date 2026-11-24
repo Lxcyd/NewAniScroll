@@ -368,9 +368,10 @@ export const MAX_BLUR = 64;
 export const MIN_BLUR = 0;
 /** Le flou d'un profil qui ne l'a jamais réglé (24/11/2026, Luc : « par
     défaut le blur est à 0, c'est un bug » — un nouveau compte avait ses
-    cartes sans flou sur son fond). 24 = « 12 px » dans le studio. Un 0
-    ENREGISTRÉ reste un choix : seule l'absence du champ prend ce défaut. */
-export const DEFAULT_BLUR = 24;
+    cartes sans flou sur son fond). 26 = « 13 px » dans le studio (25/11,
+    Luc). Un 0 ENREGISTRÉ reste un choix : seule l'absence du champ prend ce
+    défaut. */
+export const DEFAULT_BLUR = 26;
 
 export function clampBlur(v: unknown): number {
   if (v === undefined || v === null || v === "") return DEFAULT_BLUR;
