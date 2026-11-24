@@ -345,6 +345,15 @@ export default function ProfileHero({
       html.classList.remove("as-plate-frosted");
     };
   }, [blur]);
+  /* DES CARTES GRISES SANS FOND D'ÉCRAN (25/11/2026, Luc : « fond gris sur
+     toutes les box, ça fait très sombre sinon »). Leur teinte translucide est
+     faite pour un papier peint ; sur le fond uni de la page (bandeau, ou rien),
+     elle se confondait avec lui. Un papier peint garde la teinte d'origine. */
+  useEffect(() => {
+    const html = document.documentElement;
+    html.classList.toggle("as-plate-grey", !asPage);
+    return () => html.classList.remove("as-plate-grey");
+  }, [asPage]);
 
   /* ── Le son ────────────────────────────────────────────────────────────
      Deux sources possibles et une seule règle : la musique choisie l'emporte

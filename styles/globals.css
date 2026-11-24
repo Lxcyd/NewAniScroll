@@ -3050,6 +3050,17 @@ html.as-dragging .as-nudge {
     rgba(12, 13, 16, var(--as-plate-a2, 0.58))
   );
 }
+/* Sans papier peint (ProfileHero, `as-plate-grey`) : un gris opaque, un peu
+   plus clair en haut à gauche, au lieu d'une teinte translucide qui se
+   confondait avec le fond de la page (25/11/2026, Luc). */
+.as-plate-grey .as-stat-card:not(.as-widget),
+.as-plate-grey .as-widget.as-stat-card::before {
+  background: linear-gradient(145deg, rgb(30, 32, 39), rgb(23, 24, 30));
+}
+.as-plate-grey .as-widget-edit:hover::before,
+.as-plate-grey .as-widget-edit.is-held::before {
+  background: linear-gradient(145deg, rgb(37, 39, 47), rgb(29, 30, 37));
+}
 .as-widget-edit:hover::before,
 .as-widget-edit.is-held::before {
   background: linear-gradient(
