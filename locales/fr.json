@@ -2507,7 +2507,7 @@
     },
     "g-slice": {
       "name": "Tranche de vie",
-      "cond": "Termine 20 slice of life."
+      "cond": "Termine 15 slice of life."
     },
     "g-isekai": {
       "name": "Voyageur d'un autre monde",
