@@ -1254,8 +1254,10 @@ function ProgressLine({
   fixed?: boolean;
 }) {
   const { t, i18n } = useTranslation();
-  if (unlocked) return null;
   if (!live) return null;
+  /* OBTENU : la barre reste, pleine (24/11/2026, Luc) — seulement quand
+     l'avancement est mesuré ; sinon rien, pas de « pas encore mesurable ». */
+  if (unlocked && !progress) return null;
   if (!progress) {
     return (
       <p className="m-0 mt-1.5 font-karla text-[10.5px] italic text-white/55">
@@ -1263,12 +1265,14 @@ function ProgressLine({
       </p>
     );
   }
-  const [cur, target] = progress;
+  const [measured, target] = progress;
   if (target <= 1) return null; // un fait binaire n'a pas d'avancement à montrer
+  /* Obtenu, le compteur ne dit jamais moins que la cible : la barre est pleine. */
+  const cur = unlocked ? Math.max(measured, target) : measured;
   return (
     <div className="mt-1.5 flex items-center gap-2">
       <div className={fixed ? "min-w-0 flex-1 sm:w-[280px] sm:flex-none" : "min-w-0 flex-1"}>
-        <Bar pct={Math.min(100, (cur / target) * 100)} color={color} />
+        <Bar pct={unlocked ? 100 : Math.min(100, (cur / target) * 100)} color={color} />
       </div>
       <span className="shrink-0 font-karla text-[10.5px] tabular-nums text-white/65">
         {/* Le séparateur de milliers suit la langue choisie : « 10 000 » en
