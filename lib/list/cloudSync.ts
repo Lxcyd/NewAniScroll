@@ -264,6 +264,17 @@ function writeRevs(patch: Record<string, number>): void {
   }
 }
 
+const SIGNUP_KEY = "aniscroll:justSignedUp";
+/** L'inscription vient de réussir depuis ce navigateur : le premier pull ne
+ *  posera pas la question « quelle copie garder ? » (cf. pullAll). */
+export function markJustSignedUp(): void {
+  try {
+    sessionStorage.setItem(SIGNUP_KEY, "1");
+  } catch {
+    /* rien */
+  }
+}
+
 /** Everything, as one object — used by signup to carry a guest's data over. */
 export function snapshotAll(): Record<string, unknown> {
   if (typeof window === "undefined") return {};
@@ -312,6 +323,13 @@ export async function pullAll(options?: { force?: boolean }): Promise<PullResult
 
   const revs = readRevs();
   const nextRevs: Record<string, number> = {};
+  let justSignedUp = false;
+  try {
+    justSignedUp = sessionStorage.getItem(SIGNUP_KEY) === "1";
+    sessionStorage.removeItem(SIGNUP_KEY);
+  } catch {
+    /* stockage refusé : la comparaison des copies prend le relais */
+  }
 
   for (const entry of data ?? []) {
     const local = readKind(entry.kind);
@@ -357,6 +375,13 @@ export async function pullAll(options?: { force?: boolean }): Promise<PullResult
          identiques, et une fenêtre « remplacer ? » incompréhensible au premier
          contact. Identiques : rien à arbitrer, on prend la révision. */
       nextRevs[entry.kind] = entry.rev;
+    } else if (known == null && justSignedUp) {
+      /* LE COMPTE VIENT D'ÊTRE CRÉÉ DEPUIS CE NAVIGATEUR (24/11/2026, Luc) : ce
+         qu'il contient, c'est ce navigateur qui vient de le lui donner. Rien à
+         arbitrer — même si une valeur a bougé ici depuis l'envoi — ce
+         navigateur fait foi et repart vers le compte. La question ne se pose
+         qu'à une CONNEXION à un compte qui existait déjà. */
+      mergedSincePull.add(entry.kind);
     } else if (known == null) {
       // Both sides have data and this device never synced: only the user knows.
       result.conflicts.push(entry.kind);

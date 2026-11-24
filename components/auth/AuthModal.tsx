@@ -13,7 +13,7 @@ import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useTranslation } from "react-i18next";
 import { notify } from "@/lib/notifications/noticeStore";
-import { snapshotAll } from "@/lib/list/cloudSync";
+import { markJustSignedUp, snapshotAll } from "@/lib/list/cloudSync";
 import UsernameField from "./UsernameField";
 import PasswordField from "./PasswordField";
 
@@ -112,6 +112,7 @@ export default function AuthModal({
         return;
       }
       // Sign in straight away so the new account is usable without a second form.
+      markJustSignedUp();
       await signIn("aniscroll", { identifier: email, password, redirect: false });
       notify.success(t("auth.accountCreated"));
       onClose();
