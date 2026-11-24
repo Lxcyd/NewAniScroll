@@ -2402,6 +2402,16 @@ export default function BannerStudio({
   /** La durée du fondu de l'extrait, en secondes — 0 quand la coupe est franche. */
   const fadeSec = draft.music?.fade ?? 0;
 
+  /* LA CASE EN BAS À DROITE REPART DANS L'EXTRAIT (24/11/2026, Luc) : elle
+     relançait là où le lecteur était, c'est-à-dire à 0 après un retour au
+     studio ou un preset. Même règle que le bouton ▶ de la barre. */
+  const playInClip = (el: MusicMedia) => {
+    const f = draft.music?.from ?? 0;
+    const to = draft.music?.to ?? 0;
+    if ((f > 0 && el.currentTime < f - 0.5) || (to > f && el.currentTime > to)) el.currentTime = f;
+    void el.play();
+  };
+
   /**
    * La boucle de l'extrait, tenue à l'image près.
    *
@@ -6881,7 +6891,7 @@ export default function BannerStudio({
               onToggle: () => {
                 const el = preview.current;
                 if (!el) return;
-                if (el.paused) void el.play();
+                if (el.paused) playInClip(el);
                 else el.pause();
               },
               onMuted: (m) =>
@@ -6962,7 +6972,7 @@ export default function BannerStudio({
             onToggle={() => {
               const el = preview.current;
               if (!el) return;
-              if (el.paused) void el.play();
+              if (el.paused) playInClip(el);
               else el.pause();
             }}
             onMuted={(m) =>
