@@ -41,6 +41,8 @@ export type Snapshot = {
   feedHours?: number[];
   /** Le fil AniList lui-même : [secondes, id AniList, épisode]. */
   feedEvents?: [number, number, number][];
+  /** Les lignes « completed » du fil : id AniList → secondes. */
+  feedCompletions?: Record<number, number>;
   /** Les dates de diffusion (lib/badges/airingBackfill.ts). */
   airing?: Record<number, { t: number | null; a: [number, number][] }>;
   /** Toutes les dates ont été lues : une absence y prouve quelque chose. */
@@ -316,7 +318,19 @@ export function derive(s: Snapshot): Derived {
        - un épisode déjà lu ici dans les 12 h : AniList en a reçu une copie. */
   const here = new Map<string, number>();
   for (const w of watched) if (w.at) here.set(`${w.aniId}:${w.episode}`, w.at);
-  const feedSorted = (s.feedEvents ?? []).filter(validFeedRow).sort((a, b) => a[0] - b[0]);
+  /* LE DERNIER ÉPISODE EST SOUVENT UNE LIGNE « COMPLETED », SANS NUMÉRO : sans elle,
+     les finals vus le jour même disparaissaient (Solo Leveling S2, 2 h après sa
+     diffusion). Elle vaut pour le dernier épisode quand il n'a pas sa propre ligne. */
+  const feedValid = (s.feedEvents ?? []).filter(validFeedRow);
+  const feedKnown = new Set(feedValid.map((r) => `${r[1]}:${r[2]}`));
+  const feedFinals: [number, number, number][] = [];
+  for (const [k, sec] of Object.entries(s.feedCompletions ?? {})) {
+    const id = Number(k);
+    const total = s.list[id]?.total ?? s.airing?.[id]?.t ?? 0;
+    const row: [number, number, number] = [Number(sec), id, total];
+    if (total > 0 && validFeedRow(row) && !feedKnown.has(`${id}:${total}`)) feedFinals.push(row);
+  }
+  const feedSorted = [...feedValid, ...feedFinals].sort((a, b) => a[0] - b[0]);
   const lastSameEpisode = new Map<string, number>();
   const feedRows: { aniId: number; at: number; minutes: number }[] = [];
   let previous = -Infinity;

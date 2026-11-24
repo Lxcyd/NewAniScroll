@@ -89,11 +89,29 @@ function readFeedEvents(): [number, number, number][] | undefined {
   }
 }
 
+let finsRaw: string | null = null;
+let finsParsed: Record<number, number> | undefined;
+function readFeedCompletions(): Record<number, number> | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const raw = window.localStorage.getItem("aniscroll:anilistFeedCompletions");
+    if (raw !== finsRaw) {
+      finsRaw = raw;
+      const parsed = raw ? JSON.parse(raw) : null;
+      finsParsed = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : undefined;
+    }
+    return finsParsed;
+  } catch {
+    return undefined;
+  }
+}
+
 export function snapshot(now = Date.now()): Snapshot {
   const airing = readAiring();
   return {
     feedHours: readFeedHours(),
     feedEvents: readFeedEvents(),
+    feedCompletions: readFeedCompletions(),
     airing: airing?.m,
     airingComplete: airing?.complete,
     progress: readProgressMap(),
@@ -255,7 +273,7 @@ function accountDataReady(s: Snapshot, d: Derived): boolean {
   /* Compte AniList lié : attendre son fil, qui seul prouve certaines règles. */
   if (s.facts.flags.anilistLinked != null && s.feedEvents === undefined) return false;
   /* Un fil sans les dates de diffusion ne peut rien prouver sur « le jour même ». */
-  return !s.feedEvents?.length || s.airingComplete === true;
+  return !s.feedEvents?.length || (s.airingComplete === true && s.feedCompletions !== undefined);
 }
 
 export type EvaluateResult = {

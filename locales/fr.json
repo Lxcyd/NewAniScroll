@@ -2402,7 +2402,7 @@
     },
     "hidden-gem": {
       "name": "Pépite méconnue",
-      "cond": "Termine un anime suivi par moins de 5 000 personnes."
+      "cond": "Termine un anime suivi par moins de 50 000 personnes."
     },
     "archive-1990": {
       "name": "Avant les années 90",

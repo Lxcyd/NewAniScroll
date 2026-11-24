@@ -83,6 +83,8 @@ export const FEED_HOURS_KEY = "aniscroll:anilistFeedHours";
 
 /** Les lignes du fil : les badges de rythme, d'heure et de date les lisent. */
 export const FEED_EVENTS_KEY = "aniscroll:anilistFeedEvents";
+/** Les lignes « completed » : AniList y range souvent le DERNIER épisode, sans numéro. */
+export const FEED_COMPLETIONS_KEY = "aniscroll:anilistFeedCompletions";
 
 async function storeFeedHours(): Promise<void> {
   try {
@@ -91,6 +93,7 @@ async function storeFeedHours(): Promise<void> {
     if (Array.isArray(j?.h)) localStorage.setItem(FEED_HOURS_KEY, JSON.stringify(j.h));
     if (Array.isArray(j?.ev)) {
       localStorage.setItem(FEED_EVENTS_KEY, JSON.stringify(j.ev));
+      localStorage.setItem(FEED_COMPLETIONS_KEY, JSON.stringify(j.c ?? {}));
       /* Du passé : l'évaluateur accorde en silence, comme pour un import. */
       window.dispatchEvent(new CustomEvent("aniscroll:localList:bulk"));
     }
@@ -163,7 +166,7 @@ export async function syncAnilistFeed(token: string | undefined): Promise<boolea
   await syncCompletions(token);
   /* Relues quand le fil a bouge, ou tant qu'elles n'ont jamais ete lues. */
   try {
-    if (changed || !localStorage.getItem(FEED_HOURS_KEY) || !localStorage.getItem(FEED_EVENTS_KEY)) {
+    if (changed || !localStorage.getItem(FEED_HOURS_KEY) || !localStorage.getItem(FEED_EVENTS_KEY) || !localStorage.getItem(FEED_COMPLETIONS_KEY)) {
       await storeFeedHours();
     }
   } catch {

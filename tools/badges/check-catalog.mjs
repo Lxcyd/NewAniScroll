@@ -876,6 +876,16 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
       m("day-one", snap({ list, airing, airingComplete: true, facts: { ...EMPTY_FACTS, flags: { dayOne: local(2026, 2, 1) } } })), [0, 1]);
     check("final : ancien drapeau sans les diffusions → gardé",
       m("day-one", snap({ list, facts: { ...EMPTY_FACTS, flags: { dayOne: local(2026, 2, 1) } } })), [1, 1]);
+    const finalAt = a0 + 11 * 7 * 86400;
+    const nowApres = finalAt * 1000 + 40 * 86400_000;
+    check("final : la ligne « completed » vaut le dernier épisode",
+      measure(BY_ID["day-one"], derive(snap({ now: nowApres, list, airing, airingComplete: true, feedCompletions: { 7: finalAt + 2 * 3600 } })), state()), [1, 1]);
+    check("final : une ligne « completed » 3 jours après → non",
+      measure(BY_ID["day-one"], derive(snap({ now: nowApres, list, airing, airingComplete: true, feedCompletions: { 7: finalAt + 72 * 3600 } })), state()), [0, 1]);
+    check("final : la ligne numérotée n'est pas comptée deux fois",
+      measure(BY_ID["airday-50"], derive(snap({ now: nowApres, list, airing, airingComplete: true, feedEvents: [[finalAt + 3600, 7, 12]], feedCompletions: { 7: finalAt + 3700 } })), state()), [1, 50]);
+    check("final : une ligne « completed » illisible est ignorée",
+      measure(BY_ID["day-one"], derive(snap({ now: nowApres, list, airing, airingComplete: true, feedCompletions: { x: "y", 7: null } })), state()), [0, 1]);
     const det = detailOf(BY_ID["airday-50"], derive(snap({ list, airing, airingComplete: true, feedEvents: [vu(1, 3600), vu(2, 3600)] })));
     check("diffusion : le détail liste l'anime", det.items.map((e) => e.mediaId), [7]);
     check("diffusion : le détail donne ses épisodes", det.episodes.get(7), 2);

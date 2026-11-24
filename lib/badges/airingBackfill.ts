@@ -66,6 +66,12 @@ function candidates(): number[] {
     /* sans fil : la table de lecture suffit */
   }
   const ids = new Set(feed.map((r) => Number(r[1])));
+  try {
+    const fins = JSON.parse(window.localStorage.getItem("aniscroll:anilistFeedCompletions") || "{}");
+    for (const k of Object.keys(fins ?? {})) if (Number(k) > 0) ids.add(Number(k));
+  } catch {
+    /* sans lignes « completed » : le fil suffit */
+  }
   for (const k of Object.keys(readProgressMap())) {
     const id = Number(k.slice(0, k.lastIndexOf(":")));
     if (Number.isInteger(id) && id > 0) ids.add(id);

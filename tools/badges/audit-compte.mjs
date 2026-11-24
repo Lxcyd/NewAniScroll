@@ -131,7 +131,7 @@ const favourites = Array.isArray(K.favourites) ? K.favourites : null;
 
 /* Les dates de diffusion, comme les lit lib/badges/airingBackfill.ts. */
 const airing = {};
-let suite = [...new Set((K.anilist_feed?.e ?? []).map((e) => e[1]))].filter((id) => {
+let suite = [...new Set([...(K.anilist_feed?.e ?? []).map((e) => e[1]), ...Object.keys(K.anilist_feed?.c ?? {}).map(Number)])].filter((id) => {
   const first = new Date(Math.min(...K.anilist_feed.e.map((x) => x[0])) * 1000).getFullYear();
   const e = list[id];
   return !e || e.year == null || e.year >= first - 1 || e.mediaStatus === "RELEASING";
@@ -155,7 +155,7 @@ for (let p = 1; suite.length && p <= 60; p++) {
 
 const d = derive({
   progress, list, facts, favourites, vocab, accountCreatedAt: null, displayedHosts,
-  feedEvents: K.anilist_feed?.e ?? [], airing, airingComplete: true, now: Date.now(),
+  feedEvents: K.anilist_feed?.e ?? [], feedCompletions: K.anilist_feed?.c ?? {}, airing, airingComplete: true, now: Date.now(),
 });
 
 const date = (x) => (x == null ? "" : x === NO_DATE ? "sans date" : new Date(x).toLocaleDateString("fr-FR"));

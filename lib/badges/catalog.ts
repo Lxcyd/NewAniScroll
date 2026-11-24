@@ -84,7 +84,7 @@ export const BADGES: BadgeDef[] = [
   { id: "fin-500", family: "finished", rarity: "m", icon: "bookmarkCheck", tag: "500", metric: {"k":"count","of":"completed","n":500}, ladder: "finished" },
   { id: "first-add", family: "discovery", rarity: "c", icon: "bookmark", tag: "", metric: {"k":"listSize","n":1} },
   { id: "curious-10", family: "discovery", rarity: "c", icon: "curious", tag: "10", metric: {"k":"counter","name":"animeOpened","n":10} },
-  { id: "hidden-gem", family: "discovery", rarity: "u", icon: "gem", tag: "", metric: {"k":"popularityUnder","max":5000,"n":1} },
+  { id: "hidden-gem", family: "discovery", rarity: "r", icon: "gem", tag: "", metric: {"k":"popularityUnder","max":50000,"n":1} },
   { id: "archive-1990", family: "discovery", rarity: "u", icon: "layers", tag: "", metric: {"k":"yearBefore","year":1990,"n":1} },
   { id: "pioneer-1975", family: "discovery", rarity: "e", icon: "history", tag: "", metric: {"k":"yearBefore","year":1975,"n":1} },
   { id: "decades", family: "discovery", rarity: "l", icon: "timeline", tag: "", metric: {"k":"years","from":1970,"n":0} },

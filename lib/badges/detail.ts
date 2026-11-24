@@ -55,7 +55,7 @@ export type Detail =
 const GRID = new Set(["years", "alphabet", "allGenres", "allTags", "hosts", "studio", "works"]);
 const LIST = new Set([
   "genre", "tag", "format", "yearBefore", "popularityUnder", "studioNamed",
-  "titleLength", "sameDayFinish", "onlyLastEpisode", "planningUnaired", "repeatSame", "listSize",
+  "titleLength", "sameDayFinish", "onlyLastEpisode", "planningUnaired", "repeatSame",
   "worksEpisodes", "onDate", "neverSkipOp",
 ]);
 /** Les compteurs `count` qui se ramènent à des anime de la liste. Les épisodes,
@@ -265,8 +265,6 @@ export function detailOf(def: BadgeDef, d: Derived): Detail | null {
           .filter((e) => (e.repeat ?? 0) + 1 >= Number(m.times))
           .sort((a, b) => (b.repeat ?? 0) - (a.repeat ?? 0) || byTitle(a, b)),
       };
-    case "listSize":
-      return { kind: "list", items: [...d.entries].sort(byTitle) };
     /* Les épisodes d'une œuvre-fleuve (Conan, Pokémon) : ses entrées de liste. */
     case "worksEpisodes": {
       const ids = new Set(WORKS[String(m.key)]?.ids ?? []);

@@ -57,7 +57,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         : {}),
       /* Les lignes elles-mêmes, pour les badges de rythme (24/11/2026). Les
          20 000 plus récentes : ce qui tient sans danger en localStorage. */
-      ...(req.query.events ? { ev: (feed?.e ?? []).slice(0, 20_000) } : {}),
+      ...(req.query.events ? { ev: (feed?.e ?? []).slice(0, 20_000), c: feed?.c ?? {} } : {}),
       ...(req.query.fins ?{ f: finsOf(feed?.e ?? [], feed?.c) } : {}),
     });
   }

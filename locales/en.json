@@ -2402,7 +2402,7 @@
     },
     "hidden-gem": {
       "name": "Hidden gem",
-      "cond": "Finish an anime followed by fewer than 5,000 people."
+      "cond": "Finish an anime followed by fewer than 50,000 people."
     },
     "archive-1990": {
       "name": "Pre-90s find",
