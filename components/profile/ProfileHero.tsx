@@ -1226,6 +1226,36 @@ export default function ProfileHero({
       ) : null}
 
       <header className="relative z-10 w-full">
+      {/* LA COULEUR DE LA BANNIÈRE DESCEND SOUS ELLE (25/11/2026, Luc : « rends
+          les bannières plus belles avec un dégradé de couleur vers le bas »).
+          La même image, très floue, derrière tout l'en-tête : sous la bande,
+          ses couleurs passent derrière l'avatar et le pseudo puis s'éteignent,
+          au lieu d'une coupe nette sur le fond de la page. Image fixe, aucun
+          calque animé. */}
+      {mode === "band" && banner.url ? (
+        /* Le masque sur le CADRE, pas sur l'image agrandie : posé sur elle, il
+           finissait hors du cadre et le bas de l'en-tête coupait net. */
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
+          style={{
+            WebkitMaskImage: "linear-gradient(to bottom, #000 30%, transparent 92%)",
+            maskImage: "linear-gradient(to bottom, #000 30%, transparent 92%)",
+          }}
+        >
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `url(${JSON.stringify(banner.url)})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center bottom",
+              filter: "blur(64px) saturate(1.35)",
+              transform: "scale(1.25)",
+              opacity: 0.5,
+            }}
+          />
+        </div>
+      ) : null}
       <div
         className={`relative w-full overflow-hidden ${
           asPage ? "as-hero-band" : "as-hero-band-slim"
@@ -1238,6 +1268,19 @@ export default function ProfileHero({
         style={showcase ? { height: "calc(100svh - 6.5rem)" } : bandStyle}
       >
         {!asPage && banner.url ? (
+          /* En bandeau, le bas de l'image s'efface dans le halo (plus haut)
+             au lieu d'être coupé net. */
+          <div
+            className="absolute inset-0"
+            style={
+              mode === "band"
+                ? {
+                    WebkitMaskImage: "linear-gradient(to bottom, #000 55%, transparent 100%)",
+                    maskImage: "linear-gradient(to bottom, #000 55%, transparent 100%)",
+                  }
+                : undefined
+            }
+          >
           <PlateBackground
             dressing={{
               kind: banner.kind ?? "banner",
@@ -1252,6 +1295,7 @@ export default function ProfileHero({
             priority
             paused={bgPaused}
           />
+          </div>
         ) : null}
         {!banner.url && !flat && !trailer && !wall ? (
           /* No list, no artwork: the site's own colour. */
@@ -1265,7 +1309,9 @@ export default function ProfileHero({
             damaging the artwork for nothing. It gets a foot fade instead, to
             meet the page. */}
         {mode === "none" ? <div className="as-hero-scrim absolute inset-0" /> : null}
-        {mode === "band" ? (
+        {/* Le pied sombre ne sert plus qu'à une bande sans image : avec une
+            image, le masque et le halo font la jonction. */}
+        {mode === "band" && !banner.url ? (
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 as-strip-foot" />
         ) : null}
         {/* PLUS DE HALO SOUS LA PLAQUE. C'était un rectangle de 192 px de haut
