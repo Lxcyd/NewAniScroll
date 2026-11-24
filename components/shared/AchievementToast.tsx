@@ -50,7 +50,7 @@ import { RARITY } from "@/components/profile/badges/rarity";
    et l'autre enchaîne, et elles doivent rester d'accord. */
 const IN_MS = 720;      // le jeton surgit
 const OPEN_MS = 520;    // la carte s'ouvre
-const HOLD_MS = 4200;   // la pose
+const HOLD_MS = 7000;   // la pose (4,2 s jugé trop court par Luc le 24/11/2026)
 /* LA SORTIE EN DEUX TEMPS. Le texte s'efface et la carte se referme (le jeton
    revient donc au centre tout seul, puisque le bloc est centré et rétrécit vers
    son milieu) ; ensuite seulement le jeton remonte en rétrécissant, comme il
