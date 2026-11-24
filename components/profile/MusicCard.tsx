@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from "react";
 import { MdPause, MdPlayArrow } from "react-icons/md";
-import { ArrowPathRoundedSquareIcon } from "@heroicons/react/24/outline";
 import HoverVolume from "@/components/shared/HoverVolume";
 import { eqLevels, eqVoice, type EqVoice } from "@/lib/profile/eqMotion";
 import TrailerAmbient from "@/components/shared/HoverPreview/TrailerAmbient";
@@ -283,27 +282,17 @@ export default function MusicCard({
   );
   const folded = canMini && mini;
 
-  /* Le verso : la carte se retourne au clic, revient à l'endroit en se
-     tassant (le petit carré est toujours la musique). */
+  /* Le verso : CHAQUE SURVOL RETOURNE LA CARTE (24/11/2026, Luc : « tu hover
+     la carte se retourne, tu quittes et tu re-hover elle se retourne »). Pas
+     de bouton ; la face montrée reste jusqu'au survol suivant, petit carré
+     compris. */
   const back = card.back ?? null;
   const backArt = useHiResArt(back?.art ?? "");
   const [flipped, setFlipped] = useState(false);
-  const [hovered, setHovered] = useState(false);
   const hasBack = !!back;
   useEffect(() => {
-    if (folded || !hasBack) setFlipped(false);
-  }, [folded, hasBack]);
-  const flipBtn = (
-    <button
-      type="button"
-      onClick={() => setFlipped((f) => !f)}
-      aria-label={flipped ? "Musique" : "Fond"}
-      title={flipped ? "Revenir à la musique" : "Lecture / pause du fond"}
-      className={`as-preview-videobtn absolute left-2 top-2 h-7 w-7 transition-opacity duration-200 ${hovered ? "opacity-100" : "pointer-events-none opacity-0"}`}
-    >
-      <ArrowPathRoundedSquareIcon className="h-4 w-4" strokeWidth={2} />
-    </button>
-  );
+    if (!hasBack) setFlipped(false);
+  }, [hasBack]);
 
   const chrome = `transition-opacity duration-200 ${awake || !card.playing ? "opacity-100" : "pointer-events-none opacity-0"}`;
   return (
@@ -368,13 +357,10 @@ export default function MusicCard({
         onPointerMove={() => wake()}
         onPointerEnter={() => {
           wake();
-          setHovered(true);
+          if (hasBack) setFlipped((f) => !f);
           if (canMini) grow();
         }}
-        onPointerLeave={() => {
-          setHovered(false);
-          if (canMini) shrinkIn(0);
-        }}
+        onPointerLeave={canMini ? () => shrinkIn(0) : undefined}
       >
         {/* Le retournement : un plan 3D, deux faces dos à dos. Sans verso,
             aucune 3D — la case reste exactement celle d'avant. */}
@@ -476,7 +462,6 @@ export default function MusicCard({
                   />
                 </div>
               )}
-              {back && !flipped ? flipBtn : null}
             </>
           )}
         </div>
@@ -521,7 +506,6 @@ export default function MusicCard({
                 <span className="pointer-events-none absolute bottom-3 left-3 font-outfit text-[12px] font-bold uppercase tracking-[0.12em] text-white/85">
                   Fond
                 </span>
-                {flipBtn}
               </>
             ) : null}
           </div>
