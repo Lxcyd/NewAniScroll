@@ -1048,7 +1048,8 @@ function BadgeRowImpl({
               background: `linear-gradient(90deg, ${R.ic}3a, transparent 68%), linear-gradient(145deg, rgba(20,22,28,var(--as-plate-a1,.72)), rgba(12,13,16,var(--as-plate-a2,.58)))`,
               "--tw-ring-color": `${R.ic}61`,
             } as CSSProperties)
-          : { background: "transparent" }
+          /* Verrouillé : la même plaque, plus légère, pour ne pas flotter sur le fond. */
+          : { background: "linear-gradient(145deg, rgba(20,22,28,.4), rgba(12,13,16,.28))" }
       }
     >
       <div className="flex items-center gap-4">
