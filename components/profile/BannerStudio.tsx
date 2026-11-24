@@ -1350,8 +1350,10 @@ export default function BannerStudio({
   const videoSounds =
     (draft.videoVolume ?? 0) > 0 &&
     (!!draft.trailerId || (isVideoKind(draft.kind) && !!draft.url) || (draft.kind === "video" && !!draft.episode));
+  /* Seulement une vidéo qui A du son (24/11, Luc) : un fond du catalogue sans
+     piste son (`audio: false`) n'a rien à céder à la musique. */
   const soundTipKey =
-    open && videoSounds && draft.music ? `${draft.trailerId}|${draft.url}|${draft.episode?.n}|${draft.episode?.server}` : null;
+    open && videoSounds && draft.music && !(isVideoKind(draft.kind) && isFondMuet(draft.url)) ? `${draft.trailerId}|${draft.url}|${draft.episode?.n}|${draft.episode?.server}` : null;
   const soundTipFor = useRef<string | null>(null);
   const closeSoundTip = useCallback(() => setSoundTip(false), []);
   useEffect(() => {
