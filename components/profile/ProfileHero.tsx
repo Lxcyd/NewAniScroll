@@ -978,11 +978,19 @@ export default function ProfileHero({
             className="absolute inset-0"
             style={{
               backgroundImage: `url(${JSON.stringify(banner.url)})`,
-              backgroundSize: "cover",
-              backgroundPosition: "center top",
+              /* LE PROLONGEMENT DU BAS DE L'IMAGE, colonne par colonne (25/11,
+                 Luc : « pas encore parfait ») : `cover` centré en haut
+                 ressortait le milieu de l'image (le jaune d'une veste) sous un
+                 bas d'image vert et violet — une rupture de couleur à la
+                 jonction. Ici l'image garde la largeur de l'écran, et seul son
+                 quart du bas, étiré sur la hauteur, fait le halo. */
+              backgroundSize: "100% 400%",
+              backgroundPosition: "center bottom",
+              backgroundRepeat: "no-repeat",
               /* 25/11 (Luc) : 0,55 et 0,3 « trop », 0,16 « plus de dégradé ». */
               filter: "blur(90px) saturate(1)",
-              transform: "scale(1.2)",
+              /* Assez pour que les bords, éclaircis par le flou, sortent du cadre. */
+              transform: "scale(1.12)",
               opacity: 0.2,
             }}
           />
