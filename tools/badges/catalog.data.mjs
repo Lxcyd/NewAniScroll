@@ -87,6 +87,8 @@ export const LADDERS = {
      l'autre dans le dépli alors qu'aucun des deux n'est le palier suivant. */
   collection: ["badges-50", "badges-75", "complete"],
   favourite: ["fav-1", "fav-10"],
+  /* Les deux revisionnages ne font qu'un badge qui évolue (24/11/2026, Luc). */
+  rewatch: ["rewatch-1", "rewatch-10"],
   bingo: ["bingo-50", "bingo-200", "bingo-500", "bingo-1000", "bingo-2000", "bingo-3500"],
 };
 
@@ -274,7 +276,7 @@ export const CATALOG = {
     ["studio-10", "r", "clapper", "10", { k: "studio", n: 10 },
       "Studio préféré", "Termine 10 anime du même studio.",
       "Favourite studio", "Finish 10 anime from the same studio."],
-    ["rewatch-1", "r", "loop", "", count("rewatched", 1),
+    ["rewatch-1", "r", "loop", "1", count("rewatched", 1),
       "Premier revisionnage", "Revois un anime que tu avais déjà terminé.",
       "First rewatch", "Rewatch an anime you'd already finished."],
     ["rewatch-10", "e", "loop", "10", count("rewatched", 10),

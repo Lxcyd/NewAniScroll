@@ -31,7 +31,11 @@ const BY_BADGE = new Map<string, Section>(
 /** La section d'un badge ; `null` pour un secret, qui a la sienne à part. */
 export function sectionOf(b: BadgeDef): Section | null {
   if (b.secret) return null;
+  /* Une échelle rangée nommément reste dans sa section : les revisionnages
+     évoluent mais restent dans Fidélité (24/11/2026, Luc). */
+  const named = BY_BADGE.get(b.id);
+  if (named) return named;
   if (b.ladder) return "progress";
   if (b.family === "genres") return "genres";
-  return BY_BADGE.get(b.id) ?? "discovery";
+  return "discovery";
 }

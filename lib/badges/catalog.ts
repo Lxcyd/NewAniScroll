@@ -93,8 +93,8 @@ export const BADGES: BadgeDef[] = [
   { id: "two-voices", family: "discovery", rarity: "u", icon: "speech", tag: "", metric: {"k":"flag","name":"bothLangs","n":1} },
   { id: "blind-pick", family: "discovery", rarity: "c", icon: "shuffle", tag: "", metric: {"k":"flag","name":"random","n":1} },
   { id: "studio-10", family: "discovery", rarity: "r", icon: "clapper", tag: "10", metric: {"k":"studio","n":10} },
-  { id: "rewatch-1", family: "discovery", rarity: "r", icon: "loop", tag: "", metric: {"k":"count","of":"rewatched","n":1} },
-  { id: "rewatch-10", family: "discovery", rarity: "e", icon: "loop", tag: "10", metric: {"k":"count","of":"rewatched","n":10} },
+  { id: "rewatch-1", family: "discovery", rarity: "r", icon: "loop", tag: "1", metric: {"k":"count","of":"rewatched","n":1}, ladder: "rewatch" },
+  { id: "rewatch-10", family: "discovery", rarity: "e", icon: "loop", tag: "10", metric: {"k":"count","of":"rewatched","n":10}, ladder: "rewatch" },
   { id: "thrice", family: "discovery", rarity: "e", icon: "again3", tag: "3", metric: {"k":"repeatSame","times":3,"n":1} },
   { id: "comeback", family: "discovery", rarity: "u", icon: "loop3", tag: "", metric: {"k":"flag","name":"comeback","n":1} },
   { id: "day-one", family: "discovery", rarity: "r", icon: "dayD", tag: "", metric: {"k":"flag","name":"dayOne","n":1} },
@@ -288,6 +288,10 @@ export const LADDERS: Record<string, string[]> = {
   "favourite": [
     "fav-1",
     "fav-10"
+  ],
+  "rewatch": [
+    "rewatch-1",
+    "rewatch-10"
   ],
   "bingo": [
     "bingo-50",
