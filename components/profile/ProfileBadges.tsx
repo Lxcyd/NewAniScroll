@@ -1700,6 +1700,27 @@ function DetailGrid({
   const picked = detail.cells.find((c) => c.key === pick) ?? null;
   const label = (c: DetailCell) => cellLabel(detail, c, t);
 
+  /* Des badges (« Chasseur de secrets ») : leur jeton plutôt qu'une pastille
+     de texte (24/11/2026, Luc). Le nom reste dessous, en petit. */
+  if (detail.labels === "badge") {
+    return (
+      <div className="grid grid-cols-4 gap-x-2 gap-y-3 sm:grid-cols-5">
+        {detail.cells.map((c) => {
+          const def = BY_ID[c.key];
+          if (!def) return null;
+          return (
+            <div key={c.key} className="flex min-w-0 flex-col items-center gap-1" title={label(c)}>
+              <BadgeToken id={def.id} rarity={def.rarity} icon={def.icon} tag={def.tag} unlocked size={56} animate={false} />
+              <span className="w-full truncate text-center font-karla text-[10.5px] leading-tight text-white/55">
+                {label(c)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   const filters: { k: typeof show; label: string; n: number }[] = [
     { k: "all", label: t("badges.ui.detail.all", "Tous"), n: detail.cells.length },
     { k: "missing", label: t("badges.ui.detail.missing", "Manquants"), n: missing },
