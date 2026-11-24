@@ -290,18 +290,22 @@ export default function MusicCard({
   const backArt = useHiResArt(back?.art ?? "");
   const [flipped, setFlipped] = useState(false);
   const [hovered, setHovered] = useState(false);
-  const flippedAt = useRef(0);
-  /** L'icône de retournement telle qu'on la voit, une par face (elle tourne avec). */
+  /** L'icône de retournement, une par face : elle tourne avec la carte. Elle
+      retourne AU CLIC seulement, et grossit un peu au survol (24/11/2026, Luc).
+      `as-preview-videobtn` porte déjà le grossissement et sa transition. */
   const flipIcon = (
-    <span
-      aria-hidden
-      className={`as-preview-videobtn pointer-events-none absolute left-2 top-2 h-7 w-7 transition-opacity duration-200 ${hovered ? "opacity-100" : "opacity-0"}`}
+    <button
+      type="button"
+      onClick={() => setFlipped((f) => !f)}
+      aria-label={flipped ? "Revenir à la musique" : "Lecture / pause du fond"}
+      title={flipped ? "Musique" : "Fond"}
+      className={`as-preview-videobtn absolute left-2 top-2 h-7 w-7 ${hovered ? "opacity-100" : "pointer-events-none opacity-0"}`}
     >
       {/* L'icône choisie par Luc (24/11/2026), deux flèches en arc. */}
       <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
         <path d="M6,12.05q0,1.13 0.43,2.19T7.75,16.2L8,16.45V15q0-0.43 0.29-0.71Q8.58,14 9,14q0.43,0 0.71,0.29T10,15v4q0,0.43-0.29,0.71T9,20H5q-0.42,0-0.71-0.29Q4,19.43 4,19t0.29-0.71T5,18H6.75l-0.4-0.35q-1.3-1.15-1.83-2.62T4,12.05Q4,9.7 5.2,7.79Q6.4,5.88 8.43,4.85q0.35-0.2 0.74-0.02T9.68,5.4Q9.8,5.77 9.66,6.15T9.18,6.72Q7.73,7.52 6.86,8.94T6,12.05Zm12-0.1q0-1.13-0.43-2.19T16.25,7.8L16,7.55V9q0,0.42-0.29,0.71T15,10T14.29,9.71T14,9V5q0-0.43 0.29-0.71T15,4h4q0.43,0 0.71,0.29T20,5T19.71,5.71T19,6H17.25l0.4,0.35q1.22,1.23 1.79,2.66T20,11.95q0,2.35-1.2,4.26t-3.22,2.94q-0.35,0.2-0.74,0.03T14.33,18.6q-0.13-0.38 0.01-0.75t0.49-0.58q1.45-0.8 2.31-2.21T18,11.95Z" />
       </svg>
-    </span>
+    </button>
   );
   const hasBack = !!back;
   useEffect(() => {
@@ -541,41 +545,12 @@ export default function MusicCard({
                     {back.playing ? <MdPause size={28} /> : <MdPlayArrow size={28} />}
                   </button>
                 </div>
-                <span className="pointer-events-none absolute bottom-3 left-3 font-outfit text-[12px] font-bold uppercase tracking-[0.12em] text-white/85">
-                  Fond
-                </span>
               </>
             ) : null}
             {folded ? null : flipIcon}
           </div>
         ) : null}
         </div>
-        {back && !folded ? (
-          /* HORS DU PLAN QUI TOURNE : posée sur une face, l'icône partirait de
-             sous la souris pendant le demi-tour et y reviendrait — un nouveau
-             survol, un nouveau retournement, sans fin. Ici elle ne bouge pas. */
-          /* Le clic retourne aussi (24/11/2026, Luc) — sauf celui qui suit de
-             près le survol qui vient de retourner : sans ça, arriver et cliquer
-             (ou un tap sur téléphone, qui fait les deux) remettait la carte à
-             l'endroit. */
-          /* L'ICÔNE TOURNE AVEC LA CARTE (24/11/2026, Luc) : ce qu'on voit est
-             dessiné sur chaque face (`flipIcon`). Ce bouton n'est que la zone
-             sensible, transparente, posée au même endroit. */
-          <button
-            type="button"
-            onPointerEnter={() => {
-              flippedAt.current = performance.now();
-              setFlipped((f) => !f);
-            }}
-            onClick={() => {
-              if (performance.now() - flippedAt.current < 400) return;
-              setFlipped((f) => !f);
-            }}
-            aria-label={flipped ? "Revenir à la musique" : "Lecture / pause du fond"}
-            title={flipped ? "Musique" : "Fond"}
-            className={`absolute left-2 top-2 z-10 h-7 w-7 rounded-full ${hovered ? "" : "pointer-events-none"}`}
-          />
-        ) : null}
       </div>
     </div>
   );
