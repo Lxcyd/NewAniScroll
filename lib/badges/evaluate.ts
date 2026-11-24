@@ -338,7 +338,16 @@ export function evaluate(opts?: { silent?: boolean; now?: number }): EvaluateRes
     });
     applyCorrection(dates, wrong);
     state = getBadgeState();
-  } else if ((state.regraded ?? 0) < CORRECTION_VERSION && accountBaseReady(snap, d)) {
+  } else if ((state.regraded ?? 0) < CORRECTION_VERSION && d.entries.length > 0 && Object.keys(snap.progress).length > 0) {
+    /* PLUS D'ATTENTE DU COMPTE NI DU FIL ICI (24/11/2026, 2e passe : rien
+       n'avait bougé sur le téléphone de Luc, aucune trace de retrait dans sa
+       copie). `accountBaseReady` exige par exemple qu'AUCUNE catégorie de la
+       synchro ne soit en conflit — un seul conflit jamais tranché bloquait la
+       correction pour toujours. Le retrait est réversible depuis
+       `revoked` : si une donnée arrivée plus tard prouve le badge, la boucle
+       ci-dessous le rend et efface la marque. Sans le fil, « Spoilé » ne peut
+       que PASSER (le fil sert à l'exclure) : il n'est donc jamais retiré à tort
+       faute de fil. */
     /* LES DATES DE DIFFUSION PEUVENT NE JAMAIS FINIR (24/11/2026, Luc : « Spoilé »
        et « Jamais sans l'opening » obtenus sur 0 anime). Leur chargement ne
        s'enregistre qu'à la fin, minutes de 429 AniList comprises : sur un
