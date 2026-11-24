@@ -1,21 +1,18 @@
-// Génère lib/badges/icons.ts à partir de la table du catalogue, en vérifiant
-// que chaque composant existe vraiment dans react-icons/md avant de l'écrire.
-import { createRequire } from "node:module";
+// Génère lib/badges/icons.ts : chaque glyphe est téléchargé une fois chez
+// Google (Material Symbols ROUNDED, contour, graisse 400, 24 px) et son tracé
+// est écrit en dur dans le fichier. Aucune webfont, aucun appel au runtime.
+//   node tools/badges/gen-icons.mjs
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-/* Racine du depot, deduite de l emplacement du script : le generateur doit
-   pouvoir tourner depuis n importe quel repertoire courant. */
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const req = createRequire(join(ROOT, "package.json"));
-const Md = req("react-icons/md");
+const url = (name) =>
+  `https://fonts.gstatic.com/s/i/short-term/release/materialsymbolsrounded/${name}/default/24px.svg`;
 
-/* clé du catalogue -> glyphe Material. Trois substitutions par rapport à la
-   maquette, faute d'équivalent dans le jeu Material Icons :
-     skull      -> dangerous       (Material n'a pas de crâne)
-     neurology  -> psychology_alt
-     event_upcoming -> upcoming                                              */
+/* clé du catalogue -> glyphe Material Symbols. Substitutions par rapport à la
+   maquette d'origine : skull -> dangerous, neurology -> psychology_alt,
+   event_upcoming -> upcoming (choix gardés de l'ancien jeu Material Icons). */
 const MI = {
   screen1: "play_circle", screen2: "video_library", screen3: "subscriptions", screenPlus: "smart_display",
   screenTwin: "groups", screenBroken: "broken_image", pauseOff: "motion_photos_on",
@@ -57,33 +54,44 @@ const MI = {
   alphabet: "sort_by_alpha",
 };
 
-/* Les glyphes que Material n'a pas, pris dans un autre jeu de react-icons en
-   contour. Tabler : trait de 2 px, le plus proche des MdOutline.
-     phantom -> un fantôme pour Halloween (24/09/2026 ; Material n'en a aucun,
-                `ghost` ci-dessus n'est qu'un visage)                          */
-const OTHER = {
-  phantom: ["tb", "TbGhost"],
+/* Tracés fournis par Luc (déjà au style Rounded, viewBox 24) : billet à étoile
+   (10/11/2026, bingo), viseur (23/11/2026, « D'un coup »). */
+const CUSTOM = {
+  ticketStar: "M12,13.9l1.5,1.15q0.28,0.23 0.6,0.01t0.2-0.56l-0.6-1.9l1.67-1.3q0.28-0.22 0.15-0.56T15.05,10.4H13.1L12.48,8.48Q12.35,8.13 12,8.13T11.53,8.48L10.9,10.4H8.93q-0.35,0-0.46,0.34T8.63,11.3l1.63,1.3l-0.6,1.93q-0.13,0.35 0.18,0.56t0.6-0.01L12,13.9ZM4,20q-0.82,0-1.41-0.59T2,18V14.63q0-0.28 0.18-0.48T2.63,13.9q0.6-0.2 0.99-0.72T4,12T3.61,10.83T2.63,10.1Q2.35,10.05 2.18,9.85T2,9.38V6Q2,5.18 2.59,4.59T4,4H20q0.83,0 1.41,0.59Q22,5.18 22,6V9.38q0,0.27-0.17,0.47T21.38,10.1q-0.6,0.2-0.99,0.72T20,12t0.39,1.17t0.99,0.72q0.28,0.05 0.45,0.25T22,14.63V18q0,0.82-0.59,1.41T20,20H4Zm0-2H20V15.45q-0.93-0.55-1.46-1.46Q18,13.08 18,12t0.54-1.99T20,8.55V6H4V8.55Q4.93,9.1 5.46,10.01T6,12T5.46,13.99T4,15.45V18Zm8-6Z",
+  crosshair: "M11,21.95v-1Q7.88,20.6 5.64,18.36T3.05,13h-1q-0.43,0-0.71-0.29Q1.05,12.43 1.05,12t0.29-0.71T2.05,11h1Q3.4,7.88 5.64,5.64T11,3.05v-1q0-0.42 0.29-0.71T12,1.05t0.71,0.29T13,2.05v1q3.13,0.35 5.36,2.59T20.95,11h1q0.42,0 0.71,0.29T22.95,12t-0.29,0.71T21.95,13h-1q-0.35,3.13-2.59,5.36T13,20.95v1q0,0.43-0.29,0.71T12,22.95t-0.71-0.29T11,21.95Zm5.95-5Q19,14.9 19,12T16.95,7.05T12,5T7.05,7.05T5,12t2.05,4.95T12,19t4.95-2.05ZM9.18,14.83Q8,13.65 8,12T9.18,9.17T12,8t2.83,1.17T16,12t-1.17,2.82T12,16T9.18,14.83Zm4.24-1.41Q14,12.83 14,12t-0.59-1.41T12,10t-1.41,0.59Q10,11.18 10,12t0.59,1.41T12,14t1.41-0.59ZM12,12Z",
 };
 
-const comp = (glyph) =>
-  "MdOutline" + glyph.split("_").map((p) => p[0].toUpperCase() + p.slice(1)).join("");
+/* Hors Material : fantôme d'Halloween (24/09/2026), pris dans Tabler (déjà
+   arrondi) ; `ghost` ci-dessus n'est qu'un visage. */
+const OTHER = { phantom: ["tb", "TbGhost"] };
 
+const glyphs = [...new Set(Object.values(MI))].sort();
+const paths = {};
 const bad = [];
-for (const [key, glyph] of Object.entries(MI)) {
-  if (typeof Md[comp(glyph)] !== "function") bad.push(`${key} (${glyph} -> ${comp(glyph)})`);
-}
-for (const [key, [set, name]] of Object.entries(OTHER)) {
-  if (MI[key]) bad.push(`${key} : clé présente dans MI et dans OTHER`);
-  else if (typeof req("react-icons/" + set)[name] !== "function") bad.push(`${key} (${set}/${name})`);
-}
+await Promise.all(
+  glyphs.map(async (g) => {
+    const res = await fetch(url(g));
+    const svg = res.ok ? await res.text() : "";
+    const ds = [...svg.matchAll(/<path[^>]*\sd="([^"]+)"/g)].map((m) => m[1]);
+    if (!ds.length || !svg.includes('viewBox="0 -960 960 960"')) bad.push(`${g} (HTTP ${res.status})`);
+    else paths[g] = ds;
+  }),
+);
 if (bad.length) {
-  console.error("Composants introuvables dans react-icons/md :\n  " + bad.join("\n  "));
+  console.error("Glyphes introuvables chez Google (Material Symbols Rounded) :\n  " + bad.join("\n  "));
   process.exit(1);
 }
 
-const used = [...new Set(Object.values(MI).map(comp))].sort();
+const ident = (g) => "S_" + g;
+const defs = glyphs
+  .map((g) => `const ${ident(g)} = sym(${paths[g].map((d) => JSON.stringify(d)).join(", ")});`)
+  .join("\n");
+const customDefs = Object.entries(CUSTOM)
+  .map(([key, d]) => `const C_${key} = sym24(${JSON.stringify(d)});`)
+  .join("\n");
 const rows = [
-  ...Object.entries(MI).map(([key, glyph]) => `  ${key}: ${comp(glyph)},`),
+  ...Object.entries(CUSTOM).map(([key]) => `  ${key}: C_${key},`),
+  ...Object.entries(MI).map(([key, g]) => `  ${key}: ${ident(g)},`),
   ...Object.entries(OTHER).map(([key, [, name]]) => `  ${key}: ${name},`),
 ].join("\n");
 const otherImports = Object.entries(
@@ -91,34 +99,34 @@ const otherImports = Object.entries(
 ).map(([set, names]) => `import { ${[...names].sort().join(", ")} } from "react-icons/${set}";`).join("\n");
 
 const out = `/**
- * Les icônes des badges — Material Icons, en contour, dessinées par
- * react-icons/md.
+ * Les icônes des badges — Material Symbols ROUNDED (contour, graisse 400), les
+ * glyphes de fonts.google.com/icons aux angles arrondis.
  *
- * PAS DE WEBFONT. La maquette du catalogue pose les glyphes avec la police
- * « Material Symbols Rounded » de Google ; le site, lui, dessine ses Material
- * Symbols en SVG inline partout ailleurs (components/anime/v2/RelationsGraph.tsx,
- * components/watch/primary/LangPreferenceModal.tsx) parce qu'« aller chercher la
- * police d'icônes pour six glyphes coûterait une webfont sur une vue que la
- * plupart des visiteurs n'ouvrent jamais ». La même raison vaut ici, en plus
- * fort : la notification d'achievement peut surgir sur n'importe quelle page, et
- * elle ne peut pas attendre le chargement d'une police pour montrer son jeton.
+ * PAS DE WEBFONT : la notification d'achievement peut surgir sur n'importe
+ * quelle page et ne peut pas attendre une police d'icônes. Les tracés SVG sont
+ * donc copiés ici une fois pour toutes et dessinés par GenIcon (react-icons).
  *
- * react-icons est DÉJÀ une dépendance du projet et porte les 4341 Material
- * Icons avec leur géométrie exacte. On y prend les variantes \`MdOutline*\`,
- * parce que le catalogue demande des icônes « en contour ».
- *
- * FICHIER GÉNÉRÉ — ne pas éditer à la main. La table de correspondance vit dans
- * tools/badges/gen-icons.mjs, qui vérifie l'existence de chaque composant avant
- * d'écrire. Trois glyphes de la maquette n'existent pas dans le jeu Material
- * Icons et sont remplacés : \`skull\` -> \`dangerous\`, \`neurology\` ->
- * \`psychology_alt\`, \`event_upcoming\` -> \`upcoming\`.
+ * FICHIER GÉNÉRÉ — ne pas éditer à la main. La table vit dans
+ * tools/badges/gen-icons.mjs, qui télécharge chaque glyphe chez Google et
+ * échoue si l'un manque.
  */
 
 import type { IconType } from "react-icons";
-import {
-${used.map((n) => `  ${n},`).join("\n")}
-} from "react-icons/md";
+import { GenIcon } from "react-icons/lib";
 ${otherImports}
+
+const sym = (...d: string[]): IconType =>
+  GenIcon({
+    tag: "svg",
+    attr: { viewBox: "0 -960 960 960" },
+    child: d.map((p) => ({ tag: "path", attr: { d: p }, child: [] })),
+  }) as IconType;
+
+const sym24 = (d: string): IconType =>
+  GenIcon({ tag: "svg", attr: { viewBox: "0 0 24 24" }, child: [{ tag: "path", attr: { d }, child: [] }] }) as IconType;
+
+${defs}
+${customDefs}
 
 export const BADGE_ICONS: Record<string, IconType> = {
 ${rows}
@@ -134,4 +142,4 @@ export const SECRET_ICON: IconType = BADGE_ICONS.question;
 `;
 
 writeFileSync(join(ROOT, "lib", "badges", "icons.ts"), out);
-console.log(`icons.ts écrit : ${Object.keys(MI).length} clés, ${used.length} composants distincts.`);
+console.log(`icons.ts écrit : ${Object.keys(MI).length} clés, ${glyphs.length} glyphes distincts.`);
