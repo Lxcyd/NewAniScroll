@@ -2412,8 +2412,24 @@ export default function BannerStudio({
     const f = draft.music?.from ?? 0;
     const to = draft.music?.to ?? 0;
     if ((f > 0 && el.currentTime < f - 0.5) || (to > f && el.currentTime > to)) el.currentTime = f;
-    void el.play();
+    playSafe(el);
   };
+
+  /* UN play() INTERROMPU N'EST PAS UN REFUS (24/11/2026, mesuré au CDP sur
+     dev). À l'ouverture du studio, son lecteur vient d'être créé et charge
+     encore : le premier `play()` tombe en `AbortError`, la musique restait
+     arrêtée sous une case qui affichait ⏸. On retente quand le fichier est
+     prêt (trois fois au plus) ; seul un vrai refus arrête. */
+  function playSafe(el: MusicMedia, tries = 0): void {
+    void el.play().catch((err: unknown) => {
+      const media = el as unknown as HTMLMediaElement;
+      if ((err as { name?: string })?.name === "AbortError" && tries < 3 && typeof media.addEventListener === "function") {
+        media.addEventListener("canplay", () => playSafe(el, tries + 1), { once: true });
+        return;
+      }
+      setPlaying(false);
+    });
+  }
 
   /**
    * La boucle de l'extrait, tenue à l'image près.
@@ -2459,7 +2475,7 @@ export default function BannerStudio({
        précédent, c'est afficher une seconde de mensonge. */
     setAt(0);
     el.currentTime = draft.music?.from ?? 0;
-    void el.play().catch(() => setPlaying(false));
+    playSafe(el);
   }, [wantPlay, draft.music?.url, draft.music?.videoId]);
 
   /* LE VERROU DU TOUR (14/11, Luc) : pendant une étape, seuls les onglets du
@@ -5389,7 +5405,7 @@ export default function BannerStudio({
       el.currentTime = p;
       setAt(p);
     }
-    void el.play().catch(() => setPlaying(false));
+    playSafe(el);
   };
 
   /* L'onglet Couleur ne cherche rien : ses couleurs sont toutes à l'écran. Les
@@ -5744,7 +5760,7 @@ export default function BannerStudio({
                       if (!el) return;
                       if (el.paused) {
                         if (el.currentTime < from || el.currentTime > to) el.currentTime = from;
-                        void el.play().catch(() => setPlaying(false));
+                        playSafe(el);
                       } else el.pause();
                     }}
                     aria-label={t(playing ? "profile.studioMusicPause" : "profile.studioMusicPlay")}
@@ -7277,7 +7293,7 @@ export default function BannerStudio({
                     if (!el) return;
                     if (el.paused) {
                       if (el.currentTime < from || el.currentTime > to) el.currentTime = from;
-                      void el.play().catch(() => setPlaying(false));
+                      playSafe(el);
                     } else el.pause();
                   }}
                   aria-label={t(playing ? "profile.studioMusicPause" : "profile.studioMusicPlay")}
