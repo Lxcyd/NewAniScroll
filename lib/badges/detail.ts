@@ -267,14 +267,20 @@ export function detailOf(def: BadgeDef, d: Derived): Detail | null {
           .sort((a, b) => (b.repeat ?? 0) - (a.repeat ?? 0) || byTitle(a, b)),
       };
     /* Les épisodes d'une œuvre-fleuve (Conan, Pokémon) : ses entrées de liste. */
+    /* Un épisode lu sur le site compte même si l'anime n'est pas dans la liste
+       (Naruto, vu ici sans jamais être ajouté) : on le montre avec le titre du
+       catalogue, sans affiche. */
     case "worksEpisodes": {
-      const ids = new Set(WORKS[String(m.key)]?.ids ?? []);
-      return {
-        kind: "list",
-        items: d.entries
-          .filter((e) => ids.has(e.mediaId) && (d.episodesByAnime.get(e.mediaId) ?? 0) > 0)
-          .sort(byTitle),
-      };
+      const w = WORKS[String(m.key)];
+      if (!w) return null;
+      const items = w.ids.flatMap((id, i): LocalEntry[] => {
+        if ((d.episodesByAnime.get(id) ?? 0) <= 0) return [];
+        const e = d.entries.find((x) => x.mediaId === id);
+        if (e) return [e];
+        const t = w.titles[i] ?? `#${id}`;
+        return [{ mediaId: id, title: { romaji: t, english: t, userPreferred: t } } as LocalEntry];
+      });
+      return { kind: "list", items: items.sort(byTitle) };
     }
     /* Halloween, Saint-Valentin, 1er avril : ce qui a été vu ce jour-là, et
        qui porte le bon genre. */
