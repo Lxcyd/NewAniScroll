@@ -476,7 +476,7 @@ export default function ProfileBadges({
         </label>
         <div className="flex flex-wrap items-center gap-2">
           <Dropdown
-            className="as-dd-full as-dd-page as-stat-card w-[190px] rounded-[12px]"
+            className="as-dd-full as-dd-page as-stat-card w-[240px] rounded-[12px]"
             flip
             label={t("badges.ui.rarityFilter.label", "Filtrer par rareté")}
             value={rarity}
