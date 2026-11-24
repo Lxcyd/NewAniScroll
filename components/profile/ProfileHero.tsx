@@ -338,6 +338,33 @@ export default function ProfileHero({
      se met à jouer de la musique à l'ouverture serait une agression. Le bouton
      est donc la seule façon de l'entendre, et il dit ce qu'il joue. */
   const audio = useRef<HTMLVideoElement | null>(null);
+  /**
+   * Lance le fichier de musique, et TIENT jusqu'à ce qu'il joue.
+   * — interrompu par un rechargement (`AbortError`) : pas un refus, on retente
+   *   quand le fichier est prêt (trois fois au plus) ;
+   * — son refusé sans geste : on joue MUET, comme le fond vidéo, et le premier
+   *   geste sur la page rend le son (cf. `browserMuted`).
+   * Seul un échec d'une autre nature arrête (`sound` à faux).
+   */
+  const playFile = (el: HTMLVideoElement) => {
+    let tries = 0;
+    const start = (): void => {
+      void el.play().catch((err: unknown) => {
+        const name = (err as { name?: string })?.name;
+        if (name === "AbortError" && tries++ < 3) {
+          el.addEventListener("canplay", start, { once: true });
+          return;
+        }
+        if (name === "NotAllowedError" && !el.muted) {
+          el.muted = true;
+          setBrowserMuted(true);
+          return start();
+        }
+        setSound(false);
+      });
+    };
+    start();
+  };
   const [sound, setSound] = useState(false);
   /* Le niveau du son du profil — musique, version YouTube, fond vidéo —,
      réglé au rail de la case YouTube (HoverVolume, le même que les aperçus au
@@ -474,7 +501,11 @@ export default function ProfileHero({
       if (audio.current) audio.current.currentTime = banner.music.from ?? 0;
       if (on) {
         if (banner.music.videoId) void yt.current?.play();
-        else void audio.current?.play().catch(() => setSound(false));
+        /* La même relance que le démarrage (24/11/2026, mesuré au CDP) : ici
+           un `play()` interrompu passait `sound` à faux alors que le fichier
+           finissait par jouer — case ▶ sur une musique qui joue, et le studio
+           suivant, qui demande si elle jouait, ne la lançait plus. */
+        else if (audio.current) playFile(audio.current);
       }
       return;
     }
@@ -509,30 +540,8 @@ export default function ProfileHero({
   useEffect(() => {
     const el = audio.current;
     if (!el || viaYouTube) return;
-    if (sound) {
-      let tries = 0;
-      const start = (): void => {
-        void el.play().catch((err: unknown) => {
-          const name = (err as { name?: string })?.name;
-          /* Interrompu par un rechargement (`AbortError`) : ce n'est pas un
-             refus, on retente quand le fichier est là. Il coupait la musique
-             pour de bon — le « parfois ne démarre pas » (24/11/2026). */
-          if (name === "AbortError" && tries++ < 3) {
-            el.addEventListener("canplay", start, { once: true });
-            return;
-          }
-          /* Son refusé sans geste : on joue MUET, comme le fond vidéo, et le
-             premier geste sur la page rend le son (cf. `browserMuted`). */
-          if (name === "NotAllowedError" && !el.muted) {
-            el.muted = true;
-            setBrowserMuted(true);
-            return start();
-          }
-          setSound(false);
-        });
-      };
-      start();
-    } else el.pause();
+    if (sound) playFile(el);
+    else el.pause();
   }, [sound, viaYouTube, banner.music?.url]);
 
   /* Le fondu de l'extrait, quand le studio en a posé un. `timeupdate` ne parle
