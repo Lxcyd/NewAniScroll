@@ -969,9 +969,9 @@ export default function ProfileHero({
             /* Une courbe douce, beaucoup de paliers : la fin du halo ne doit
                pas se lire comme une ligne (25/11, Luc : « moins abrupte »). */
             WebkitMaskImage:
-              "linear-gradient(to bottom, #000 18%, rgba(0,0,0,.86) 30%, rgba(0,0,0,.68) 42%, rgba(0,0,0,.5) 53%, rgba(0,0,0,.34) 63%, rgba(0,0,0,.21) 73%, rgba(0,0,0,.11) 83%, rgba(0,0,0,.04) 92%, transparent 100%)",
+              "linear-gradient(to bottom, #000 26%, rgba(0,0,0,.82) 34%, rgba(0,0,0,.6) 41%, rgba(0,0,0,.42) 48%, rgba(0,0,0,.29) 55%, rgba(0,0,0,.19) 63%, rgba(0,0,0,.11) 72%, rgba(0,0,0,.05) 83%, rgba(0,0,0,.015) 93%, transparent 100%)",
             maskImage:
-              "linear-gradient(to bottom, #000 18%, rgba(0,0,0,.86) 30%, rgba(0,0,0,.68) 42%, rgba(0,0,0,.5) 53%, rgba(0,0,0,.34) 63%, rgba(0,0,0,.21) 73%, rgba(0,0,0,.11) 83%, rgba(0,0,0,.04) 92%, transparent 100%)",
+              "linear-gradient(to bottom, #000 26%, rgba(0,0,0,.82) 34%, rgba(0,0,0,.6) 41%, rgba(0,0,0,.42) 48%, rgba(0,0,0,.29) 55%, rgba(0,0,0,.19) 63%, rgba(0,0,0,.11) 72%, rgba(0,0,0,.05) 83%, rgba(0,0,0,.015) 93%, transparent 100%)",
           }}
         >
           <div
@@ -984,14 +984,20 @@ export default function ProfileHero({
                  bas d'image vert et violet — une rupture de couleur à la
                  jonction. Ici l'image garde la largeur de l'écran, et seul son
                  quart du bas, étiré sur la hauteur, fait le halo. */
-              backgroundSize: "100% 400%",
-              backgroundPosition: "center bottom",
+              /* Puis l'image ENTIÈRE étirée en hauteur (« au milieu le dégradé
+                 est inexistant ») : le bas seul est sombre au centre, sous les
+                 personnages ; l'image entière y met leurs couleurs. */
+              backgroundSize: "100% 100%",
+              backgroundPosition: "center",
               backgroundRepeat: "no-repeat",
-              /* 25/11 (Luc) : 0,55 et 0,3 « trop », 0,16 « plus de dégradé ». */
-              filter: "blur(90px) saturate(1)",
+              /* L'intensité est portée par le masque du cadre : forte juste
+                 sous la bannière (là où l'image s'efface, pour qu'elle ne
+                 laisse pas une bande plus sombre — « on voit encore la
+                 délimitation »), puis vite décroissante. */
+              filter: "blur(110px) saturate(1.05)",
               /* Assez pour que les bords, éclaircis par le flou, sortent du cadre. */
-              transform: "scale(1.12)",
-              opacity: 0.2,
+              transform: "scale(1.15)",
+              opacity: 0.45,
             }}
           />
         </div>
