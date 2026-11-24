@@ -19,7 +19,7 @@
  */
 
 import type { BadgeDef } from "./catalog";
-import { initialsOf, isCompletedNow, titleOf, type Derived } from "./derive";
+import { initialsOf, isCompletedNow, longTitleLength, titleOf, type Derived } from "./derive";
 import { isBonusFormat } from "./measure";
 import { WORKS } from "./works";
 import type { LocalEntry } from "../list/localList";
@@ -240,7 +240,7 @@ export function detailOf(def: BadgeDef, d: Derived): Detail | null {
     case "titleLength":
       return {
         kind: "list",
-        items: done.filter((e) => titleOf(e).length > Number(m.min)).sort(byTitle),
+        items: done.filter((e) => longTitleLength(e) > Number(m.min)).sort(byTitle),
       };
     case "sameDayFinish":
       return {

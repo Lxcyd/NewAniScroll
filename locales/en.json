@@ -2470,7 +2470,7 @@
     },
     "long-title": {
       "name": "Very long title",
-      "cond": "Finish an anime whose title runs past 100 characters."
+      "cond": "Finish an anime whose title runs past 100 characters (English or romaji title)."
     },
     "all-players": {
       "name": "Every player",

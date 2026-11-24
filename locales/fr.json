@@ -2470,7 +2470,7 @@
     },
     "long-title": {
       "name": "Titre à rallonge",
-      "cond": "Termine un anime dont le titre dépasse 100 caractères."
+      "cond": "Termine un anime dont le titre dépasse 100 caractères (titre anglais ou romaji)."
     },
     "all-players": {
       "name": "Tous les lecteurs",

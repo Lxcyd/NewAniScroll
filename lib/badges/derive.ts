@@ -222,6 +222,13 @@ export function titleOf(e: LocalEntry): string {
   return t?.english || t?.romaji || t?.userPreferred || t?.native || "";
 }
 
+/** La longueur du plus long titre, anglais ou romaji, pour « Titre à
+ *  rallonge » : le romaji compte aussi (24/11/2026, Luc). */
+export function longTitleLength(e: LocalEntry): number {
+  const t = e.title;
+  return Math.max(titleOf(e).length, t?.english?.length ?? 0, t?.romaji?.length ?? 0);
+}
+
 /**
  * LES INITIALES D'UNE ENTRÉE, pour « De A à Z » (09/11/2026, Luc : « il ne
  * marche pas »).
@@ -624,7 +631,7 @@ export function derive(s: Snapshot): Derived {
   for (const [name, c] of Object.entries(s.facts.counters)) {
     if (name.startsWith("bingo:")) bingoPoints += c.n;
   }
-  const longestTitle = completed.reduce((m, e) => Math.max(m, titleOf(e).length), 0);
+  const longestTitle = completed.reduce((m, e) => Math.max(m, longTitleLength(e)), 0);
 
   /* ── Les franchises, reconstruites depuis les relations déjà en cache ──────
      Pas d'appel à notre propre base : `relIds` est posé sur l'entrée par la
