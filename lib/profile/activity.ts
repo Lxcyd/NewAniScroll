@@ -188,15 +188,24 @@ export function decorateRows(rows: HistoryRow[], map: ProgressMap): ActivityRow[
   return out.sort((a, b) => b.at - a.at);
 }
 
+/** Sous ce reste, la ligne s'affiche terminée (barre pleine, « Terminé »). */
+const NEAR_END_SECONDS = 90;
+
 function decorate(full: HistoryRow, map: ProgressMap, runFrom: number): ActivityRow {
   /* `before` ne sert qu'au calcul : il ne voyage pas jusqu'à la page. */
   const { before: _before, ...row } = full;
   const p = map[`${row.aniId}:${row.episode}`] ?? null;
-  const pct =
-    p && p.duration > 0 ? Math.min(100, Math.round((p.time / p.duration) * 100)) : 0;
+  /* TOUT PRÈS DE LA FIN = TERMINÉ (24/11/2026, Luc). « 1 min restantes » et
+     une barre à 96 %, c'est le générique de fin qu'on a sauté : l'épisode est
+     vu. Le seuil de la progression (30 s, isCompleted) reste celui du
+     lecteur ; ici, pour l'affichage, une minute et demie. */
+  const done = isCompleted(p) || (!!p && p.duration > 0 && p.duration - p.time <= NEAR_END_SECONDS);
+  const pct = done
+    ? 100
+    : p && p.duration > 0 ? Math.min(100, Math.round((p.time / p.duration) * 100)) : 0;
   const minutesLeft =
     p && p.duration > 0 ? Math.max(0, Math.round((p.duration - p.time) / 60)) : null;
-  return { ...row, pct, minutesLeft, done: isCompleted(p), runFrom };
+  return { ...row, pct, minutesLeft, done, runFrom };
 }
 
 /** Le jour local d'un épisode de la table, `null` quand il n'est pas daté. */
