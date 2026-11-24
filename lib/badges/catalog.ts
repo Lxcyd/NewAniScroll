@@ -112,7 +112,7 @@ export const BADGES: BadgeDef[] = [
   { id: "g-mecha", family: "genres", rarity: "r", icon: "robot", tag: "5", metric: {"k":"genre","name":"Mecha","n":5} },
   { id: "g-slice", family: "genres", rarity: "r", icon: "leaf", tag: "15", metric: {"k":"genre","name":"Slice of Life","n":15} },
   { id: "g-isekai", family: "genres", rarity: "r", icon: "reborn", tag: "20", metric: {"k":"tag","name":"Isekai","n":20} },
-  { id: "g-fantasy", family: "genres", rarity: "r", icon: "castle", tag: "20", metric: {"k":"genre","name":"Fantasy","n":20} },
+  { id: "g-fantasy", family: "genres", rarity: "r", icon: "castle", tag: "25", metric: {"k":"genre","name":"Fantasy","n":25} },
   { id: "g-scifi", family: "genres", rarity: "r", icon: "rocket", tag: "15", metric: {"k":"genre","name":"Sci-Fi","n":15} },
   { id: "g-mystery", family: "genres", rarity: "r", icon: "magnifier", tag: "15", metric: {"k":"genre","name":"Mystery","n":15} },
   { id: "g-drama", family: "genres", rarity: "r", icon: "teardrop", tag: "20", metric: {"k":"genre","name":"Drama","n":20} },

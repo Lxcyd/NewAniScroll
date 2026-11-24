@@ -2515,7 +2515,7 @@
     },
     "g-fantasy": {
       "name": "Autre monde",
-      "cond": "Termine 20 anime de fantasy."
+      "cond": "Termine 25 anime de fantasy."
     },
     "g-scifi": {
       "name": "Sci-fi",
