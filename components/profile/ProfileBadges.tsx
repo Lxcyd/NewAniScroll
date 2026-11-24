@@ -1009,12 +1009,19 @@ function BadgeRowImpl({
       >
         <div className="as-badge-row-in flex min-w-0 flex-1 items-center gap-3">
           <div className="shrink-0">{token(COMPACT_TOKEN)}</div>
-          <div className="min-w-0 flex-1 sm:w-[175px] sm:flex-none max-sm:[&>span:first-child]:line-clamp-2 max-sm:[&>span:first-child]:whitespace-normal max-sm:[&>span:first-child]:leading-tight">{name}{rarityLabel}</div>
-          <div className="hidden min-w-0 flex-1 sm:block [&>p]:mt-0 [&>p]:line-clamp-2">
-            <Condition def={def} hidden={hidden && !unlocked} unlocked={unlocked} />
+          {/* Comme la vue Liste : nom et rareté sur une ligne, la condition
+              dessous ; la barre à droite, à position fixe (24/11/2026). */}
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-baseline gap-x-2.5 max-sm:flex-col max-sm:[&>span:first-child]:line-clamp-2 max-sm:[&>span:first-child]:whitespace-normal max-sm:[&>span:first-child]:leading-tight [&>span:first-child]:min-w-0">
+              {name}
+              <span className="shrink-0">{rarityLabel}</span>
+            </div>
+            <div className="hidden min-w-0 sm:block [&>p]:mt-0.5 [&>p]:line-clamp-1">
+              <Condition def={def} hidden={hidden && !unlocked} unlocked={unlocked} />
+            </div>
           </div>
           {/* La barre, pleine pour un badge obtenu (24/11/2026). */}
-          <div className="flex w-[72px] shrink-0 justify-end sm:w-[150px] [&>div]:mt-0 [&>div]:w-full [&>p]:mt-0 [&>p]:leading-tight max-sm:[&>div>div:first-child]:hidden max-sm:[&>div]:justify-end">
+          <div className="flex w-[72px] shrink-0 justify-end sm:w-[220px] [&>div]:mt-0 [&>div]:w-full [&>p]:mt-0 [&>p]:leading-tight max-sm:[&>div>div:first-child]:hidden max-sm:[&>div]:justify-end">
             <ProgressLine def={def} progress={progress} unlocked={unlocked} live={live} color={R.ic} />
           </div>
         </div>
