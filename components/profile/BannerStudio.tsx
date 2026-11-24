@@ -92,6 +92,7 @@ import WidgetMenuTile from "@/components/profile/WidgetMenuTile";
 import { BLOCKS } from "@/lib/profile/blocks";
 import YouTubeMusic, { type MusicMedia } from "@/components/profile/YouTubeMusic";
 import HoverVolume from "@/components/shared/HoverVolume";
+import SoundTip from "@/components/profile/SoundTip";
 import { availableServers, fetchEpisodes, serverLabel, type StudioEpisode } from "@/lib/profile/episodeStream";
 import { DEFAULT_SERVER_ID } from "@/lib/servers";
 import type { StudioBridge } from "@/components/profile/ProfileHero";
@@ -1340,25 +1341,29 @@ export default function BannerStudio({
     if (meme) savePresets((s) => ({ ...s, music: s.music.map((x) => (x.id === id ? { ...x, music: { ...cur } } : x)) }));
     else setActivePreset((a) => ({ ...a, music: null }));
   }, [draft.music, activePreset.music, presets.music, savePresets]);
-  /* LE CONCEPT DU SON, EXPLIQUÉ UNE FOIS (21/10/2026, Luc) : la première
-     fois qu'une vidéo a du son ET qu'une musique est choisie, une fenêtre dit
-     que la musique passe avant. Retenu dans ce navigateur. */
-  /* `-v2` : texte raccourci, la fenêtre se remontre une fois (21/10/2026). */
-  const SOUND_TIP_KEY = "as-studio-sound-tip-v2";
+  /* LA MUSIQUE PASSE AVANT LE SON DE LA VIDÉO (24/11/2026, Luc) : une bulle
+     au-dessus du volume de la vidéo (SoundTip), CHAQUE fois qu'une vidéo a du
+     son alors qu'une musique est choisie (même en pause) — plus la fenêtre
+     centrée montrée une seule fois par navigateur. Fermée, elle ne revient
+     que si la vidéo change ou si le son de la vidéo est recoupé puis remis. */
   const [soundTip, setSoundTip] = useState(false);
   const videoSounds =
     (draft.videoVolume ?? 0) > 0 &&
     (!!draft.trailerId || (isVideoKind(draft.kind) && !!draft.url) || (draft.kind === "video" && !!draft.episode));
+  const soundTipKey =
+    open && videoSounds && draft.music ? `${draft.trailerId}|${draft.url}|${draft.episode?.n}|${draft.episode?.server}` : null;
+  const soundTipFor = useRef<string | null>(null);
+  const closeSoundTip = useCallback(() => setSoundTip(false), []);
   useEffect(() => {
-    if (!open || !videoSounds || !draft.music) return;
-    try {
-      if (localStorage.getItem(SOUND_TIP_KEY)) return;
-      localStorage.setItem(SOUND_TIP_KEY, "1");
-    } catch {
+    if (!soundTipKey) {
+      soundTipFor.current = null;
+      setSoundTip(false);
       return;
     }
+    if (soundTipFor.current === soundTipKey) return;
+    soundTipFor.current = soundTipKey;
     setSoundTip(true);
-  }, [open, videoSounds, !!draft.music]);
+  }, [soundTipKey]);
   /** Le mode édition de « Mes presets » : renommer, supprimer. */
   const [presetEdit, setPresetEdit] = useState(false);
   /* Ouverte ou repliée, « Mes presets » le reste d'une visite à l'autre. */
@@ -1626,26 +1631,6 @@ export default function BannerStudio({
     },
     [],
   );
-  /* RIEN NE JOUE PENDANT LA FENÊTRE DU SON (21/10/2026, Luc) : vidéo et
-     musique attendent qu'on l'ait fermée, puis partent. La boucle tient la
-     pause : un lecteur qui démarre pendant ce temps est arrêté. */
-  useEffect(() => {
-    if (!soundTip) return;
-    const hold = () => {
-      remote.current?.pause();
-      preview.current?.pause();
-    };
-    hold();
-    const id = window.setInterval(hold, 300);
-    return () => {
-      window.clearInterval(id);
-      /* Sauf un fond que le visiteur avait mis en pause : il le reste. */
-      if (!bgPausedRef.current) remote.current?.play();
-      if (draft.music) setWantPlay(true);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- à la fermeture seulement
-  }, [soundTip]);
-
   /* LA PAUSE ET LE MUET DU PROFIL VALENT ICI (21/10/2026, Luc) : un fond mis
      en pause ou coupé sur le profil le reste dans le menu d'édition, et
      inversement (lib/profile/playback). */
@@ -5712,7 +5697,8 @@ export default function BannerStudio({
         </button>
         {/* LE SON DE LA VIDÉO (21/10/2026, Luc), enregistré avec le profil :
             muet par défaut. Une musique choisie le fait taire — le titre le
-            dit au survol. */}
+            dit au survol, et la bulle SoundTip se pose au-dessus. */}
+        <span data-sound-tip className="-mr-1 inline-flex">
         <HoverVolume
           muted={(draft.videoVolume ?? 0) === 0 || bgMuted}
           volume={(draft.videoVolume ?? 0) > 0 ? draft.videoVolume : lastVideoVol.current}
@@ -5731,8 +5717,9 @@ export default function BannerStudio({
               ? "Son de la vidéo — coupé tant qu'une musique est choisie"
               : "Son de la vidéo",
           })}
-          className={`-mr-1 ${draft.music ? "opacity-50" : ""}`}
+          className={draft.music ? "opacity-50" : ""}
         />
+        </span>
         </div>
         {/* Le lecteur de l'épisode (20/10/2026) : seulement ceux qui ont CET
             épisode, avec leur langue entre crochets. */}
@@ -5944,34 +5931,8 @@ export default function BannerStudio({
         profil reste cliquable, ses widgets déplaçables. */}
     <div className="pointer-events-none fixed inset-0 z-[10003] overflow-hidden text-white">
       {/* Le tour des menus, une fois par navigateur (09/11/2026, Luc). */}
-      <StudioTour active={!mini && !soundTip} openScope={openScope} currentScope={readScope} lockTo={lockTour} />
-      {soundTip ? (
-        <div className="pointer-events-auto absolute inset-0 z-[60] grid place-items-center bg-black/55 p-4 backdrop-blur-sm">
-          <div
-            role="dialog"
-            aria-modal
-            aria-labelledby="as-sound-tip"
-            className="as-pop-card w-full max-w-sm rounded-2xl as-menu-bg p-5 shadow-[0_28px_70px_rgba(0,0,0,.75)] ring-1 ring-white/10"
-          >
-            <h2 id="as-sound-tip" className="font-outfit text-[17px] font-bold text-white">
-              {t("profile.studioSoundTipTitle", { defaultValue: "La musique passe en premier" })}
-            </h2>
-            <p className="mt-2 font-karla text-[13.5px] leading-relaxed text-white/65">
-              {t("profile.studioSoundTipBody", {
-                defaultValue: "Avec une musique, la vidéo joue sans son. Retire la musique pour l'entendre.",
-              })}
-            </p>
-            <button
-              type="button"
-              autoFocus
-              onClick={() => setSoundTip(false)}
-              className="mt-4 w-full rounded-full bg-action py-2 font-karla text-[13px] font-bold text-white transition-colors hover:bg-action/85"
-            >
-              {t("profile.studioSoundTipOk", { defaultValue: "Compris" })}
-            </button>
-          </div>
-        </div>
-      ) : null}
+      <StudioTour active={!mini} openScope={openScope} currentScope={readScope} lockTo={lockTour} />
+      <SoundTip show={soundTip && !mini} onClose={closeSoundTip} />
       {/* ── La palette, ancrée sur le bouton cliqué ───────────────────── */}
       {scope ? (
         <>

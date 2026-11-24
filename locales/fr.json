@@ -1580,7 +1580,7 @@
     "studioVideoVolume": "Son de la vidéo",
     "studioMusicRemove": "Retirer la musique",
     "studioSoundTipTitle": "La musique passe en premier",
-    "studioSoundTipBody": "Avec une musique, la vidéo joue sans son. Retire la musique pour l'entendre.",
+    "studioSoundTipBody": "Tant qu'une musique est choisie, elle est prioritaire sur le son de la vidéo, même en pause. Retire-la pour entendre la vidéo.",
     "studioSoundTipOk": "Compris",
     "studioVideoVolumeMusic": "Son de la vidéo — coupé tant qu'une musique est choisie",
     "studioVideoMutedByMusic": "Muette : musique choisie",
