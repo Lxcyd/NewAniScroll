@@ -147,7 +147,13 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
       queue.current.push(msg);
     }
   }, []);
-  const pctWanted = () => Math.round(s.current.volume * 100);
+  /* LE PLAFOND DU FONDU (24/11/2026, Luc : « très fort pendant la première
+     seconde, puis il coupe, puis le fondu »). Le volume plein partait avec
+     `play()` et au retour du son ; la boucle du fondu ne prenait la main
+     qu'une fois YouTube annoncé « en lecture ». Tout volume envoyé passe
+     désormais sous ce plafond — 0 au début de l'extrait, puis la rampe. */
+  const fadeCap = useRef<() => number>(() => 1);
+  const pctWanted = () => Math.round(Math.min(s.current.volume, fadeCap.current()) * 100);
 
   const now = () => {
     const st = s.current;
@@ -158,7 +164,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     (v: number) => {
       const st = s.current;
       st.volume = Math.min(1, Math.max(0, v));
-      const pct = Math.round(st.volume * 100);
+      const pct = Math.round(Math.min(st.volume, fadeCap.current()) * 100);
       if (holdVol()) {
         st.sent = -1;
         return;
@@ -373,6 +379,13 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
   const base = clip?.volume ?? 1;
   const hasClip = !!clip;
   loop.current = { on: hasClip, from };
+  fadeCap.current = () => {
+    if (!hasClip || !(fade > 0)) return 1;
+    const st = s.current;
+    /* Avant le premier message, la position est celle de l'URL (`start=`) :
+       le début de l'extrait. */
+    return fadeGain(Math.max(now(), from), from, to > from ? to : st.duration, fade);
+  };
   /** Le gain du fondu à l'instant : l'égaliseur de la case le suit. */
   const gainNow = useRef(1);
   useEffect(() => {

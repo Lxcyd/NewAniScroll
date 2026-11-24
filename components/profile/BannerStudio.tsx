@@ -2421,6 +2421,12 @@ export default function BannerStudio({
      arrêtée sous une case qui affichait ⏸. On retente quand le fichier est
      prêt (trois fois au plus) ; seul un vrai refus arrête. */
   function playSafe(el: MusicMedia, tries = 0): void {
+    /* Le fondu d'entrée AVANT le premier son : la boucle qui le tient ne
+       démarre qu'une fois la lecture partie. */
+    if (fadeSec > 0) {
+      const f = draft.music?.from ?? 0;
+      el.volume = vol * fadeGain(Math.max(el.currentTime, f), f, draft.music?.to || el.duration || 0, fadeSec);
+    }
     void el.play().catch((err: unknown) => {
       const media = el as unknown as HTMLMediaElement;
       if ((err as { name?: string })?.name === "AbortError" && tries < 3 && typeof media.addEventListener === "function") {

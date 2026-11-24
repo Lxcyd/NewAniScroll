@@ -349,6 +349,13 @@ export default function ProfileHero({
   const playFile = (el: HTMLVideoElement) => {
     let tries = 0;
     const start = (): void => {
+      /* Le fondu d'entrée AVANT le premier son (la boucle du fondu ne prend
+         la main qu'une fois la lecture partie). */
+      const fd = banner.music?.fade ?? 0;
+      if (fd > 0) {
+        const f = banner.music?.from ?? 0;
+        el.volume = vol * fadeGain(Math.max(el.currentTime, f), f, banner.music?.to || el.duration || 0, fd);
+      }
       void el.play().catch((err: unknown) => {
         const name = (err as { name?: string })?.name;
         if (name === "AbortError" && tries++ < 3) {

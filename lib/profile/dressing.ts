@@ -136,6 +136,12 @@ export function clampFade(v: unknown): number {
  *
  * Le fondu est écrasé quand l'extrait est plus court que deux fondus : sinon un
  * extrait de 2 s avec 3 s de fondu ne serait jamais audible.
+ *
+ * FIN INCONNUE = FONDU D'ENTRÉE QUAND MÊME (24/11/2026, Luc : « le son très
+ * fort pendant la première seconde, puis il coupe, puis le fondu »). Sans borne
+ * de fin, les appelants passent la durée du fichier — 0 tant qu'il n'a pas ses
+ * métadonnées. On rendait alors 1 (plein volume), puis la durée arrivait et le
+ * gain tombait à zéro. Une fin inconnue n'empêche pas de monter depuis le début.
  */
 export function fadeGain(
   t: number,
@@ -143,7 +149,8 @@ export function fadeGain(
   to: number,
   fade: number,
 ): number {
-  if (!(fade > 0) || !(to > from)) return 1;
+  if (!(fade > 0)) return 1;
+  if (!(to > from)) return Math.max(0, Math.min(1, (t - from) / fade));
   const f = Math.min(fade, (to - from) / 2);
   const inGain = (t - from) / f;
   const outGain = (to - t) / f;
