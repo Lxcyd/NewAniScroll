@@ -2539,7 +2539,7 @@
     },
     "g-music": {
       "name": "On the beat",
-      "cond": "Finish 10 music anime."
+      "cond": "Finish 5 music anime."
     },
     "g-psycho": {
       "name": "Mind games",

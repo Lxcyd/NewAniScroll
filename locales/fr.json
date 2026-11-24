@@ -2539,7 +2539,7 @@
     },
     "g-music": {
       "name": "En rythme",
-      "cond": "Termine 10 anime musicaux."
+      "cond": "Termine 5 anime musicaux."
     },
     "g-psycho": {
       "name": "Guerre psychologique",
