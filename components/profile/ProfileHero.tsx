@@ -965,9 +965,9 @@ export default function ProfileHero({
           aria-hidden
           className="pointer-events-none absolute inset-x-0 top-0 z-0 overflow-hidden"
           style={{
-            height: "calc(100% + 18rem)",
-            WebkitMaskImage: "linear-gradient(to bottom, #000 20%, rgba(0,0,0,.4) 45%, rgba(0,0,0,.12) 70%, transparent 100%)",
-            maskImage: "linear-gradient(to bottom, #000 20%, rgba(0,0,0,.4) 45%, rgba(0,0,0,.12) 70%, transparent 100%)",
+            height: "calc(100% + 28rem)",
+            WebkitMaskImage: "linear-gradient(to bottom, #000 22%, rgba(0,0,0,.5) 48%, rgba(0,0,0,.15) 72%, transparent 100%)",
+            maskImage: "linear-gradient(to bottom, #000 22%, rgba(0,0,0,.5) 48%, rgba(0,0,0,.15) 72%, transparent 100%)",
           }}
         >
           <div
@@ -976,10 +976,10 @@ export default function ProfileHero({
               backgroundImage: `url(${JSON.stringify(banner.url)})`,
               backgroundSize: "cover",
               backgroundPosition: "center top",
-              /* 24/11 → 25/11 : 0,55 puis 0,3, encore « trop » (Luc). */
-              filter: "blur(90px) saturate(0.9)",
+              /* 25/11 (Luc) : 0,55 et 0,3 « trop », 0,16 « plus de dégradé ». */
+              filter: "blur(90px) saturate(1)",
               transform: "scale(1.2)",
-              opacity: 0.16,
+              opacity: 0.23,
             }}
           />
         </div>
