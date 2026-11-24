@@ -33,8 +33,6 @@ import {
   BADGES, BY_ID, LADDERS, MAIN, RARITY_ORDER, SECRETS,
   type BadgeDef, type Rarity,
 } from "@/lib/badges/catalog";
-import { announce } from "@/lib/badges/achievementStore";
-import { useSession } from "next-auth/react";
 import { beginQuiet, endQuiet, flush, progressAll } from "@/lib/badges/evaluate";
 import type { Derived } from "@/lib/badges/derive";
 import { detailKind, detailOf, detailYear, type Detail, type DetailCell } from "@/lib/badges/detail";
@@ -504,7 +502,6 @@ export default function ProfileBadges({
           ) : null}
         </label>
         <div className="flex flex-wrap items-center gap-2">
-          {live && <AdminPreviewButton />}
           <Dropdown
             className="as-dd-full as-dd-page as-stat-card w-[240px] rounded-[12px]"
             flip
@@ -635,191 +632,6 @@ function ViewBody({
           derived={derived}
         />
       ) : null}
-    </div>
-  );
-}
-
-/* ── Le bouton d'essai de la notification (admins seulement) ────────────────
- *
- * Remis le 24/11/2026 à la demande de Luc. Réservé aux comptes admin sur leur
- * propre profil : un visiteur de la prod ne le voit pas.
- *
- * Il N'ACCORDE AUCUN BADGE — il ne touche ni `aniscroll:badges`, ni les faits,
- * ni la sauvegarde. Il pousse un id dans la file d'affichage, point. Un bouton
- * d'essai qui accorderait pour de vrai fabriquerait une fausse collection, et
- * l'invariant « un badge obtenu ne se reperd jamais » la rendrait indémêlable.
- *
- * Libellé non traduit : « Test » se lit dans les deux langues.
- */
-function AdminPreviewButton() {
-  const { data } = useSession();
-  return (data as { user?: { role?: string } } | null)?.user?.role === "admin" ? <PreviewButton /> : null;
-}
-
-function PreviewButton() {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const [q, setQ] = useState("");
-  /* DEUX refs, parce qu'il y a maintenant deux morceaux dans deux arbres : le
-     bouton reste en place, le panneau est portalé sur le corps du document. Un
-     clic « dehors » doit épargner les deux, sinon cliquer le bouton fermerait
-     puis rouvrirait le panneau dans le même geste. */
-  const boite = useRef<HTMLDivElement | null>(null);
-  const panneau = useRef<HTMLDivElement | null>(null);
-  const btn = useRef<HTMLButtonElement | null>(null);
-  /** Où poser le panneau à l'écran. Mesuré à l'ouverture. */
-  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
-
-  /* Fermer au clic dehors et à Échap. Un `mousedown` et pas un `click` : le
-     second se déclenche APRÈS que le bouton du panneau a fait son travail, donc
-     un clic sur un badge fermerait le panneau deux fois. */
-  useEffect(() => {
-    if (!open) return;
-    const dehors = (e: MouseEvent) => {
-      const n = e.target as Node;
-      if (boite.current?.contains(n) || panneau.current?.contains(n)) return;
-      setOpen(false);
-    };
-    const echap = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", dehors);
-    window.addEventListener("keydown", echap);
-    return () => {
-      document.removeEventListener("mousedown", dehors);
-      window.removeEventListener("keydown", echap);
-    };
-  }, [open]);
-
-  /* Cent soixante-seize badges : sans recherche, la liste est un mur. On filtre
-     sur le NOM TRADUIT et pas sur l'id — c'est le nom qui est affiché, et
-     personne ne connaît les ids par cœur. */
-  const listes = useMemo(() => {
-    const terme = q.trim().toLowerCase();
-    const garde = (b: BadgeDef) =>
-      !terme || t(`badges.${b.id}.name`).toLowerCase().includes(terme);
-    return RARITY_ORDER.map((r) => ({
-      rarity: r,
-      rows: BADGES.filter((b) => b.rarity === r && garde(b)),
-    })).filter((g) => g.rows.length);
-  }, [q, t]);
-
-  const basculer = () => {
-    /* La position est prise AU MOMENT du clic : le panneau est fixé à l'écran,
-       donc il lui faut des coordonnées d'écran, pas la promesse d'un parent. */
-    const r = btn.current?.getBoundingClientRect();
-    if (r) setPos({ top: r.bottom + 8, right: window.innerWidth - r.right });
-    setOpen((v) => !v);
-  };
-
-  return (
-    <div className="relative" ref={boite}>
-      <button
-        ref={btn}
-        type="button"
-        onClick={basculer}
-        aria-expanded={open}
-        title="Temporaire : rejoue l'animation de déblocage, sans rien accorder."
-        className="font-outfit rounded-md border border-dashed border-[#FF7F57]/60 bg-[#FF7F57]/10 px-3 py-1.5 text-[12px] font-semibold text-[#FF7F57] transition-colors hocus:bg-[#FF7F57]/20"
-      >
-        Test
-      </button>
-
-      {/* ── LE PANNEAU EST PORTALÉ SUR `document.body` ─────────────────────────
-          Il passait DERRIÈRE la liste des badges. Ce n'est pas le `z-50` qui
-          était faux : un z-index ne vaut que dans son contexte d'empilement, et
-          les cartes de la liste en créent chacune un (elles portent un
-          `backdrop-filter`). Monter le nombre n'aurait servi à rien — il aurait
-          fallu remonter tout l'ancêtre, c'est-à-dire empiler la barre de
-          filtres au-dessus du contenu pour un panneau qu'on ouvre trois fois
-          par mois.
-
-          Un portal sur le corps du document sort de la question : il n'y a plus
-          d'ancêtre à battre. Le prix est de porter soi-même les coordonnées,
-          d'où `position: fixed` et la mesure au clic. */}
-      {open && pos
-        ? createPortal(
-            <div
-              ref={panneau}
-              style={{ top: pos.top, right: pos.right }}
-              className="fixed z-[1000] flex max-h-[70vh] w-[300px] flex-col overflow-hidden rounded-xl border border-white/10 as-menu-bg shadow-2xl"
-            >
-          <div className="border-b border-white/10 p-2">
-            <input
-              autoFocus
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Chercher un badge…"
-              className="font-karla w-full rounded-lg bg-white/5 px-3 py-2 text-[13px] text-white outline-none ring-1 ring-white/10 placeholder:text-white/30 focus:ring-white/25"
-            />
-          </div>
-
-          {/* Une entrée PAR RARETÉ en tête : c'est ce que le bouton faisait
-              avant (il tournait sur les six), et c'est le geste le plus
-              fréquent — on vient presque toujours regarder un mythique. */}
-          <div className="flex flex-wrap gap-1 border-b border-white/10 p-2">
-            {RARITY_ORDER.map((r) => {
-              const pool = BADGES.filter((b) => b.rarity === r && !b.secret);
-              if (!pool.length) return null;
-              return (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => {
-                    announce([pool[Math.floor(Math.random() * pool.length)].id]);
-                    setOpen(false);
-                  }}
-                  className="font-karla rounded-md px-2 py-1 text-[11px] font-semibold transition-colors hocus:bg-white/10"
-                  style={{ color: RARITY[r].ic }}
-                >
-                  {t(`badges.ui.rarity.${r}`, r)}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto p-1">
-            {listes.length === 0 ? (
-              <div className="font-karla px-3 py-6 text-center text-[12px] text-white/35">
-                Aucun badge
-              </div>
-            ) : (
-              listes.map((g) => (
-                <div key={g.rarity}>
-                  <div
-                    className="font-karla px-3 pb-1 pt-2 text-[9px] font-semibold uppercase tracking-[.18em]"
-                    style={{ color: RARITY[g.rarity].ic }}
-                  >
-                    {t(`badges.ui.rarity.${g.rarity}`, g.rarity)}
-                  </div>
-                  {g.rows.map((b) => (
-                    <button
-                      key={b.id}
-                      type="button"
-                      onClick={() => {
-                        announce([b.id]);
-                        setOpen(false);
-                      }}
-                      className="font-karla flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-[13px] text-white/80 transition-colors hocus:bg-white/10 hocus:text-white"
-                    >
-                      <span
-                        className="h-1.5 w-1.5 shrink-0 rounded-full"
-                        style={{ background: RARITY[b.rarity].ic }}
-                      />
-                      <span className="truncate">{t(`badges.${b.id}.name`)}</span>
-                      {b.secret ? (
-                        <span className="ml-auto shrink-0 text-[10px] text-white/30">secret</span>
-                      ) : null}
-                    </button>
-                  ))}
-                </div>
-              ))
-            )}
-          </div>
-            </div>,
-            document.body,
-          )
-        : null}
     </div>
   );
 }
