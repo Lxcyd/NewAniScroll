@@ -1021,7 +1021,7 @@ function BadgeRowImpl({
             </div>
           </div>
           {/* La barre, pleine pour un badge obtenu (24/11/2026). */}
-          <div className="flex w-[72px] shrink-0 justify-end sm:w-[220px] [&>div]:mt-0 [&>div]:w-full [&>p]:mt-0 [&>p]:leading-tight max-sm:[&>div>div:first-child]:hidden max-sm:[&>div]:justify-end">
+          <div className="flex w-[72px] shrink-0 justify-end sm:mr-8 sm:w-[220px] [&>div]:mt-0 [&>div]:w-full [&>p]:mt-0 [&>p]:leading-tight max-sm:[&>div>div:first-child]:hidden max-sm:[&>div]:justify-end">
             <ProgressLine def={def} progress={progress} unlocked={unlocked} live={live} color={R.ic} />
           </div>
         </div>
