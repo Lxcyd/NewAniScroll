@@ -13,10 +13,15 @@ import { useEffect, useState } from "react";
 const BG_PAUSED_KEY = "aniscroll:profile:bg-paused";
 const BG_MUTED_KEY = "aniscroll:profile:bg-muted";
 const PROFILE_VOLUME_KEY = "aniscroll:profile:volume";
-const PROFILE_AUTOPLAY_KEY = "aniscroll:profile:autoplay";
+/* LECTURE AUTO TOUJOURS, SAUF PAUSE DONNÉE SUR LA CASE D'UN PROFIL (Luc).
+   `:v2` (24/11/2026) : jusqu'ici le studio écrivait « pause » à chaque sortie
+   quand la musique ne jouait pas — des pauses que personne n'avait données, et
+   qui empêchaient pour toujours le démarrage. Nouveau nom = elles sont
+   oubliées ; seules comptent celles posées depuis par la case. */
+const PROFILE_AUTOPLAY_KEY = "aniscroll:profile:autoplay:v2";
 /* Le même choix, en cookie : le serveur doit le connaître pour rendre le
    lecteur avec ou sans `autoplay` (voir YouTubeMusic, `autoStart`). */
-export const PROFILE_AUTOPLAY_COOKIE = "as_profile_autoplay";
+export const PROFILE_AUTOPLAY_COOKIE = "as_profile_autoplay2";
 
 export const rememberAutoplay = (on: boolean) => {
   try {
