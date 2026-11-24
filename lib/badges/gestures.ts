@@ -12,15 +12,17 @@
 import { getFacts, recordFlag } from "./facts";
 
 /* ── La séquence ────────────────────────────────────────────────────────────
-   Le Konami code, sur `event.code` et non `event.key` : sur un clavier AZERTY
-   les flèches et les lettres ne rendent pas les mêmes `key`, et le badge
-   deviendrait plus difficile en France qu'ailleurs. Même raison que l'éditeur
-   de raccourcis, qui a dû faire la même correction le 06/07 (devlog/player.md). */
+   Le Konami code. Une touche compte si sa POSITION (`event.code`) OU sa LETTRE
+   (`event.key`) correspond : en AZERTY, le A tapé (code KeyQ) passe par la
+   lettre, et la touche Q (code KeyA, la place du A en QWERTY) par la position.
+   Les deux claviers marchent donc avec ce qui est écrit sur les touches. */
 const KONAMI = [
   "ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown",
   "ArrowLeft", "ArrowRight", "ArrowLeft", "ArrowRight",
   "KeyB", "KeyA",
 ];
+const hit = (e: KeyboardEvent, step: string) =>
+  e.code === step || (step.startsWith("Key") && e.key?.toLowerCase() === step.slice(3).toLowerCase());
 
 function watchKonami(): () => void {
   let at = 0;
@@ -30,7 +32,7 @@ function watchKonami(): () => void {
        séquence. */
     const el = e.target as HTMLElement | null;
     if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
-    at = e.code === KONAMI[at] ? at + 1 : e.code === KONAMI[0] ? 1 : 0;
+    at = hit(e, KONAMI[at]) ? at + 1 : hit(e, KONAMI[0]) ? 1 : 0;
     if (at === KONAMI.length) {
       at = 0;
       recordFlag("konami");
