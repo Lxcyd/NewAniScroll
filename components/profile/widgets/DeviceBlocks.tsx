@@ -1,5 +1,6 @@
 import Image from "next/image";
-import Link from "next/link";
+/* Sans URL en bas de l'écran au survol (QuietLink). */
+import Link from "./QuietLink";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 

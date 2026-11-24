@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { useEntranceReplay } from "@/lib/profile/useKeepAliveTabs";
-import Link from "next/link";
+/* Sans URL en bas de l'écran au survol (QuietLink). */
+import Link from "./QuietLink";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
