@@ -1,0 +1,72 @@
+# Range les episodes d'anizone dans Turso (anizone_ep / anizone_sub).
+#
+# anizone.to et son CDN refusent les IP de Vercel et de notre Worker (403,
+# mesure le 25/11/2026) : le site ne peut rien lire chez eux et sert ce que
+# ce cron a range. Tout ce qu'on en tire est stable (URL a l'uuid, sans jeton).
+# Detail : lib/anizone/core.mjs et l'en-tete de tools/anizone/seed.mjs.
+#
+# Chaque heure, dans l'ordre, jusqu'a 45 min :
+#   1. les episodes ouverts par un visiteur et absents (file anizone_demande) ;
+#   2. les nouveaux episodes des titres en cours ;
+#   3. la decouverte du reste du catalogue, par popularite AniList.
+#
+# UN ECHEC « anizone refuse les IP de cette machine » veut dire qu'anizone
+# bloque aussi GitHub (Azure) : rien ne se range plus, le site ne sert que ce
+# qui est deja en base. Il faudra alors une autre machine.
+#
+# Secrets requis (Repository → Settings → Secrets and variables → Actions) :
+#   TURSO_DATABASE_URL   → la base aniscroll-cache
+#   TURSO_AUTH_TOKEN
+
+name: anizone-seed
+
+on:
+  schedule:
+    - cron: "17 * * * *" # chaque heure
+  workflow_dispatch:
+    inputs:
+      ids:
+        description: "Ids AniList precis (virgules) — vide = mode automatique"
+        required: false
+        type: string
+        default: ""
+      dry:
+        description: "Ne rien ecrire, seulement rapporter"
+        required: false
+        type: boolean
+        default: false
+
+# Deux passages ne se chevauchent jamais : ils liraient la meme file.
+concurrency:
+  group: anizone-seed
+  cancel-in-progress: false
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+
+    steps:
+      # Le code vient de `dev` : GitHub ne lance un cron que depuis `main`, mais
+      # le script et lib/anizone/core.mjs n'existent que sur dev tant que la
+      # release n'est pas faite. Ce fichier seul est pose sur main (inerte pour
+      # Vercel, cf. tools/quota-guard/should-build.sh).
+      - uses: actions/checkout@v5
+        with:
+          ref: dev
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Install only what the script needs
+        run: npm install --no-save --no-package-lock @libsql/client@^0.17
+
+      - name: Seed
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          IDS: ${{ inputs.ids }}
+        run: |
+          if [ -n "$IDS" ]; then MODE="--ids $IDS"; else MODE="--auto"; fi
+          node tools/anizone/seed.mjs $MODE --budget 45 ${{ inputs.dry == true && '--dry' || '' }}
