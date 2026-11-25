@@ -10,9 +10,13 @@
 #   2. les nouveaux episodes des titres en cours ;
 #   3. la decouverte du reste du catalogue, par popularite AniList.
 #
-# UN ECHEC « anizone refuse les IP de cette machine » veut dire qu'anizone
-# bloque aussi GitHub (Azure) : rien ne se range plus, le site ne sert que ce
-# qui est deja en base. Il faudra alors une autre machine.
+# GitHub (Azure) est refuse lui aussi en direct (403 le 25/11). D'ou une
+# CASCADE, arretee au premier moyen qui passe :
+#   a. direct avec des en-tetes de Chrome (tools/anizone/transport.mjs) ;
+#   b. un vrai Chrome sur ecran virtuel, qui passe le test anti-robot ;
+#   c. si a et b echouent : sortie par Cloudflare WARP (autres IP), puis a et b
+#      a nouveau.
+# Le journal de l'etape « Sonde » dit lequel a marche, et decrit chaque refus.
 #
 # Secrets requis (Repository → Settings → Secrets and variables → Actions) :
 #   TURSO_DATABASE_URL   → la base aniscroll-cache
@@ -35,6 +39,11 @@ on:
         required: false
         type: boolean
         default: false
+      warp:
+        description: "Passer par WARP d'emblee"
+        required: false
+        type: boolean
+        default: false
 
 # Deux passages ne se chevauchent jamais : ils liraient la meme file.
 concurrency:
@@ -44,7 +53,12 @@ concurrency:
 jobs:
   seed:
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 58
+
+    env:
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+      CHROME_PATH: /usr/bin/google-chrome
 
     steps:
       # Le code vient de `dev` : GitHub ne lance un cron que depuis `main`, mais
@@ -59,14 +73,42 @@ jobs:
         with:
           node-version: "22"
 
+      # Dans un dossier a part : `npm install` dans le depot installerait tout
+      # le site. NODE_PATH ne vaut pas pour `import` : on donne le chemin.
       - name: Install only what the script needs
-        run: npm install --no-save --no-package-lock @libsql/client@^0.17
+        run: |
+          mkdir -p /tmp/az && cd /tmp/az && npm init -y >/dev/null
+          npm install --silent @libsql/client@^0.17 playwright-core@^1.50
+          ln -s /tmp/az/node_modules "$GITHUB_WORKSPACE/node_modules"
+          echo "PLAYWRIGHT_CORE=/tmp/az/node_modules/playwright-core/index.mjs" >> "$GITHUB_ENV"
+          command -v xvfb-run || (sudo apt-get update -qq && sudo apt-get install -y -qq xvfb)
+          google-chrome --version
+
+      - name: Sonde (direct, puis navigateur)
+        id: sonde
+        if: ${{ inputs.warp != true }}
+        continue-on-error: true
+        run: xvfb-run -a node tools/anizone/seed.mjs --sonde
+
+      - name: WARP (si la sonde a echoue)
+        if: ${{ inputs.warp == true || steps.sonde.outcome != 'success' }}
+        run: |
+          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list >/dev/null
+          sudo apt-get update -qq && sudo apt-get install -y -qq cloudflare-warp
+          warp-cli --accept-tos registration new
+          warp-cli --accept-tos connect
+          for i in $(seq 1 20); do
+            warp-cli --accept-tos status | grep -q Connected && break
+            sleep 2
+          done
+          warp-cli --accept-tos status
+          curl -s https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|warp|colo)='
+          xvfb-run -a node tools/anizone/seed.mjs --sonde
 
       - name: Seed
         env:
-          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           IDS: ${{ inputs.ids }}
         run: |
           if [ -n "$IDS" ]; then MODE="--ids $IDS"; else MODE="--auto"; fi
-          node tools/anizone/seed.mjs $MODE --budget 45 ${{ inputs.dry == true && '--dry' || '' }}
+          xvfb-run -a node tools/anizone/seed.mjs $MODE --budget 45 ${{ inputs.dry == true && '--dry' || '' }}
