@@ -376,9 +376,19 @@ export default function ProfileHero({
       /* Le fondu d'entrée AVANT le premier son (la boucle du fondu ne prend
          la main qu'une fois la lecture partie). */
       const fd = banner.music?.fade ?? 0;
+      /* JAMAIS PILE ZÉRO (25/11/2026, mesuré au CDP en profil neuf). Chrome
+         tient un volume à 0 pour un son coupé : la lecture sans geste passait,
+         puis le fondu remontait le volume et Chrome mettait en pause (« Unmuting
+         failed and the element was paused instead ») — sans refus, donc sans
+         passer en muet ni attendre le premier geste : la musique restait
+         arrêtée, même après un clic. Un plancher inaudible fait refuser le
+         `play()` franchement, et le repli muet ci-dessous prend la main. */
       if (fd > 0) {
         const f = banner.music?.from ?? 0;
-        el.volume = vol * fadeGain(Math.max(el.currentTime, f), f, banner.music?.to || el.duration || 0, fd);
+        el.volume = Math.max(
+          0.001,
+          vol * fadeGain(Math.max(el.currentTime, f), f, banner.music?.to || el.duration || 0, fd),
+        );
       }
       void el.play().catch((err: unknown) => {
         const name = (err as { name?: string })?.name;
@@ -598,7 +608,8 @@ export default function ProfileHero({
     const to = banner.music?.to ?? 0;
     let raf = 0;
     const tick = () => {
-      const g = vol * fadeGain(el.currentTime, f, to || el.duration || 0, fade);
+      /* Plancher : cf. `playFile` — un volume à 0 vaut « coupé » pour Chrome. */
+      const g = Math.max(0.001, vol * fadeGain(el.currentTime, f, to || el.duration || 0, fade));
       if (Math.abs(el.volume - g) > 0.005) el.volume = g;
       raf = requestAnimationFrame(tick);
     };
