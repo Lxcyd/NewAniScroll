@@ -21,6 +21,8 @@ export type AnizoneMapRow = {
   slug: string | null;
   title: string | null;
   expiresAt: number;
+  /** Au-dela de `expiresAt` : a re-chercher, mais encore utilisable. */
+  expired: boolean;
 };
 
 const DAY = 86400;
@@ -51,7 +53,7 @@ async function ensureTable(): Promise<void> {
   tableEnsured = true;
 }
 
-/** La ligne de cette fiche, ou null (jamais cherchee, perimee, ou base muette). */
+/** La ligne de cette fiche, ou null (jamais cherchee, ou base muette). */
 export async function getAnizoneMap(aniId: number): Promise<AnizoneMapRow | null> {
   const db = getTursoClient();
   if (!db) return null;
@@ -64,8 +66,10 @@ export async function getAnizoneMap(aniId: number): Promise<AnizoneMapRow | null
     const row: any = r.rows[0];
     if (!row) return null;
     const expiresAt = Number(row.expires_at);
-    if (expiresAt < Math.floor(Date.now() / 1000)) return null;
-    return { aniId, slug: row.slug ?? null, title: row.title ?? null, expiresAt };
+    /* Perimee, la ligne est quand meme rendue : sur Vercel la recherche est
+       refusee (403), et l'ancien slug vaut mieux que rien (cf. resolve.js). */
+    const expired = expiresAt < Math.floor(Date.now() / 1000);
+    return { aniId, slug: row.slug ?? null, title: row.title ?? null, expiresAt, expired };
   } catch (e: any) {
     console.warn("[anizone-map] read failed:", e?.message);
     return null;

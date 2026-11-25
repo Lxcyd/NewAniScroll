@@ -16,15 +16,33 @@
  * extension de sous-titre uniquement, sans quoi ce serait un proxy ouvert.
  */
 
+import { getTursoClient } from "@/lib/db/turso";
+import { lisSousTitre } from "@/lib/anizone/core.mjs";
+
 const PERMIS =
   /^https:\/\/[a-z0-9-]+\.vid-cdn\.xyz\/[0-9a-f-]{36}\/subtitles\/[\w.-]+\.(ass|ssa|vtt|srt)$/i;
 const TYPES = { ass: "text/x-ssa", ssa: "text/x-ssa", vtt: "text/vtt", srt: "application/x-subrip" };
 const MAX_OCTETS = 2 * 1024 * 1024;
 
+const envoie = (res, u, corps) => {
+  const ext = u.split(".").pop().toLowerCase();
+  res.setHeader("Content-Type", `${TYPES[ext] || "text/plain"}; charset=utf-8`);
+  res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=31536000, immutable");
+  return res.status(200).send(corps);
+};
+
 export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).end();
   const u = typeof req.query.u === "string" ? req.query.u : "";
   if (!PERMIS.test(u)) return res.status(400).json({ error: "url refusee" });
+
+  /* D'ABORD LA TABLE (25/11/2026) : le CDN refuse aussi les IP de Vercel
+     (403). Les .ass fr/en y sont ranges par tools/anizone/seed.mjs. */
+  const db = getTursoClient();
+  if (db) {
+    const stocke = await lisSousTitre(db, u).catch(() => null);
+    if (stocke) return envoie(res, u, stocke);
+  }
 
   let r;
   try {
@@ -47,9 +65,5 @@ export default async function handler(req, res) {
   }
   const corps = await r.text();
   if (corps.length > MAX_OCTETS) return res.status(413).json({ error: "trop gros" });
-
-  const ext = u.split(".").pop().toLowerCase();
-  res.setHeader("Content-Type", `${TYPES[ext] || "text/plain"}; charset=utf-8`);
-  res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=31536000, immutable");
-  return res.status(200).send(corps);
+  return envoie(res, u, corps);
 }

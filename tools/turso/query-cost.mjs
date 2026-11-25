@@ -128,6 +128,22 @@ const CASES = [
     max: 10,
   },
   {
+    name: "episode anizone range (lisEpisode)",
+    db: "cache",
+    source: ["lib/anizone/core.mjs", "FROM anizone_ep WHERE slug = ? AND ep = ?"],
+    sql: "SELECT data FROM anizone_ep WHERE slug = ? AND ep = ?",
+    args: ["mdkytdqp", 1],
+    max: 10,
+  },
+  {
+    name: "sous-titre anizone range (lisSousTitre)",
+    db: "cache",
+    source: ["lib/anizone/core.mjs", "FROM anizone_sub WHERE url = ?"],
+    sql: "SELECT body FROM anizone_sub WHERE url = ?",
+    args: ["https://seiryuu.vid-cdn.xyz/a7305a5d-5bc8-4944-843a-f8675561b940/subtitles/9_fr.ass"],
+    max: 10,
+  },
+  {
     name: "rangée « populaires » (listAnime)",
     db: "cache",
     source: ["lib/db/anime.ts", 'orderBy: "popularity DESC NULLS LAST"'],

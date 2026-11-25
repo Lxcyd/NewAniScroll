@@ -4187,7 +4187,8 @@ function sourceCacheKey({ server, aniId, episode, sub }) {
   // v18 : meme jour, les listes a case vide etaient decalees (parseEpisodesJs).
   // az2 (anizone seul, 25/11/2026) : lecture native — les reponses d'avant
   // (flux par le Worker, refuse par leur CDN) ne doivent plus etre servies.
-  const v = FREMBED_SERVERS[server] ? "v15f2" : ANIZONE_SERVERS[server] ? "az2" : "v18";
+  // az3 (meme jour) : servi depuis anizone_ep, sous-titres fr/en seulement.
+  const v = FREMBED_SERVERS[server] ? "v15f2" : ANIZONE_SERVERS[server] ? "az3" : "v18";
   return `src:${v}:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
@@ -4805,7 +4806,10 @@ async function handler(req, res) {
     if (r.transient) return sendRetryable(r.transient);
     if (r.absent || !r.data) {
       dlog(`[anizone] ${server} ${aniId}/${episode} : ${r.absent}`);
-      return sendNotFound("Source not found");
+      /* `bloque` : episode pas encore dans anizone_ep, et anizone refuse nos
+         IP. Chip tu, sans le retenir en Redis : tools/anizone/seed.mjs peut
+         le remplir a tout moment. */
+      return sendNotFound("Source not found", { memo: !r.bloque });
     }
     return sendOk(r.data);
   }

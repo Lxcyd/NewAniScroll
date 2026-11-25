@@ -6,6 +6,27 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-11-25 — Anizone sur dev : 403 aux IP de Vercel, servi depuis Turso
+
+Sur dev.aniscroll.com, Frieren ep 1 retombait sur Frembed (« Anizone n'a pas repondu »), alors que
+:3123 jouait. `/api/v2/source?server=anizone…` → 503 `anizone page 403`. Mesure : la page d'episode
+repond **403 a Vercel ET au Worker**, 200 depuis la connexion de Luc avec les MEMES en-tetes (ceux
+du Worker rejoues) — blocage par IP, pas par en-tetes. Le CDN `seiryuu` refuse aussi Vercel (relais
+des sous-titres → 502). anizone.to n'a pas de CORS : le navigateur ne peut pas lire la page non plus.
+
+- **Ce qu'on tire d'anizone est stable** : `seiryuu.vid-cdn.xyz/<uuid>/master.m3u8` et
+  `/<uuid>/subtitles/N_fr.ass`, sans jeton. Lu UNE fois depuis une IP acceptee, range en base cache :
+  `anizone_ep` (slug, ep → src, sous-titres, master demonte, pistes son) et `anizone_sub` (texte des
+  .ass **fr et en seulement** : tous ≈ 450 Ko/episode ; fr+en ≈ 80 Ko).
+- `lib/anizone/core.mjs` : lecture de l'hote + stockage, sans alias, partage par le site et par
+  `tools/anizone/seed.mjs` (`--ids`, `--top N`, `--map`, 1 page / 1,2 s pour leur limite 60/min).
+- Site : table d'abord, lecture directe en repli (marche en local et remplit la table). Pas dans la
+  table + 403 → chip **tu sans memo Redis** (`bloque`), plus de toast. Cle de cache `az3`.
+  Correspondance perimee (`anizone_map`) gardee quand la recherche est refusee.
+- Le visiteur lit toujours la video en direct sur leur CDN (HLS natif) : son IP n'est pas refusee.
+- Limite : un titre absent de la table n'a pas d'anizone sur le site ; un nouvel episode attend le
+  prochain passage du script.
+
 ## 2026-11-25 — Anizone : trois chips, un fichier, lu en HLS NATIF
 
 Luc ajoute anizone.to (« vraiment exceptionnel ») : un master HLS par episode avec toutes les pistes

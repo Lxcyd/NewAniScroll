@@ -124,6 +124,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Lecteur video & lecteurs distants — [`devlog/player.md`](devlog/player.md)
 
+- 2026-11-25 — **Anizone refuse Vercel et le Worker (403 par IP)** : page, master et .ass lus une fois depuis une IP acceptee par `tools/anizone/seed.mjs`, ranges dans `anizone_ep` / `anizone_sub` (base cache, sous-titres fr+en) ; le site lit la table, chip tu si l episode n y est pas → [player](devlog/player.md)
 - 2026-11-25 — **Anizone, lu en HLS NATIF** : 3 chips (VF si son fr, VO si sous-titres fr, MULTI) sur un master multi-audio ; leur CDN n'autorise que l'origine anizone.to et refuse le Worker → `<video>` natif sans `crossorigin` (no-cors), master d'une piste son remonte en `blob:`, menu « Langue audio » ; `streamType: "on-demand"` obligatoire (sinon la mise en page Vidstack ne rend rien) ; sous-titres .ass par un relais cache ; correspondance par recherche Livewire → `anizone_map` ; absent sur Firefox
 
 - 2026-11-10 — **Steel Ball Run : un épisode de retard = un décalage, pas Netflix** : anime-sama et voir-anime fusionnent le 1st STAGE (190327) en ep 1 ; 210482 servi sans décalage. Lignes player_map `manuel` (+1) respectées par la garde de saison et le vérificateur ; empreinte voir-anime coupe aussi au dernier « - … » (seules les 2 pages SBR gagnent une ancre). Le cas fondateur d'`airedAhead` (28/09) était ce décalage
