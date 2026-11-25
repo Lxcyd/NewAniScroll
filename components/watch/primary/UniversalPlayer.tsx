@@ -97,8 +97,10 @@ import {
 import { PROXY_BASE, proxied } from "@/lib/watch/streamUrl";
 import {
   audioDeDepart,
+  activePiste,
   blobMaster,
   peutLireHlsNatif,
+  pistesNatives,
   type NativeMaster,
 } from "@/lib/watch/nativeHls";
 import { diag, diagSession } from "@/lib/diag";
@@ -6583,8 +6585,13 @@ export default function UniversalPlayer({
       ? nativeAudio.language
       : audioDeDepart(nativeM, bestStream!.audioLang)
     : null;
+  /* Safari / iOS : le master d'origine (un blob: y est refuse), langue choisie
+     par `audioTracks` ; Chrome : le master remonte a une piste, en blob:. */
+  const natifParPistes = !!nativeM && pistesNatives();
   const src = nativeM
-    ? blobMaster(nativeM, nativeLang)
+    ? natifParPistes
+      ? bestStream!.url
+      : blobMaster(nativeM, nativeLang)
     : bestStream!.directUrl
     ? bestStream!.url
     : proxied(bestStream!.url, bestStream!.referer || streamData?.referer);
@@ -7054,7 +7061,12 @@ export default function UniversalPlayer({
     setAudioOpen(false);
     if (!nativeM || language === nativeLang) return;
     const v = (playerRef.current?.el as HTMLElement | undefined)?.querySelector("video");
-    resumeNatifRef.current = v ? { t: v.currentTime, play: !v.paused } : null;
+    if (natifParPistes) {
+      // Safari : on change de piste sur place, sans recharger.
+      activePiste(v, language, nativeM.audios.find((a) => a.language === language)?.name);
+    } else {
+      resumeNatifRef.current = v ? { t: v.currentTime, play: !v.paused } : null;
+    }
     setNativeAudio({ for: bestStream!.url, language });
   };
   const audioMenuRow =
@@ -7167,6 +7179,15 @@ export default function UniversalPlayer({
         // A new stream can be a different shape — drop the previous
         // measurement so we never stretch the new video into the old box.
         onSourceChange={() => setVideoRatio(null)}
+        /* Safari : la langue de depart du chip, une fois les pistes connues
+           (et une seconde fois un peu apres : WebKit peut les publier apres
+           `loadedmetadata`). */
+        onLoadedMetadata={() => {
+          if (!natifParPistes) return;
+          const v = (playerRef.current?.el as HTMLElement | undefined)?.querySelector("video");
+          const nom = nativeM?.audios.find((a) => a.language === nativeLang)?.name;
+          if (!activePiste(v, nativeLang, nom)) setTimeout(() => activePiste(v, nativeLang, nom), 600);
+        }}
         // Disable Vidstack's built-in keyboard shortcuts ENTIRELY: our central
         // window-level handler (see the keydown effect) is the single source of
         // truth for every shortcut, driven by the user's keybindings. Leaving

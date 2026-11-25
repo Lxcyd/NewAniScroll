@@ -36,6 +36,38 @@ export function peutLireHlsNatif(): boolean {
   return natif;
 }
 
+/**
+ * SAFARI ET TOUT iOS (25/11/2026) : leur lecteur natif REFUSE un master HLS en
+ * blob: — le chip anizone echouait et la page basculait sur le lecteur suivant
+ * (vu sur iPhone, alors que Chrome PC lisait). Mais WebKit expose les pistes
+ * son d'un master (`video.audioTracks`), ce que Chrome ne fait pas : on lui
+ * donne donc le master D'ORIGINE et on choisit la langue en activant sa piste.
+ */
+export function pistesNatives(): boolean {
+  return typeof HTMLMediaElement !== "undefined" && "audioTracks" in HTMLMediaElement.prototype;
+}
+
+/** Active la piste son `language` (code complet du master, puis code court,
+ *  puis libelle). Rend false si les pistes ne sont pas encore la. */
+export function activePiste(
+  v: HTMLMediaElement | null | undefined,
+  language: string | null,
+  nom?: string | null,
+): boolean {
+  const pistes = (v as any)?.audioTracks;
+  if (!pistes || !pistes.length || !language) return false;
+  const court = (l: string) => String(l || "").toLowerCase().split("-")[0];
+  const liste: any[] = Array.from({ length: pistes.length }, (_, i) => pistes[i]);
+  const cible =
+    liste.find((p) => p.language === language && (!nom || p.label === nom)) ||
+    liste.find((p) => p.language === language) ||
+    liste.find((p) => court(p.language) === court(language)) ||
+    (nom ? liste.find((p) => p.label === nom) : null);
+  if (!cible) return false;
+  for (const p of liste) p.enabled = p === cible;
+  return true;
+}
+
 /** La piste son de depart : celle de la langue du chip, sinon japonais, sinon la premiere. */
 export function audioDeDepart(m: NativeMaster, lang?: string | null): string | null {
   const a =

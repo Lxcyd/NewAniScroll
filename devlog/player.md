@@ -40,6 +40,12 @@ des sous-titres → 502). anizone.to n'a pas de CORS : le navigateur ne peut pas
   ecran xvfb 1366x768x24, clic xdotool si case a cocher), puis requetes DEPUIS LA PAGE (le cookie
   cf_clearance rejoue par Node est refuse : lie a l'empreinte TLS). Test passe en 3 a 9 s ; Tor en
   dernier recours dans le workflow.
+- **Sur dev, le chip basculait** (« Anizone n'a pas repondu »), trois causes : `warmStream` jugeait
+  le lecteur en lisant le master par fetch() (CORS anizone.to → toujours faux) ; une sonde d'image
+  par le Worker (410) ; et surtout **Safari/iOS refuse un master HLS en blob:** (vu sur iPhone, Chrome
+  PC lisait). WebKit expose `audioTracks` : il recoit le master d'origine et la langue se choisit par
+  piste (`pistesNatives`/`activePiste`, lib/watch/nativeHls.ts) ; Chrome garde le blob a une piste.
+- anizone a PLUSIEURS CDN (`seiryuu.vid-cdn.xyz`, `suzaku.xin-cdn.xyz`) : `*-cdn.xyz` partout.
 - anizone est lui-meme INSTABLE (25/11, 15 h) : 502 et pages muettes 60 s depuis la connexion de
   Luc, pendant que d'autres repondent en 0,3 s. Coupe-circuit : 6 echecs d'affilee arretent le
   passage, l'heure suivante reprend.
