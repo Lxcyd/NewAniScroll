@@ -3079,8 +3079,10 @@ export default function UniversalPlayer({
     (streamData?.clientExtract
       ? clientStream
       : streamData?.streams?.[0] || streamData?.sources?.[0]) || null;
+  /* Pas pour un flux NATIF (anizone) : son CDN refuse le Worker (403), la
+     copie ne serait jamais mesurable — un 410 et une requete pour rien. */
   const blindProbeSrc =
-    blindStream?.noCors && !blindStream.localFile
+    blindStream?.noCors && !blindStream.localFile && !blindStream.native
       ? proxied(blindStream.url, blindStream.referer || streamData?.referer)
       : null;
 
