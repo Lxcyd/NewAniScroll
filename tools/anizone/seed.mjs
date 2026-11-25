@@ -24,8 +24,8 @@
  *   3. la DECOUVERTE : les animes AniList par popularite, jamais cherches sur
  *      anizone — tout leur catalogue finit par y passer.
  *
- * Rythme : anizone limite a 60 requetes/min (x-ratelimit-limit) : une page
- * toutes les 1,2 s. Turso : l'etape 2 lit anizone_ep en entier (1 ligne par
+ * Rythme : une page toutes les 4 s (cf. PAUSE_MS), une minute de pause sur un
+ * 429. Turso : l'etape 2 lit anizone_ep en entier (1 ligne par
  * episode range, ~10 000 a terme) ; le reste lit par cle primaire.
  */
 
@@ -45,7 +45,11 @@ const FORCE = !!opt("force");
 const DRY = !!opt("dry");
 const MAX_EP = Number(opt("max-ep")) || 3000;
 const FIN = Date.now() + (Number(opt("budget")) || 24 * 60) * 60_000;
-const PAUSE_MS = 1200;
+/* 4 s entre deux pages (25/11/2026). A 1,2 s (~18 pages/min, toutes hors de
+   leur cache, donc rendues par leur serveur PHP), anizone est tombe 20 min
+   apres le debut du remplissage et ne s'en est pas remis d'une heure. Rien ne
+   prouve que c'etait nous ; on ne prend pas le risque. */
+const PAUSE_MS = 4000;
 const dort = (ms) => new Promise((r) => setTimeout(r, ms));
 const reste = () => Date.now() < FIN;
 
@@ -125,8 +129,10 @@ const ECHECS_MAX = 6;
 const succes = () => {
   echecs = 0;
 };
-const echec = () => {
+const echec = async (e) => {
   if (++echecs >= ECHECS_MAX) throw new Arret(`${ECHECS_MAX} echecs d'affilee : anizone instable`);
+  // 429 : leur limiteur parle, on lui laisse une minute.
+  if (/429/.test(e?.message || "")) await dort(60_000);
 };
 
 /** Range les episodes `depuis`.. jusqu'au premier absent (ou au budget). */
@@ -146,7 +152,7 @@ async function serie(slug, depuis = 1) {
       } catch (e) {
         if (e instanceof Bloque) throw e;
         console.log(`  ✗ ${slug}/${ep} : ${e.message}`);
-        echec();
+        await echec(e);
         if (essai) return n;
         await dort(10_000);
       }
@@ -170,7 +176,7 @@ async function titre(media) {
     // Une recherche ratee ne coute que ce titre ; il reste a chercher.
     if (e instanceof Bloque) throw e;
     console.log(`✗ ${nom} : ${e.message}`);
-    return echec();
+    return echec(e);
   }
   if (!slug) return console.log(`· ${nom} : pas sur anizone`);
   const n = await serie(slug);
