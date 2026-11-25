@@ -12,7 +12,8 @@
  * l'uuid de l'episode), et la reponse est cachee un an a l'edge — la fonction
  * ne tourne qu'une fois par fichier et par region.
  *
- * Volontairement ferme : hote `*.vid-cdn.xyz`, chemin `/<uuid>/subtitles/…` et
+ * Volontairement ferme : hote `*.<x>-cdn.xyz` (ils en ont plusieurs :
+ * vid-cdn, xin-cdn…), chemin `/<uuid>/subtitles/…` et
  * extension de sous-titre uniquement, sans quoi ce serait un proxy ouvert.
  */
 
@@ -20,7 +21,7 @@ import { getTursoClient } from "@/lib/db/turso";
 import { lisSousTitre } from "@/lib/anizone/core.mjs";
 
 const PERMIS =
-  /^https:\/\/[a-z0-9-]+\.vid-cdn\.xyz\/[0-9a-f-]{36}\/subtitles\/[\w.-]+\.(ass|ssa|vtt|srt)$/i;
+  /^https:\/\/[a-z0-9-]+\.[a-z0-9]+-cdn\.xyz\/[0-9a-f-]{36}\/subtitles\/[\w.-]+\.(ass|ssa|vtt|srt)$/i;
 const TYPES = { ass: "text/x-ssa", ssa: "text/x-ssa", vtt: "text/vtt", srt: "application/x-subrip" };
 const MAX_OCTETS = 2 * 1024 * 1024;
 

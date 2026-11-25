@@ -24,7 +24,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const HOTES = /(^|\.)anizone\.to$|(^|\.)vid-cdn\.xyz$/i;
+/* anizone a PLUSIEURS CDN : seiryuu.vid-cdn.xyz, suzaku.xin-cdn.xyz (vu le
+   25/11, un passage entier arrete faute de le connaitre)… d'ou `*-cdn.xyz`. */
+const HOTES = /(^|\.)anizone\.to$|(^|\.)[a-z0-9]+-cdn\.xyz$/i;
 const natif = globalThis.fetch.bind(globalThis);
 
 const CHROME_UA =
@@ -85,7 +87,7 @@ function direct(url, init = {}) {
         "sec-ch-ua-platform": '"Windows"',
         "Sec-Fetch-Dest": "empty",
         "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": /vid-cdn/.test(hoteDe(url)) ? "cross-site" : "same-origin",
+        "Sec-Fetch-Site": /-cdn\.xyz$/i.test(hoteDe(url)) ? "cross-site" : "same-origin",
         Origin: "https://anizone.to",
         Referer: "https://anizone.to/",
       };
