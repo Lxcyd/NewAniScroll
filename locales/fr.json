@@ -545,6 +545,7 @@
     "customizeSubtitles": "Personnaliser les sous-titres…",
     "subsHardBurned": "Les sous-titres sont incrustés dans la vidéo sur ce lecteur : impossible de les désactiver. Utilise Megaplay pour des sous-titres désactivables.",
     "subsNoneDub": "Cette version (VF) n'a pas de sous-titres.",
+    "audioLanguage": "Langue audio",
     "track": "Piste {{n}}",
     "ambientLights": "Lumières d'ambiance",
     "ambientEnable": "Activer",

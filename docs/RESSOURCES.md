@@ -225,6 +225,16 @@ vidmoly (`vidmoly.to/.net`), anime-sama (`anime-sama.to`), voir-anime
 (`voiranime.cx` depuis le 13/11/2026 ; `voir-anime.to` ne resout plus), sibnet ☠️, uqload ☠️, sendvid ☠️, animepahe/kwik ☠️,
 aniwatchtv, megaup, embed4me, mewstream.
 
+**anizone** (`anizone.to`) — ajoute le 25/11/2026 (lecteur `anizone`, cf.
+devlog/player.md). Laravel Livewire, pas de defi Cloudflare. Page d'episode
+`/anime/<id 8 car.>/<ep>` : `x-data="vidstackPlayer(JSON.parse('…'))"` porte
+`src` (master), `subtitles` (`{title, format, language, forced, file}`),
+`storyboard` (.vtt de vignettes). CDN `seiryuu.vid-cdn.xyz` : un master avec
+TOUTES les pistes son en `EXT-X-MEDIA`, TS chiffres AES-128, sous-titres .ass ;
+CORS `https://anizone.to` seul sur tout, Worker Cloudflare refuse (403). Lu en
+HLS NATIF (no-cors). Aucun id AniList/MAL ; recherche par le composant Livewire
+`pages.anime-index` (`?search=` en GET ne marche pas).
+
 **anime-sama** (`anime-sama.to`) — analyse le 30/10/2026. N'heberge rien :
 `/catalogue/<slug>/<saison>/<langue>/episodes.js` declare `eps1…epsN`, des
 tableaux d'URL d'embed tiers, et la page les pose tels quels dans une iframe

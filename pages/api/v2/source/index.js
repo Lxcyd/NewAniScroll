@@ -8,6 +8,7 @@ import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { getPlayerMap, getPlayerMapEntry, upsertPlayerMap, flagPlayerMap } from "@/lib/db/playerMap";
 import { getVaPage, getVaSlugParAncre, vaEpisode } from "@/lib/db/vaPage";
 import { frembedPeutAvoir } from "@/lib/db/frembedCatalog";
+import { ANIZONE_SERVERS, resolveAnizone } from "@/lib/anizone/resolve";
 import { getFribbEntry, lookupFribbEntry } from "@/lib/fribb/fribbMap";
 import { resolveSeasonNumber } from "@/lib/anilist/resolveSeason";
 import { resolveSeasonChain } from "@/lib/anilist/seasonChain";
@@ -4184,7 +4185,9 @@ function sourceCacheKey({ server, aniId, episode, sub }) {
   // v17 (13/11/2026) : anime-sama a change de format le 12/11 (reperes
   // « lien:<n°> », episodes.js en 404) ; toutes ses absences depuis sont fausses.
   // v18 : meme jour, les listes a case vide etaient decalees (parseEpisodesJs).
-  const v = FREMBED_SERVERS[server] ? "v15f2" : "v18";
+  // az2 (anizone seul, 25/11/2026) : lecture native — les reponses d'avant
+  // (flux par le Worker, refuse par leur CDN) ne doivent plus etre servies.
+  const v = FREMBED_SERVERS[server] ? "v15f2" : ANIZONE_SERVERS[server] ? "az2" : "v18";
   return `src:${v}:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
@@ -4792,6 +4795,19 @@ async function handler(req, res) {
     if (retry) return sendRetryable(retry, { hostDown });
     if (!data) return sendNotFound("Source not found");
     return sendOk(data);
+  }
+
+  // Anizone (VF + VO + MULTI) — un master multi-audio + sous-titres .ass ;
+  // trois chips sur le meme fichier, cf. lib/anizone/resolve.js.
+  if (ANIZONE_SERVERS[server]) {
+    const media = await getMediaMeta(aniId, { dbFirst: true }).catch(() => null);
+    const r = await resolveAnizone(server, aniId, episode, media);
+    if (r.transient) return sendRetryable(r.transient);
+    if (r.absent || !r.data) {
+      dlog(`[anizone] ${server} ${aniId}/${episode} : ${r.absent}`);
+      return sendNotFound("Source not found");
+    }
+    return sendOk(r.data);
   }
 
   // Anime-Sama (VF + VOSTFR) â€” returns iframe embed URL

@@ -95,6 +95,12 @@ import {
 // Worker (unmetered + edge cache): an empty NEXT_PUBLIC_PROXY_BASE once fell
 // back to /api/v2/proxy/m3u8 and took every proxy-routed server down in prod.
 import { PROXY_BASE, proxied } from "@/lib/watch/streamUrl";
+import {
+  audioDeDepart,
+  blobMaster,
+  peutLireHlsNatif,
+  type NativeMaster,
+} from "@/lib/watch/nativeHls";
 import { diag, diagSession } from "@/lib/diag";
 import { AmbilightEngine } from "./ambilightEngine";
 import * as clientVidmoly from "@/lib/clientVidmoly";
@@ -138,6 +144,10 @@ type Stream = {
    *  the historical behaviour, which is the safe default for a track list we
    *  know nothing about. */
   subtitlePref?: "forced" | "full" | "none";
+  /** Lecture HLS NATIVE (anizone) : le master demonte, que le navigateur
+   *  remonte avec UNE piste son (cf. lib/watch/nativeHls). Present = hls.js
+   *  n'est pas utilise, le CDN refusant tout XHR venu d'ailleurs. */
+  native?: NativeMaster;
 };
 
 type Subtitle = {
@@ -147,6 +157,9 @@ type Subtitle = {
   kind?: string;
   language?: string;
   default?: boolean;
+  /** Format du fichier quand ce n'est pas du WebVTT (anizone : "ass"). Vidstack
+   *  lit tout en VTT sans lui, et une piste .ass arrive alors vide. */
+  type?: "vtt" | "srt" | "ass" | "ssa";
 };
 
 export type UniversalStreamData = {
@@ -2476,6 +2489,36 @@ export default function UniversalPlayer({
   const [automationOpen, setAutomationOpen] = useState(false);
   // Same for the "Ambient lights" sub-panel (toggle + blur slider).
   const [ambientOpen, setAmbientOpen] = useState(false);
+  // Lecture native (anizone) : la piste son choisie dans le menu, pour QUEL
+  // flux (`for` = son URL) — un autre episode repart du defaut de son chip.
+  const [audioOpen, setAudioOpen] = useState(false);
+  const [nativeAudio, setNativeAudio] = useState<{ for: string; language: string } | null>(null);
+  // Ou reprendre apres un changement de langue (le master est remonte, donc
+  // le <video> recharge depuis 0).
+  const resumeNatifRef = useRef<{ t: number; play: boolean } | null>(null);
+  useEffect(() => {
+    const r = resumeNatifRef.current;
+    if (!r) return;
+    const v = (playerRef.current?.el as HTMLElement | undefined)?.querySelector("video");
+    if (!v) return;
+    const reprendre = () => {
+      resumeNatifRef.current = null;
+      try {
+        v.currentTime = r.t;
+        if (r.play) v.play().catch(() => {});
+      } catch {}
+    };
+    v.addEventListener("loadedmetadata", reprendre, { once: true });
+    return () => v.removeEventListener("loadedmetadata", reprendre);
+  }, [nativeAudio]);
+  // Un flux qui ne se lit qu'en HLS natif, sur un navigateur qui n'en a pas
+  // (Firefox) : on le dit tout de suite, la page passe au lecteur suivant.
+  const natifImpossible =
+    !!(streamData as any)?.streams?.[0]?.native && typeof window !== "undefined" && !peutLireHlsNatif();
+  useEffect(() => {
+    if (natifImpossible) onError?.("HLS natif indisponible sur ce navigateur");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [natifImpossible]);
   // ── Mobile / iOS detection ─────────────────────────────────
   // Touch the platform exactly once so the player can:
   //  - Reroute custom buttons (Download / Subs / Cast) into the Settings
@@ -3422,6 +3465,7 @@ export default function UniversalPlayer({
     if (!settingsHostAttached) {
       setAutomationOpen(false);
       setAmbientOpen(false);
+      setAudioOpen(false);
     }
   }, [settingsHostAttached]);
 
@@ -6531,7 +6575,15 @@ export default function UniversalPlayer({
 
   // If the extractor pre-wrapped the URL through an external proxy (vidmoly →
   // anime-proxy), use it as-is. Otherwise wrap through our local proxy.
-  const src = bestStream!.directUrl
+  const nativeM = bestStream!.native && peutLireHlsNatif() ? bestStream!.native : null;
+  const nativeLang = nativeM
+    ? nativeAudio?.for === bestStream!.url
+      ? nativeAudio.language
+      : audioDeDepart(nativeM, bestStream!.audioLang)
+    : null;
+  const src = nativeM
+    ? blobMaster(nativeM, nativeLang)
+    : bestStream!.directUrl
     ? bestStream!.url
     : proxied(bestStream!.url, bestStream!.referer || streamData?.referer);
   // Record whether the current source plays straight from the host CDN so
@@ -6614,7 +6666,7 @@ export default function UniversalPlayer({
   // trace). Keyed by the subtitle source list so it only rebuilds when the
   // stream's subtitles actually change.
   const subsKey = JSON.stringify(
-    (streamData?.subtitles || []).map((s) => [s.file || s.url, s.label, s.language, s.kind, s.default]),
+    (streamData?.subtitles || []).map((s) => [s.file || s.url, s.label, s.language, s.kind, s.default, s.type]),
   );
   if (!subsMemoRef.current || subsMemoRef.current.key !== subsKey) {
     subsMemoRef.current = {
@@ -6635,6 +6687,7 @@ export default function UniversalPlayer({
             language: s.language || "en",
             kind: (s.kind as any) || "subtitles",
             default: s.default,
+            type: s.type,
           };
         })
         .filter(Boolean),
@@ -6646,6 +6699,7 @@ export default function UniversalPlayer({
     language: string;
     kind: any;
     default?: boolean;
+    type?: Subtitle["type"];
   }>;
 
   // Subtitle mode of the CURRENT server, derived from its definition:
@@ -6991,6 +7045,30 @@ export default function UniversalPlayer({
       iconPath="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1-.85.6V16h-4v-2.3l-.85-.6C7.8 12.16 7 10.63 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"
     />
   );
+  // Langue audio des flux lus en natif (anizone) : Chrome n'expose pas les
+  // pistes du master, on le remonte avec celle qu'on choisit.
+  const audioNatifCourant = nativeM?.audios.find((a) => a.language === nativeLang) || null;
+  const choisirAudio = (language: string) => {
+    setAudioOpen(false);
+    if (!nativeM || language === nativeLang) return;
+    const v = (playerRef.current?.el as HTMLElement | undefined)?.querySelector("video");
+    resumeNatifRef.current = v ? { t: v.currentTime, play: !v.paused } : null;
+    setNativeAudio({ for: bestStream!.url, language });
+  };
+  const audioMenuRow =
+    nativeM && nativeM.audios.length > 1 ? (
+      <SettingsSubmenuRow
+        label={t("player.audioLanguage")}
+        hint={audioNatifCourant?.name}
+        onOpen={() => {
+          setAmbientOpen(false);
+          setAutomationOpen(false);
+          setAudioOpen(true);
+        }}
+        // Material "record_voice_over".
+        iconPath="M9 13c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0-6c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm0 8c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4zm-6 4c.22-.72 3.31-2 6-2 2.7 0 5.8 1.29 6 2H3zM15.08 7.05c.84 1.18.84 2.71 0 3.89l1.68 1.69c2.02-2.02 2.02-5.07 0-7.27l-1.68 1.69zM20.07 2l-1.63 1.63c2.77 3.02 2.77 7.56 0 10.74L20.07 16c3.9-3.89 3.91-9.95 0-14z"
+      />
+    ) : null;
   // Automation toggles (autoplay, auto-skip intro/outro, auto next episode),
   // grouped to keep the main menu compact.
   const automationMenuRow = (
@@ -7036,6 +7114,13 @@ export default function UniversalPlayer({
         // a second one behind it only showed through the rounded corners.
         className="vds-player relative z-10 h-full w-full overflow-visible"
         src={playerSrc}
+        // Lecture native (anizone) : hls.js ne peut rien lire sur ce CDN.
+        preferNativeHLS={!!nativeM}
+        /* Sans hls.js, Vidstack ne sait pas deviner le type de flux d'un
+           master en blob: et le laisse a « unknown » — et la mise en page par
+           defaut ne rend alors RIEN : ni commandes, ni sous-titres (mesure le
+           25/11/2026). Tout ce qu'on lit en natif est de la VOD. */
+        {...(nativeM ? { streamType: "on-demand" as const } : {})}
         // Bigger buffers + fast-fail segment loading so seeking lands in
         // already-buffered data instead of a slow proxy→CDN round-trip.
         // Applied to the hls.js instance via provider-change (HLS only).
@@ -7153,6 +7238,7 @@ export default function UniversalPlayer({
               kind={t.kind}
               label={t.label}
               language={t.language}
+              type={t.type as any}
               /* Le repli « a defaut, la premiere piste » ne vaut que pour une
                  source qui ne s'est pas prononcee. Quand elle dit `none` — le
                  chip VF de frembed : on regarde un doublage francais, pas
@@ -7242,7 +7328,23 @@ export default function UniversalPlayer({
           STABLE settingsHostRef the observer parks at the top of the open menu
           list. Same rationale as above: stable container → no portal teardown. */}
       {settingsHostAttached && settingsHostRef.current && createPortal(
-        automationOpen ? (
+        audioOpen && nativeM ? (
+          <>
+            <SettingsSubmenuHeader
+              label={t("player.audioLanguage")}
+              onBack={() => setAudioOpen(false)}
+            />
+            {nativeM.audios.map((a) => (
+              <SettingsToggleRow
+                key={a.language + a.uri}
+                label={a.name}
+                enabled={a.language === nativeLang}
+                onToggle={() => choisirAudio(a.language)}
+                iconPath="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"
+              />
+            ))}
+          </>
+        ) : automationOpen ? (
           /* ── Automation sub-panel ───────────────────────────────────
              Drilled into from the "Automation" row below. SkipOverlay
              reads playerPrefs and performs the actual skips / next-ep.
@@ -7401,6 +7503,7 @@ export default function UniversalPlayer({
                 )}
               </>
             )}
+            {audioMenuRow}
             {ambientMenuRow}
             {automationMenuRow}
             {/* No stats row here — the video-stats overlay is reachable via its

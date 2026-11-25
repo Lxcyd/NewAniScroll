@@ -120,6 +120,14 @@ const CASES = [
     max: 10,
   },
   {
+    name: "correspondance anizone d'un anime (getAnizoneMap)",
+    db: "cache",
+    source: ["lib/db/anizoneMap.ts", "FROM anizone_map WHERE ani_id = ?"],
+    sql: "SELECT ani_id, slug, title, expires_at FROM anizone_map WHERE ani_id = ?",
+    args: [ONE],
+    max: 10,
+  },
+  {
     name: "rangée « populaires » (listAnime)",
     db: "cache",
     source: ["lib/db/anime.ts", 'orderBy: "popularity DESC NULLS LAST"'],

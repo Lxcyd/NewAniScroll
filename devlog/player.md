@@ -6,6 +6,46 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-11-25 — Anizone : trois chips, un fichier, lu en HLS NATIF
+
+Luc ajoute anizone.to (« vraiment exceptionnel ») : un master HLS par episode avec toutes les pistes
+son (Frieren ep 1 : ja, fr, en, de, es, es-419, pt-BR, hi, ta) et ~15 sous-titres .ass. Voulu
+PARTOUT ou il a sa place, toutes pistes dans les trois chips, seul le defaut change :
+`anizone` (VF, si piste son fr, sous-titres eteints), `anizone-vo` (si sous-titres fr, son ja),
+`anizone-multi` (toujours, son ja). Resolveur `lib/anizone/resolve.js`.
+
+- **Pas d'id AniList chez eux.** Recherche = composant Livewire `pages.anime-index` (POST
+  `/livewire/update`, jeton CSRF + cookies de `/anime`) ; le JSON utile est dans l'evenement
+  `filters-reset` (titres toutes langues, type, annee, nb d'episodes). Appariement : titre normalise
+  identique + annee a ±1, ou titre sans marque de saison + annee EXACTE (« Sousou no Frieren (2026) »).
+  Leur recherche est litterale (« Yuukaku-hen » ne trouve pas « Yuukaku Hen ») : jusqu'a 4 requetes,
+  jusqu'au nom de franchise avant « : ». Retenu dans la table `anizone_map` (PK, 1 ligne lue ;
+  pas player_map, dont les scripts relisent tout avec la logique anime-sama). 15/15 justes au test
+  (Frieren S1/S2, SnK S1/S2, JJK S1/S2, Demon Slayer S1/Yuukaku, One Piece, Naruto, Your Name,
+  Dr. STONE Part 3…).
+- **Le blocage.** Leur CDN (`seiryuu.vid-cdn.xyz`, derriere Cloudflare) rend
+  `Access-Control-Allow-Origin: https://anizone.to` sur TOUT (master, segments, cles AES, .ass),
+  sans origine reflechie, et refuse notre Worker (403 depuis Cloudflare, 200 avec les memes en-tetes
+  depuis une IP ordinaire). Un proxy hors Cloudflare paierait chaque octet.
+- **Le contournement : le lecteur HLS natif du navigateur**, qui charge en no-cors comme une `<img>`.
+  Chrome 158 l'a (`canPlayType` = `maybe`), Safari et Android aussi, Firefox non. Le resolveur rend le
+  master demonte (`native: {audios, variants}`) ; le client remonte un master d'UNE piste son en
+  `blob:` (un `data:` est refuse par Chrome) — Chrome n'exposant pas `audioTracks`, changer de langue
+  = remonter le master et reprendre au meme instant (menu « Langue audio » dans Parametres).
+  `noCors: true` (un `<video crossorigin>` referait du CORS), `preferNativeHLS`, et
+  **`streamType: "on-demand"`** : sans hls.js, Vidstack laisse le type a `unknown` et sa mise en page
+  ne rend alors RIEN (ni commandes, ni sous-titres). Chips caches la ou l'HLS natif manque
+  (`lisibleIci`, lib/watch/serverVisibility.ts). Zero octet video chez nous.
+- **Sous-titres** : seul morceau qui exige CORS (charges en `fetch`) → relais
+  `pages/api/v2/anizone/sub.js`, ferme a `*.vid-cdn.xyz/<uuid>/subtitles/*.ass|vtt`, cache 1 an a
+  l'edge (~30 Ko par fichier, une invocation par fichier). Rendu par le parseur de Vidstack (texte
+  simple, signes et positions perdus — choix de Luc, pas de JASSUB).
+- Verifie en Chrome headless sur la vraie page (:3123) : VF = son fr ; VO = son ja + « Nous y
+  revenons / en heros triomphants. » a 2:11 ; bascule fr → ja par le menu, lecture reprise a la
+  meme seconde ; passe seul en 1080p. **Pas teste sur dev** (rien pousse).
+- Cache de /api/v2/source : prefixe `az2` pour anizone (les reponses de la 1re version, flux par le
+  Worker, restaient servies 20 min).
+
 ## 2026-11-10 — Steel Ball Run : un episode de retard, et pas de voir-anime
 
 Un visiteur signale : « l'episode est sur anime-sama, pas chez nous ». Luc soupconnait des dates AniList

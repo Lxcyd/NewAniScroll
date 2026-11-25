@@ -633,6 +633,7 @@ function SectionVideo({ r, serie, jours, aller, calcule, alertes }: PropsSection
     { nom: "Vidmoly (myTV)", via: "voir-anime", ids: ["voiranime-vidmoly", "voiranime-vidmoly-vo"], videos: va.vivants, total: (va.vivants || 0) + (va.morts || 0) },
     { nom: "Frembed", via: `${fmt(vi.sources?.frembed?.animes)} animes`, ids: ["frembed", "frembed-vo"], videos: null, total: null },
     { nom: "Sendvid", via: `anime-sama · ${fmt(vi.part?.sendvid?.panneaux)} panneaux, ${fmt(vi.part?.sendvid?.seulLecteur)} ou il est seul`, ids: ["animesama-sendvid", "animesama-sendvid-vo"], videos: vi.part?.sendvid?.liens ?? null, total: null },
+    { nom: "Anizone", via: "multi-audio, VF + VO + MULTI", ids: ["anizone", "anizone-vo", "anizone-multi"], videos: null, total: null },
     { nom: "Megaplay", via: "iframe, repli", ids: ["megaplay"], videos: null, total: null },
   ].map((l) => {
     const p = l.ids.map((id) => perf[id]).filter(Boolean);

@@ -88,7 +88,7 @@ import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSou
 import { preconnectOrigin, playbackUrl } from "@/lib/watch/streamUrl";
 import { prechargeManifeste } from "@/lib/watch/hlsPreload";
 import { requestSource } from "@/lib/watch/sourceRequest";
-import { ABSENCE_PROUVEE } from "@/lib/watch/serverVisibility";
+import { ABSENCE_PROUVEE, lisibleIci } from "@/lib/watch/serverVisibility";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
 import { getPrefetchedEpisodes, clearPrefetchedEpisodesFor, prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
 import { getPrefetchedInfo, clearPrefetchedInfoFor } from "@/lib/watch/infoPrefetch";
@@ -2256,7 +2256,9 @@ export default function Watch({
     // meant if the user changed away from the default before the probe
     // completed, the original default never got marked as confirmed and
     // disappeared from the selector.)
-    const toProbe = SERVERS.filter((s) => s.type === "hls" || s.type === "api");
+    const toProbe = SERVERS.filter(
+      (s) => (s.type === "hls" || s.type === "api") && lisibleIci(s),
+    );
 
     const controller = new AbortController();
     // On phones / Save-Data mode the previous 8-way fan-out competes with the

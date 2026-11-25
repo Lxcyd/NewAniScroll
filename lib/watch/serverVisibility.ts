@@ -1,3 +1,4 @@
+import { peutLireHlsNatif } from "./nativeHls";
 /**
  * Un chip de lecteur : visible ? grise ?
  *
@@ -33,7 +34,14 @@
  * sur le 4.
  */
 
-type ServerLike = { id: string; type?: string };
+type ServerLike = { id: string; type?: string; source?: string };
+
+/* Anizone ne se lit qu'en HLS NATIF (cf. lib/watch/nativeHls) : sur un
+   navigateur qui n'en a pas (Firefox), ses chips n'ont rien a offrir. */
+const NATIF_SEUL = new Set(["anizone"]);
+export function lisibleIci(server: ServerLike): boolean {
+  return !(server.source && NATIF_SEUL.has(server.source)) || peutLireHlsNatif();
+}
 type FailedLike = Set<string> | Map<string, unknown> | null | undefined;
 
 /** La raison inscrite par `markFailed` pour une absence prouvee (204/404).
@@ -51,6 +59,7 @@ export function shouldShowServer(
   // Le lecteur en cours reste visible meme en echec : le masquer laisserait
   // l'utilisateur devant un lecteur qu'aucun chip ne designe.
   if (server.id === activeServer) return true;
+  if (!lisibleIci(server)) return false;
   // Tout echec retire le chip, quelle qu'en soit la raison : ne figurent ici
   // que des verdicts, jamais un simple « je n'ai pas pu savoir » (cf. en-tete).
   if (failedServers?.has?.(server.id)) return false;
