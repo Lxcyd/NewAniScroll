@@ -24,8 +24,15 @@ des sous-titres → 502). anizone.to n'a pas de CORS : le navigateur ne peut pas
   table + 403 → chip **tu sans memo Redis** (`bloque`), plus de toast. Cle de cache `az3`.
   Correspondance perimee (`anizone_map`) gardee quand la recherche est refusee.
 - Le visiteur lit toujours la video en direct sur leur CDN (HLS natif) : son IP n'est pas refusee.
-- Limite : un titre absent de la table n'a pas d'anizone sur le site ; un nouvel episode attend le
-  prochain passage du script.
+- **Tout seul : cron GitHub horaire** `.github/workflows/anizone-seed.yml` (`seed.mjs --auto
+  --budget 45`) : 1. la file `anizone_demande` (episode ouvert par un visiteur et absent → le titre
+  entier) ; 2. les suites des titres EN COURS ou incomplets selon AniList (pas tous : 2 000 titres
+  finis = 40 min de requetes pour rien) ; 3. la decouverte par popularite AniList. Le cron ne tourne
+  que depuis `main` : le fichier y est seul (inerte pour Vercel) et fait `checkout ref: dev`.
+- Pieges vus au premier remplissage : anizone met parfois 10 s a repondre (delai 20 s dans l'outil,
+  6 s sur le site) ; un echec SAUTAIT l'episode → trou jamais comble par les suites — il arrete
+  desormais la serie ; un .ass en erreur passagere rangeait l'episode sans son francais (sans VO).
+- Debit mesure : ~5 episodes/min → ~200 par passage, catalogue (~10 000) en 2 a 3 jours.
 
 ## 2026-11-25 — Anizone : trois chips, un fichier, lu en HLS NATIF
 
