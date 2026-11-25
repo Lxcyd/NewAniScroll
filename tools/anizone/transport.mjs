@@ -268,7 +268,7 @@ async function chromeALaMain(log) {
       },
       { url: String(url), method: init.method || "GET", headers, body: init.body ?? undefined },
     );
-    const delai = new Promise((_, ko) => setTimeout(() => ko(new Error("delai depasse (navigateur)")), 45_000));
+    const delai = new Promise((_, ko) => setTimeout(() => ko(new Error("delai depasse (navigateur)")), 25_000));
     const { s, h, t } = await Promise.race([job, delai]);
     return new Response(s === 204 || s === 304 ? null : t, { status: s, headers: h });
   };

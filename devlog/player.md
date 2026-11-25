@@ -33,6 +33,16 @@ des sous-titres → 502). anizone.to n'a pas de CORS : le navigateur ne peut pas
   6 s sur le site) ; un echec SAUTAIT l'episode → trou jamais comble par les suites — il arrete
   desormais la serie ; un .ass en erreur passagere rangeait l'episode sans son francais (sans VO).
 - Debit mesure : ~5 episodes/min → ~200 par passage, catalogue (~10 000) en 2 a 3 jours.
+- **GitHub aussi refuse en direct**, mais c'est un TEST : `cf-mitigated: challenge` (« Just a
+  moment… »). Chrome PILOTE par Playwright → « Attention Required! » (automatisation reperee) ; WARP
+  → « Attention Required! » partout (retire). Ce qui passe : `tools/anizone/transport.mjs`, Chrome
+  lance A LA MAIN (aucun drapeau d'automatisation, titre lu par `/json/list` sans s'attacher,
+  ecran xvfb 1366x768x24, clic xdotool si case a cocher), puis requetes DEPUIS LA PAGE (le cookie
+  cf_clearance rejoue par Node est refuse : lie a l'empreinte TLS). Test passe en 3 a 9 s ; Tor en
+  dernier recours dans le workflow.
+- anizone est lui-meme INSTABLE (25/11, 15 h) : 502 et pages muettes 60 s depuis la connexion de
+  Luc, pendant que d'autres repondent en 0,3 s. Coupe-circuit : 6 echecs d'affilee arretent le
+  passage, l'heure suivante reprend.
 
 ## 2026-11-25 — Anizone : trois chips, un fichier, lu en HLS NATIF
 

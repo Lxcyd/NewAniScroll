@@ -114,6 +114,21 @@ async function slugDe(media) {
 
 let ranges = 0;
 
+/* COUPE-CIRCUIT (25/11/2026). anizone est parfois instable — 502 et pages qui
+   ne repondent plus, y compris depuis une connexion domestique, pendant que
+   d'autres pages repondent en 0,3 s. Sans ce garde, un passage enchainait les
+   delais depasses sur tout le catalogue pendant 45 min pour rien. Six echecs
+   d'affilee arretent le passage, proprement : l'heure suivante reprend. */
+class Arret extends Error {}
+let echecs = 0;
+const ECHECS_MAX = 6;
+const succes = () => {
+  echecs = 0;
+};
+const echec = () => {
+  if (++echecs >= ECHECS_MAX) throw new Arret(`${ECHECS_MAX} echecs d'affilee : anizone instable`);
+};
+
 /** Range les episodes `depuis`.. jusqu'au premier absent (ou au budget). */
 async function serie(slug, depuis = 1) {
   let n = 0;
@@ -127,9 +142,11 @@ async function serie(slug, depuis = 1) {
     for (let essai = 0; !cap; essai++) {
       try {
         cap = await capture(slug, ep);
+        succes();
       } catch (e) {
         if (e instanceof Bloque) throw e;
         console.log(`  ✗ ${slug}/${ep} : ${e.message}`);
+        echec();
         if (essai) return n;
         await dort(10_000);
       }
@@ -148,10 +165,12 @@ async function titre(media) {
   let slug;
   try {
     slug = await slugDe(media);
+    succes();
   } catch (e) {
     // Une recherche ratee ne coute que ce titre ; il reste a chercher.
     if (e instanceof Bloque) throw e;
-    return console.log(`✗ ${nom} : ${e.message}`);
+    console.log(`✗ ${nom} : ${e.message}`);
+    return echec();
   }
   if (!slug) return console.log(`· ${nom} : pas sur anizone`);
   const n = await serie(slug);
@@ -270,7 +289,9 @@ try {
     await acces.fermer();
     process.exit(1);
   }
-  throw e;
+  if (e instanceof Arret) {
+    console.log(`\n⏸ ${e.message} — arret du passage, reprise a l'heure suivante.`);
+  } else throw e;
 } finally {
   await acces.fermer().catch(() => {});
 }
