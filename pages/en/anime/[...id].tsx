@@ -417,7 +417,7 @@ export default function Info({
       if (cancelled) return;
       // Warm the Next.js route + the player's dynamic chunk.
       try {
-        router.prefetch(watchHref);
+        router.prefetch(watchHref, undefined, { priority: true });
       } catch {}
       // Le chunk du lecteur ET hls.js, qui ne vient plus de jsDelivr. Pas sur
       // une connexion économe ou en 2G : ~280 Ko gz que la page de lecture
@@ -1202,7 +1202,11 @@ export async function getServerSideProps(ctx: any) {
     // The cover URL is already in `info`: a Link: preload header lets the
     // browser start on it long before the HTML arrives.
     const coverUrl = info?.coverImage?.extraLarge || info?.coverImage?.large;
-    if (coverUrl) appendPreloadHeader(ctx.res, coverUrl);
+    /* Pas sur la variante mobile (25/11/2026, passe vitesse) : l'image
+       principale y est la BANNIERE, et une couverture prechargee au meme rang
+       (134 Ko, priorite haute) la retardait — mesure en 4G lente, banniere
+       demandee a 0,3 s, arrivee a 9 s. La couverture se charge par son <img>. */
+    if (coverUrl && !initialUA) appendPreloadHeader(ctx.res, coverUrl);
 
     const seasonInfoP = resolveSeasonChain(animeIdNum).catch(
       () => ({ number: null, total: null }),

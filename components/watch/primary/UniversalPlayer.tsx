@@ -7332,7 +7332,7 @@ export default function UniversalPlayer({
             try {
               // JS bundle only — a getServerSideProps route isn't data-prefetched
               // by the Pages Router, so this costs no function invocation.
-              router.prefetch(nextEpisodeHref);
+              router.prefetch(nextEpisodeHref, undefined, { priority: true });
             } catch {
               /* prefetch unsupported — the click still works, just colder */
             }

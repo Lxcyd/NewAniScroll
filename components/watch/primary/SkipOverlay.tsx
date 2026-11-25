@@ -293,7 +293,7 @@ export default function SkipOverlay({
   useEffect(() => {
     if (!shouldPreloadNext || !nextEpisodeHref) return;
     try {
-      router.prefetch(nextEpisodeHref);
+      router.prefetch(nextEpisodeHref, undefined, { priority: true });
     } catch {
       /* prefetch unsupported — the click still works, just not warmed */
     }

@@ -29,7 +29,7 @@ const QuietLink = forwardRef<HTMLAnchorElement, Props>(function QuietLink(
       {...rest}
       onPointerEnter={(e) => {
         onPointerEnter?.(e);
-        void router.prefetch(href).catch(() => {});
+        void router.prefetch(href, undefined, { priority: true }).catch(() => {});
       }}
       onClick={(e: MouseEvent<HTMLAnchorElement>) => {
         onClick?.(e);

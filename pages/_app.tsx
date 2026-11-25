@@ -498,6 +498,28 @@ export default function App({
 }: AppProps) {
   const router = useRouter();
 
+  /* PAS DE PRECHARGEMENT « PARCE QUE VISIBLE » SUR ECRAN TACTILE (25/11/2026,
+     passe vitesse). next/link precharge le code de toute page dont un lien
+     entre dans l'ecran, puis l'EXECUTE au repos : sur la fiche mobile en 4G
+     lente, ~260 Ko (Decouvrir, profil, lecture…) passaient avant l'image
+     principale, plus ce que ces modules lancent eux-memes. Sans survol, ce
+     prechargement ne precede aucune intention. On garde ceux qui en ont une :
+     le TOUCHER d'un lien (next/link passe `priority: true`) et nos appels
+     explicites (idem). Installe au premier rendu, avant que les liens
+     observent l'ecran. Le bureau ne change pas. */
+  useState(() => {
+    if (typeof window === "undefined") return null;
+    const r: any = router;
+    if (r.__prefetchTactile) return null;
+    const tactile = window.matchMedia?.("(hover: none) and (pointer: coarse)").matches;
+    if (!tactile || typeof r.prefetch !== "function") return null;
+    const original = r.prefetch.bind(r);
+    r.prefetch = (url: string, asPath?: string, options?: { priority?: boolean }) =>
+      options?.priority ? original(url, asPath, options) : Promise.resolve();
+    r.__prefetchTactile = true;
+    return null;
+  });
+
   // Inject the theme colors from lib/theme.ts as CSS custom properties on
   // :root so every component (Tailwind utilities, raw CSS, inline styles)
   // can read them. Single source of truth; edit lib/theme.ts to rebrand.

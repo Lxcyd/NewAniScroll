@@ -88,7 +88,7 @@ export function warmWatchPath(
 ): void {
   if (cta.isNotYetReleased || !info?.id) return;
   try {
-    router.prefetch(cta.href);
+    router.prefetch(cta.href, undefined, { priority: true });
   } catch {}
   preloadPlayerCode();
   try {

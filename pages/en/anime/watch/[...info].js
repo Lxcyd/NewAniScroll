@@ -16,7 +16,15 @@ import { preloadPlayerCode } from "@/lib/watch/playerCode";
    l'hydratation. `dynamic()` ne les demandait qu'au premier rendu de
    <UniversalPlayer>, c'est-a-dire apres la source ET la liste d'episodes : sur
    une arrivee directe, tout le telechargement du lecteur s'ajoutait en serie. */
-preloadPlayerCode();
+/* SEULEMENT SI CETTE PAGE EST CELLE AFFICHEE (25/11/2026, passe vitesse). Next
+   EXECUTE aussi ce module quand il precharge la page depuis un lien visible
+   (route-loader : prefetch puis loadRoute au repos) : sur la fiche mobile, ca
+   tirait ~300 Ko de lecteur et de hls.js avant l'image principale, sans que
+   personne ait demande a regarder. Les chemins qui menent ici prechauffent
+   deja le lecteur eux-memes (bouton « Regarder », fiche apres load). */
+if (typeof window !== "undefined" && /\/anime\/watch\//.test(window.location.pathname)) {
+  preloadPlayerCode();
+}
 // Vidstack uses Web Components — must be loaded client-only or hydration fails.
 /* L'anime a-t-il FINI sa diffusion ? (20/11/2026, Luc)
    Le dernier episode SORTI d'un anime en cours n'est pas son dernier episode :
@@ -393,6 +401,13 @@ export default function Watch({
   epiNumber,
   aniId,
 }) {
+  /* Le lecteur des le PREMIER rendu (une fois) : couvre l'arrivee par
+     navigation interne, ou le module a pu etre execute en avance depuis la
+     fiche sans rien precharger (cf. le haut du fichier). Idempotent. */
+  useState(() => {
+    if (typeof window !== "undefined") preloadPlayerCode();
+    return null;
+  });
   const titlePref = useTitlePref();
   const { t } = useTranslation();
   /* Client-side, deliberately: the SSR render is shared by every visitor so it
