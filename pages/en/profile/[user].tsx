@@ -58,6 +58,7 @@ import { DEFAULT_BLOCKS, DEFAULT_LAYOUT, blockBounds, blockType, isKnownBlock } 
 import { isValidLayout, sanitizeLayout, type GridItem } from "@/lib/profile/grid";
 import {
   activityFromCloud,
+  historyFromCloud,
   progressFromCloud,
   withFeed,
   type ActivityRow,
@@ -65,6 +66,7 @@ import {
   type ProgressMap,
   type WatchDays,
 } from "@/lib/profile/activity";
+import type { HistoryRow } from "@/lib/profile/history";
 import { trailersFor } from "@/lib/db/anime";
 import ProfileTabs from "@/components/profile/ProfileTabs";
 import FriendButton from "@/components/profile/FriendButton";
@@ -157,6 +159,8 @@ type Props = {
   /** Chez soi seulement : la progression du compte complétée par le fil
    *  AniList (120 jours), mêlée à celle du navigateur par « Vu récemment ». */
   ownerProgress?: ProgressMap | null;
+  /** Chez soi seulement : l'historique du compte, mêlé à celui du navigateur. */
+  ownerHistory?: HistoryRow[] | null;
   /** Ses jours consécutifs de lecture, comptés en même temps que `activity`. */
   streak: number | null;
   /** Ses jours de lecture, pour le calendrier — seulement s'il est posé. */
@@ -211,6 +215,7 @@ function ProfileView({
   profileLayout,
   activity,
   ownerProgress,
+  ownerHistory,
   streak,
   watchDays,
   anilistDays,
@@ -588,6 +593,7 @@ function ProfileView({
             accountLayout={profileLayout ?? null}
             activity={activity ?? null}
             ownerProgress={ownerProgress ?? null}
+            ownerHistory={ownerHistory ?? null}
             streak={streak ?? null}
             watchDays={watchDays ?? null}
             anilistDays={anilistDays}
@@ -1353,8 +1359,16 @@ export async function getServerSideProps(context: any) {
      depuis le serveur local, un autre appareil). On lui envoie donc la table
      du compte complétée par le fil, sur 120 jours : son navigateur garde le
      dernier mot sur les épisodes qu'il connaît (DeviceBlocks.tsx). */
+  /* « Reprendre » aussi (25/11/2026, Luc : son profil en navigation privée
+     montrait Firefly Wedding, le sien non). Il n'avait ni la progression ni
+     l'historique du compte : le navigateur ne relit la copie du compte que si
+     un AUTRE appareil a écrit après lui. */
+  const ownerWants = isOwner && !!read && shown.some((o) => ["recents", "resume"].includes(blockType(o.i)));
+  /* L'HISTORIQUE DU COMPTE, chez soi : ce qu'un autre appareil a regardé. Le
+     navigateur garde le dernier mot anime par anime (DeviceBlocks.tsx). */
+  const ownerHistory: HistoryRow[] | null = ownerWants ? historyFromCloud(payloadOf("recent"), 12) : null;
   const ownerProgress: ProgressMap | null =
-    isOwner && read && shown.some((o) => o.i === "recents")
+    ownerWants
       ? withFeed(
           Object.fromEntries(
             Object.entries(progressFromCloud(payloadOf("progress"))).filter(
@@ -1452,9 +1466,10 @@ export async function getServerSideProps(context: any) {
       profileLayout,
       activity,
       ownerProgress,
+      ownerHistory,
       streak,
       watchDays,
-      anilistDays: !!watchDays && !!feed?.e?.length,
+      anilistDays:!!watchDays && !!feed?.e?.length,
       binge,
       badges,
       musicPaused: context.req?.cookies?.[PROFILE_AUTOPLAY_COOKIE] === "0",

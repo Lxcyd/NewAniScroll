@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { extractSeasonFromTitle } from "@/components/anime/v2/helpers";
-import { readHistory, watchHref } from "@/lib/profile/history";
+import { readHistory, watchHref, type HistoryRow } from "@/lib/profile/history";
 import { decorateRows, watchStreak, type ActivityRow, type ProgressMap } from "@/lib/profile/activity";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import type { ProfileTitle } from "@/lib/profile/types";
@@ -47,7 +47,29 @@ function mergeProgress(local: ProgressMap, extra?: ProgressMap | null): Progress
   return out;
 }
 
-function useHistory(limit: number, extra?: ProgressMap | null): {
+/**
+ * L'historique de CET appareil, complété par celui du compte (`extra`, servi au
+ * propriétaire) : une ligne par anime, la plus récente gagne. Sans lui, ce
+ * qu'un autre appareil avait regardé n'apparaissait chez soi qu'après un pull
+ * qui ramène la copie du compte — jamais, tant que ce navigateur était le
+ * dernier à avoir écrit (25/11/2026 : Firefly Wedding chez les visiteurs, pas
+ * chez Luc).
+ */
+function mergeHistory(local: HistoryRow[], extra: HistoryRow[] | null | undefined, limit: number): HistoryRow[] {
+  if (!extra?.length) return local;
+  const byId = new Map<number, HistoryRow>();
+  for (const r of [...extra, ...local]) {
+    const had = byId.get(r.aniId);
+    if (!had || r.at >= had.at) byId.set(r.aniId, r);
+  }
+  return [...byId.values()].sort((a, b) => b.at - a.at).slice(0, limit);
+}
+
+function useHistory(
+  limit: number,
+  extra?: ProgressMap | null,
+  extraRows?: HistoryRow[] | null,
+): {
   rows: ActivityRow[];
   streak: number;
   loaded: boolean;
@@ -65,7 +87,7 @@ function useHistory(limit: number, extra?: ProgressMap | null): {
     const read = () => {
       const map = readProgressMap();
       setState({
-        rows: decorateRows(readHistory(limit), mergeProgress(map, extra)),
+        rows: decorateRows(mergeHistory(readHistory(limit), extraRows, limit), mergeProgress(map, extra)),
         /* Chez soi, la série est comptée ICI et pas au rendu serveur : le
            « jour » d'une série est un jour de CALENDRIER, donc il dépend du
            fuseau, et celui du navigateur est le bon. */
@@ -80,7 +102,7 @@ function useHistory(limit: number, extra?: ProgressMap | null): {
       window.removeEventListener(PROGRESS_EVENT, read);
       window.removeEventListener("storage", read);
     };
-  }, [limit, extra]);
+  }, [limit, extra, extraRows]);
   return state;
 }
 
@@ -90,8 +112,9 @@ function useRows(
   limit: number,
   servedStreak = 0,
   extra?: ProgressMap | null,
+  extraRows?: HistoryRow[] | null,
 ) {
-  const local = useHistory(limit, extra);
+  const local = useHistory(limit, extra, extraRows);
   return served ? { rows: served, streak: servedStreak, loaded: true } : local;
 }
 
@@ -259,7 +282,12 @@ export function ResumeBlock({
   ambient = true,
   totals,
   stacked = false,
+  extra = null,
+  extraRows = null,
 }: ActivityProps & {
+  /** Chez soi : progression et historique du compte (cf. mergeProgress / mergeHistory). */
+  extra?: ProgressMap | null;
+  extraRows?: HistoryRow[] | null;
   ambient?: boolean;
   /** Bloc en 2×2 : l'image en haut, le texte dessous. Sinon, côte à côte. */
   stacked?: boolean;
@@ -268,7 +296,7 @@ export function ResumeBlock({
 } = {}) {
   const { t } = useTranslation();
   const rowTitle = useRowTitle(titles);
-  const { rows, loaded } = useRows(served, 12);
+  const { rows, loaded } = useRows(served, 12, 0, extra, extraRows);
 
   /* L'ANIME LE PLUS RÉCENT, et la bonne suite pour lui.
      — épisode commencé, pas fini : on le reprend ;
@@ -601,16 +629,18 @@ export function RecentsBlock({
   coverArt = false,
   /* Chez soi : la progression du compte et du fil AniList (cf. mergeProgress). */
   extra = null,
+  extraRows = null,
 }: ActivityProps & {
   streakOn?: boolean;
   editing?: boolean;
   coverArt?: boolean;
   extra?: ProgressMap | null;
+  extraRows?: HistoryRow[] | null;
 } = {}) {
   const { t } = useTranslation();
   const ago = useAgo();
   const rowTitle = useRowTitle(titles);
-  const { rows: all, streak, loaded } = useRows(served, 12, servedStreak, extra);
+  const { rows: all, streak, loaded } = useRows(served, 12, servedStreak, extra, extraRows);
   /* Un épisode ouvert quelques secondes (missclic) n'a pas de carte. */
   const rows = useMemo(() => all.filter((r) => !r.glance), [all]);
   /* L'ENTRÉE (08/11/2026, Luc : « il manque l'anim du contenu ») : les lignes

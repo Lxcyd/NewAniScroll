@@ -29,6 +29,7 @@ import {
 import { CUSTOM_PREFIX, customListNames } from "@/lib/profile/insights";
 import type { ActivityRow, WatchDays } from "@/lib/profile/activity";
 import type { ProgressEntry } from "@/lib/watch/progress";
+import type { HistoryRow } from "@/lib/profile/history";
 import { CalendarBlock } from "./widgets/CalendarBlock";
 import { HeatmapBlock } from "./widgets/HeatmapBlock";
 import {
@@ -151,6 +152,8 @@ type Props = {
   /** Chez soi : la progression du compte et du fil AniList, que « Vu
    *  récemment » mêle à celle du navigateur (pages/en/profile/[user].tsx). */
   ownerProgress?: Record<string, ProgressEntry> | null;
+  /** Chez soi : l'historique du compte (lignes venues d'autres appareils). */
+  ownerHistory?: HistoryRow[] | null;
   /** Les jours consécutifs de lecture DU PROPRIÉTAIRE, comptés au rendu serveur
    *  en même temps que `activity`. Chez lui, le bloc les recompte dans son
    *  navigateur : un jour de série est un jour de calendrier, donc il dépend du
@@ -304,6 +307,7 @@ export default function ProfileOverview({
   accountLayout,
   activity,
   ownerProgress,
+  ownerHistory,
   streak,
   watchDays,
   anilistDays,
@@ -1266,6 +1270,8 @@ export default function ProfileOverview({
             other={!isOwner}
             titles={titlesById}
             totals={totalsById}
+            extra={isOwner ? ownerProgress ?? null : null}
+            extraRows={isOwner ? ownerHistory ?? null : null}
             ambient={optionOn(id, "ambient")}
           />
         );
@@ -1275,6 +1281,7 @@ export default function ProfileOverview({
           <RecentsBlock
             rows={served}
             extra={isOwner ? ownerProgress ?? null : null}
+            extraRows={isOwner ? ownerHistory ?? null : null}
             other={!isOwner}
             titles={titlesById}
             streak={streak ?? 0}
