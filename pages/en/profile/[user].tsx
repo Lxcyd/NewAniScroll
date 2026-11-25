@@ -1375,13 +1375,10 @@ export async function getServerSideProps(context: any) {
   /* L'HISTORIQUE DU COMPTE, chez soi : ce qu'un autre appareil a regardé. Le
      navigateur garde le dernier mot anime par anime (DeviceBlocks.tsx). */
   const ownerHistory: HistoryRow[] | null = ownerWants ? historyFromCloud(payloadOf("recent"), HISTORY_ROWS) : null;
-  /* LA MÊME RECETTE QUE CHEZ LE VISITEUR (25/11/2026) : la table du compte et
-     le fil AniList partent SÉPARÉMENT, et le navigateur fait
-     withFeed(table locale ∪ table du compte, fil). Envoyer la table déjà
-     complétée laissait une entrée locale non vue (ép. 2 de Firefly Wedding,
-     7 s) écraser l'épisode que le fil disait vu, par sa seule date : la chaîne
-     1 → 7 cassait chez soi et pas chez les visiteurs. 120 jours suffisent aux
-     deux blocs. */
+  /* LA MÊME RECETTE QUE CHEZ LE VISITEUR : la table du compte et le fil
+     AniList partent SÉPARÉMENT. Les cartes ne lisent que la table (site
+     seulement, 25/11/2026) ; le fil ne sert plus qu'à la flamme. 120 jours
+     suffisent aux deux blocs. */
   const since = Date.now() - 120 * 86_400_000;
   const ownerProgress: ProgressMap | null = ownerWants
     ? Object.fromEntries(

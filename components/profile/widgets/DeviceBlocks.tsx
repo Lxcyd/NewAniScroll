@@ -10,7 +10,6 @@ import {
   decorateRows,
   HISTORY_ROWS,
   watchStreak,
-  withFeed,
   type ActivityRow,
   type FeedEvent,
   type ProgressMap,
@@ -94,20 +93,17 @@ function useHistory(
   });
   useEffect(() => {
     const read = () => {
-      const map = readProgressMap();
+      /* LA RECETTE DU VISITEUR (lib/profile/activity.ts, activityFromCloud) :
+         ce qui a été vu SUR LE SITE — cet appareil, plus le compte (les autres
+         appareils). Plus de fil AniList dans les cartes (25/11/2026, Luc). */
+      const map = mergeProgress(readProgressMap(), extra);
       setState({
-        /* LA RECETTE DU VISITEUR (lib/profile/activity.ts, activityFromCloud) :
-           le fil APRÈS la fusion des tables, pour qu'il l'emporte sur une
-           entrée non vue comme chez lui — fusionné avant, une entrée locale
-           plus récente mais non vue l'écrasait par sa date (25/11/2026). */
-        rows: decorateRows(
-          mergeHistory(readHistory(limit), extraRows, limit),
-          withFeed(mergeProgress(map, extra), feed),
-        ),
+        rows: decorateRows(mergeHistory(readHistory(limit), extraRows, limit), map),
         /* Chez soi, la série est comptée ICI et pas au rendu serveur : le
            « jour » d'une série est un jour de CALENDRIER, donc il dépend du
-           fuseau, et celui du navigateur est le bon. */
-        streak: watchStreak(map),
+           fuseau, et celui du navigateur est le bon. Mêmes sources que chez
+           le visiteur (table du compte + fil), sinon deux flammes différentes. */
+        streak: watchStreak(map, Date.now(), feed),
         loaded: true,
       });
     };

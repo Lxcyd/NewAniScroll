@@ -187,6 +187,24 @@ export function watchedEnough(entry: ProgressEntry | null | undefined): boolean 
 }
 
 /**
+ * Au-delà de cette part de l'épisode, il est FINI (25/11/2026, Luc : « à 85 %
+ * la personne a fini, la plupart sautent le générique »). Le seuil par défaut
+ * de l'envoi à la liste (syncPrefs.syncThreshold) : ce que le site compte comme
+ * fini est ce qu'il aurait marqué vu sur AniList. Constant, et pas le réglage
+ * du navigateur : le rendu serveur (profil vu par un visiteur) doit compter
+ * pareil.
+ */
+export const FINISHED_RATIO = 0.8;
+
+/** L'épisode a-t-il été regardé JUSQU'AU BOUT (ou presque) — pas seulement commencé. */
+export function finishedEnough(entry: ProgressEntry | null | undefined): boolean {
+  if (!entry || !watchedEnough(entry)) return false;
+  if (isCompleted(entry)) return true;
+  const d = Number(entry.duration);
+  return d > 0 && Number(entry.time) / d >= FINISHED_RATIO;
+}
+
+/**
  * Annonce la duree du fichier des que le lecteur la connait, sans attendre
  * qu'on ait regarde quoi que ce soit. La liste d'episodes affiche une duree
  * estimee tant que personne n'a mesure l'episode ; des que le fichier est

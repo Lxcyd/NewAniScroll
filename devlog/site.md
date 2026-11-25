@@ -2549,3 +2549,21 @@ reellement ouverts repaient un fan-out, une fois.
 - **Badge Bingo** : « Carton plein » (`bingo-full`) retiré, remplacé par l'échelle `bingo` 50 / 200 / 500 / 1 000 / 2 000 / 3 500 points (c → m), métrique `count/bingoPoints`. Le bloc Bingo range le score de la grille OFFICIELLE sous le compteur `bingo:<saison>` (`noteListCounter` = meilleur score de la saison) ; le badge somme les saisons. Repères : grille pleine 300 (3×3), 410 (4×4), 540 (5×5). Seuils à revoir par Luc. Ne compte que si le bloc Bingo est affiché chez soi.
 - **Tour du studio** (`components/profile/StudioTour.tsx`) : 8 bulles (accueil, Fond, Agencement, Widgets, Avatar, Badges, Musique, Enregistrer), chacune ouvre son menu via `openScope` et se pose au-dessus de sa case (`data-tour` sur SceneBox), case allumée `.as-tour-target`. Pas de voile ; croix, « Passer » et Échap sortent. Une fois par navigateur (`aniscroll:studioTour`, posé dès le départ). Rejouer : supprimer la clé.
 - 1256 assertions check-catalog, tsc et eslint propres.
+
+## 25/11/2026 — Profil : calendrier = episodes finis, Vu recemment / Reprendre = site seul
+
+Demande de Luc, trois regles :
+
+- **Calendrier** (et heatmap, objectif, bingo, journee record, flamme — tous lisent
+  `watchesOf`) : seulement les episodes FINIS. Relie a AniList : le fil AniList
+  seul, plus les episodes finis sur le site depuis la derniere ligne du fil (le
+  fil n'est relu qu'une fois par demi-heure). Sans liste : la table de
+  progression, episode fini = 80 % (`FINISHED_RATIO`, le seuil par defaut de
+  l'envoi a la liste ; le generique se saute) et une minute reellement regardee.
+  Avant : une minute suffisait, un episode vu a moitie remplissait le jour.
+- **Vu recemment** et **Reprendre la lecture** : ce qui a ete vu SUR LE SITE
+  (cet appareil + les autres via le compte), y compris un episode commence.
+  `withFeed` (08/11) est retire : il ajoutait les episodes du fil AniList aux
+  cartes, et Reprendre proposait la suite de ce que la base disait.
+  Le seuil d'une minute (missclic, 08/11) reste.
+- « Termine » sur une carte : a 80 % aussi, comme le calendrier.

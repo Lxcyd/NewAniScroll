@@ -18,7 +18,7 @@
  */
 
 import { rowsFromRaw, type HistoryRow } from "./history";
-import { GLANCE_SECONDS, isCompleted, type ProgressEntry } from "../watch/progress";
+import { FINISHED_RATIO, finishedEnough, GLANCE_SECONDS, isCompleted, type ProgressEntry } from "../watch/progress";
 
 /** Une ligne d'historique, augmentée de son avancement. */
 export type ActivityRow = HistoryRow & {
@@ -121,9 +121,8 @@ export function decorateRows(rows: HistoryRow[], map: ProgressMap): ActivityRow[
        - sinon, s'il a été ouvert sans être lancé juste après un épisode vu,
          ce dernier ;
        - puis on PROLONGE tant que l'épisode suivant est vu (08/11/2026, Luc) :
-         regardé ailleurs ou marqué sur AniList (cf. `withFeed`), il n'est pas
-         dans l'historique de cet appareil, qui s'arrêtait au 9 d'Aristocrat
-         quand AniList disait 11. */
+         regardé sur un autre appareil, il n'est pas dans l'historique de
+         celui-ci. (Plus par le fil AniList depuis le 25/11 : site seulement.) */
     const own = map[key(row.episode)];
     let end: number | null = watched(own)
       ? row.episode
@@ -208,7 +207,12 @@ function decorate(full: HistoryRow, map: ProgressMap, runFrom: number): Activity
      une barre à 96 %, c'est le générique de fin qu'on a sauté : l'épisode est
      vu. Le seuil de la progression (30 s, isCompleted) reste celui du
      lecteur ; ici, pour l'affichage, une minute et demie. */
-  const done = isCompleted(p) || (!!p && p.duration > 0 && p.duration - p.time <= NEAR_END_SECONDS);
+  /* PUIS À 80 % (25/11/2026, Luc) : le seuil où le site marque l'épisode vu
+     sur la liste (FINISHED_RATIO). « Terminé » ici, « 4 min restantes » là-bas
+     pour le même épisode, c'était deux vérités. */
+  const done =
+    isCompleted(p) ||
+    (!!p && p.duration > 0 && (p.duration - p.time <= NEAR_END_SECONDS || p.time / p.duration >= FINISHED_RATIO));
   const pct = done
     ? 100
     : p && p.duration > 0 ? Math.min(100, Math.round((p.time / p.duration) * 100)) : 0;
@@ -264,37 +268,9 @@ function runStart(map: ProgressMap, aniId: number, episode: number, others: [num
   return first;
 }
 
-/**
- * LA TABLE DE PROGRESSION, COMPLÉTÉE PAR LE FIL ANILIST (08/11/2026, Luc : « tu
- * ne peux pas réparer avec AniList, il manque les premiers épisodes et les
- * derniers »). Un épisode que le fil dit vu et que la table ne connaît pas —
- * regardé ailleurs, sur un autre site ou avant AniScroll, ou coché sur AniList
- * — y entre comme TERMINÉ, daté de sa première mention dans le fil (les
- * suivantes peuvent être des réécritures : le 07/11, AniList a reçu deux fois un
- * retour à l'épisode 7). La table l'emporte toujours quand elle a l'épisode :
- * elle porte la vraie position et la vraie durée.
- *
- * `since` : ne garder que les épisodes plus récents (ms), pour ce qu'on envoie
- * au navigateur du propriétaire.
- */
-export function withFeed(map: ProgressMap, feed?: FeedEvent[] | null, since = 0): ProgressMap {
-  if (!feed?.length) return map;
-  const out: ProgressMap = { ...map };
-  const added = new Set<string>();
-  for (const f of feed) {
-    if (!Array.isArray(f)) continue;
-    const at = Number(f[0]) * 1000;
-    const aniId = Number(f[1]);
-    const ep = Number(f[2]);
-    if (!(at > since) || !(aniId > 0) || !(ep > 0)) continue;
-    const k = `${aniId}:${ep}`;
-    if (map[k] && watched(map[k])) continue;
-    if (added.has(k) && Number(out[k].updatedAt) <= at) continue;
-    added.add(k);
-    out[k] = { time: 1440, duration: 1440, updatedAt: at, watched: 1440 };
-  }
-  return out;
-}
+/* `withFeed` (08/11/2026) complétait cette table par le fil AniList pour les
+   cartes de « Vu récemment ». Retiré le 25/11/2026 (Luc) : ces cartes ne
+   parlent que de ce qui a été vu SUR LE SITE (cf. activityFromCloud). */
 
 /** Les épisodes vus de la table, `[date, anime]`. */
 function watchedTimes(map: ProgressMap): [number, number][] {
@@ -367,12 +343,23 @@ function watchesOf(map: ProgressMap, feed?: FeedEvent[] | null): Watch[] {
      01-03/10) et les ouvertures de quelques secondes ; ce que le site fait
      vraiment regarder part de toute façon sur AniList, qui l'a donc déjà. */
   const feedOnly = Array.isArray(feed) && feed.length > 0;
-  if (!feedOnly) for (const [k, e] of Object.entries(map || {})) {
+  /* SAUF CE QUI EST PLUS RÉCENT QUE LE FIL (25/11/2026). Le fil n'est relu
+     qu'une fois par demi-heure par le navigateur du propriétaire
+     (lib/anilist/feedImport.ts) : l'épisode fini il y a dix minutes est déjà
+     sur AniList, pas encore dans notre copie. La table le donne d'ici là. */
+  let lastFeed = 0;
+  if (feedOnly) for (const f of feed!) if (Array.isArray(f)) lastFeed = Math.max(lastFeed, Number(f[0]) * 1000 || 0);
+  for (const [k, e] of Object.entries(map || {})) {
     const at = Number(e?.updatedAt);
     // La table vient d'un navigateur : une entrée sans date, ou datée de
     // n'importe quoi, ne doit pas inventer un jour de lecture.
-    // Un missclic de dix secondes ne compte pas.
-    if (!(Number.isFinite(at) && at > 0) || !watched(e)) continue;
+    /* SEULS LES ÉPISODES FINIS (25/11/2026, Luc : « le calendrier prend que
+       les épisodes finis »). Un épisode commencé, vu à moitié, n'est pas un
+       épisode vu — sur la liste non plus. Fini = 80 % (le générique se saute),
+       et une minute réellement regardée (un clic au bout de la barre ne finit
+       rien). */
+    if (!(Number.isFinite(at) && at > 0) || !finishedEnough(e)) continue;
+    if (feedOnly && at <= lastFeed) continue;
     const aniId = Number(k.split(":")[0]);
     if (!Number.isFinite(aniId) || aniId <= 0) continue;
     const dur = Number(e.duration) > 0 ? Number(e.duration) : 24 * 60;
@@ -564,7 +551,12 @@ export function activityFromCloud(
      `JSON.parse` de plus sur un objet qui grandit à chaque épisode vu. */
   const map = progressFromCloud(payloads.progress);
   return {
-    rows: decorateRows(historyFromCloud(payloads.recent, limit), withFeed(map, feed)),
+    /* CE QUI A ÉTÉ VU SUR LE SITE, ET RIEN D'AUTRE (25/11/2026, Luc). Le fil
+       AniList complétait la table (`withFeed`, 08/11) : « Vu récemment » et
+       « Reprendre » parlaient alors d'épisodes jamais ouverts ici — marqués sur
+       AniList, vus ailleurs — et Reprendre proposait la suite de ce que la base
+       disait, pas de ce qu'on venait de regarder. Le fil sert au calendrier. */
+    rows: decorateRows(historyFromCloud(payloads.recent, limit), map),
     /* Le fuseau est celui du SERVEUR (UTC en production), pas celui du
        propriétaire : sa journée peut donc basculer quelques heures trop tôt ou
        trop tard sur le profil vu par un visiteur. Chez lui, la série est
