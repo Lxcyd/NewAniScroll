@@ -43,6 +43,8 @@ type Props = {
   swipedStatus?: Status;
   onUndo?: (anime: ScrollAnime) => void;
   onOpenDetails: (anime: ScrollAnime) => void;
+  /** Faux : carte hors ecran dont les images attendent (cf. discover.tsx). */
+  chargerImages?: boolean;
 };
 
 function titleClass(title: string): string {
@@ -90,6 +92,7 @@ function ScrollCard({
   swipedStatus,
   onUndo,
   onOpenDetails,
+  chargerImages = true,
 }: Props) {
   const { t } = useTranslation();
   const title =
@@ -137,7 +140,10 @@ function ScrollCard({
       }`}
       style={{ transform: `translateY(${translateY}px)`, height: `${cardHeight}px` }}
     >
-      <div className={styles.bgImage} style={{ backgroundImage: `url('${banner}')` }} />
+      <div
+        className={styles.bgImage}
+        style={chargerImages ? { backgroundImage: `url('${banner}')` } : undefined}
+      />
       <div className={styles.gradientOverlay} />
 
       {/* Swipe feathers (active card only) — gradient built from status colour */}
@@ -187,7 +193,7 @@ function ScrollCard({
           <div
             data-poster
             className={styles.animeImage}
-            style={{ backgroundImage: `url('${cover}')` }}
+            style={chargerImages ? { backgroundImage: `url('${cover}')` } : undefined}
             onClick={() => onOpenDetails(anime)}
           />
         </div>

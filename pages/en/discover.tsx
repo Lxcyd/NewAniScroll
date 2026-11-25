@@ -37,6 +37,13 @@ export default function Discover() {
 
   const [animes, setAnimes] = useState<ScrollAnime[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
+  /* LA CARTE VISIBLE D'ABORD (25/11/2026, passe vitesse). Les ±5 cartes rendues
+     posaient toutes leurs deux images de fond au demarrage : 12 images, 2,6 Mo
+     au meme rang, et la couverture de la carte visible (l'image principale)
+     arrivait la DERNIERE — 16,5 s sur mobile en 4G lente. Les voisines (hors
+     ecran) recoivent leurs images une fois celles de la carte visible chargees,
+     au plus 4 s : bien avant qu'on glisse jusqu'a elles. */
+  const [voisinsPrets, setVoisinsPrets] = useState(false);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
@@ -268,6 +275,37 @@ export default function Discover() {
     [router, clickTarget]
   );
 
+  // Les images de la carte visible chargees (ou 4 s) : les voisines suivent.
+  useEffect(() => {
+    if (voisinsPrets) return;
+    const a = animes[currentIndex];
+    if (!a) return;
+    const urls = [a.coverImage?.extraLarge || a.coverImage?.large, a.bannerImage].filter(
+      (u): u is string => !!u,
+    );
+    let fini = false;
+    const ok = () => {
+      if (!fini) {
+        fini = true;
+        setVoisinsPrets(true);
+      }
+    };
+    if (!urls.length) return ok();
+    let reste = urls.length;
+    const plafond = window.setTimeout(ok, 4000);
+    for (const u of urls) {
+      const im = new Image();
+      im.onload = im.onerror = () => {
+        if (--reste <= 0) ok();
+      };
+      im.src = u;
+    }
+    return () => {
+      fini = true;
+      window.clearTimeout(plafond);
+    };
+  }, [animes, currentIndex, voisinsPrets]);
+
   const initialLoading = loading && animes.length === 0;
 
   return (
@@ -294,6 +332,7 @@ export default function Discover() {
                 translateY={(index - currentIndex) * cardHeight}
                 cardHeight={cardHeight}
                 isActive={index === currentIndex}
+                chargerImages={index === currentIndex || voisinsPrets}
                 transition={transitioning}
                 settings={settings}
                 swipedStatus={swiped[anime.id]}
