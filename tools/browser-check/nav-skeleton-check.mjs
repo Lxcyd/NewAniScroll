@@ -3,8 +3,9 @@
  *
  *   1. le prechauffage au survol : apres 150 ms immobile sur une carte, UNE
  *      requete /_next/data/.../anime/<id>.json part ;
- *   2. AUCUN squelette sur la fiche (retire le 18/09 : « ca fait bizarre ») —
- *      il reste reserve a la page de lecture ;
+ *   2. AUCUN squelette sur une fiche PRECHAUFFEE. Depuis le 25/11/2026 un
+ *      clic froid en montre un (apercu rempli), mais seulement apres 120 ms :
+ *      un clic servi par le prechauffage doit se terminer avant ;
  *   3. la requete de donnees du clic sort du cache (fromDiskCache) ;
  *   4. les onglets differes : clic « Episodes » -> des lignes apparaissent ;
  *   5. la page de lecture : UN seul /api/v2/skip, aucun `server=` dedans ;
@@ -154,7 +155,7 @@ await dors(900);
 const chauffe = depuis(tSurvol, new RegExp(`/_next/data/.*/anime/${carte.id}\\.json`));
 verdict(chauffe.length === 1, "prechauffage au survol", chauffe.map((r) => r.url.split("/_next/data/")[1]).join(" ") || "aucune requete");
 
-// 2 + 3. Clic : pas de squelette, donnees depuis le cache.
+// 2 + 3. Clic prechauffe : pas de squelette, donnees depuis le cache.
 const tClic = Date.now();
 await envoie("Input.dispatchMouseEvent", { type: "mousePressed", x: carte.x, y: carte.y, button: "left", clickCount: 1 });
 await envoie("Input.dispatchMouseEvent", { type: "mouseReleased", x: carte.x, y: carte.y, button: "left", clickCount: 1 });
@@ -172,7 +173,7 @@ for (let i = 0; i < 200; i++) {
   await dors(15);
 }
 const finNav = Date.now() - tClic;
-verdict(vuSquelette == null, "pas de squelette sur la fiche", vuSquelette == null ? "aucun" : `VU a +${vuSquelette} ms`);
+verdict(vuSquelette == null, "pas de squelette sur la fiche prechauffee", vuSquelette == null ? "aucun" : `VU a +${vuSquelette} ms`);
 const donneesClic = depuis(tClic, new RegExp(`/_next/data/.*/anime/${carte.id}\\.json`));
 verdict(
   donneesClic.length === 0 || donneesClic.every((r) => r.cache),

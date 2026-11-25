@@ -88,6 +88,11 @@ toucher (~100 ms d'avance).
 9. **Découvrir : la carte visible charge ses images avant ses voisines** (12 images,
    2,6 Mo au même rang ; l'image principale arrivait la dernière).
 
+10. **Squelettes de navigation sur toutes les pages** (RouteSkeleton, 25/11) : après 120 ms
+    sans réponse, la forme de la page d'arrivée s'affiche ; la fiche en aperçu rempli
+    (bannière, couverture, titre, genres déjà connus). Ne change aucun octet ni aucun temps
+    serveur : change ce qu'on VOIT pendant l'attente. Clic préchauffé : rien ne s'affiche.
+
 ### Résultat (dev, médiane de 3, à froid)
 
 | Mobile 4G lente | LCP avant | LCP après |

@@ -1,12 +1,22 @@
 import { useEffect, useState } from "react";
 import Router from "next/router";
-import Skeleton from "react-loading-skeleton";
 import { peekPreview } from "@/lib/preview/previewStore";
 import { getPrefetchedInfo } from "@/lib/watch/infoPrefetch";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useSession } from "next-auth/react";
 import { installAnimeDataWarmer, warmOwnProfile } from "@/lib/navigation/warmAnimeData";
 import { profileHref } from "@/lib/profile/href";
+import { pickAvatar } from "@/lib/auth/avatar";
+import { useIsMobile } from "@/lib/hooks/useIsMobile";
+import WatchSkeleton from "./route-skeletons/WatchSkeleton";
+import AnimeSkeleton, { type AnimePeek } from "./route-skeletons/AnimeSkeleton";
+import {
+  CatalogSkeleton,
+  HomeSkeleton,
+  ProfileSkeleton,
+  ScheduleSkeleton,
+  SearchSkeleton,
+} from "./route-skeletons/PageSkeletons";
 
 /*
  * Le squelette de navigation.
@@ -17,43 +27,120 @@ import { profileHref } from "@/lib/profile/href";
  * ca peut durer des secondes, et c'est exactement ce que le visiteur ressent
  * comme « le site est lent ».
  *
- * Ce composant couvre cette fenetre, et elle seule : il apparait au
- * `routeChangeStart` vers une page de lecture et disparait au
- * `routeChangeComplete`, c'est-a-dire au moment precis ou la vraie page se
- * peint. Il ne remplace rien de la page d'arrivee. Le titre est pre-rempli avec
- * ce que la session sait deja de l'anime.
+ * Ce composant couvre cette fenetre, et elle seule : il apparait pendant la
+ * navigation et disparait au `routeChangeComplete`, c'est-a-dire au moment
+ * precis ou la vraie page se peint. Il ne remplace rien de la page d'arrivee.
  *
- * PAS SUR LA FICHE ANIME (retire le 18/09/2026 a la demande de l'utilisateur :
- * « ca fait bizarre »). Elle est couverte autrement : ses donnees sont
- * prechauffees au survol et remises au routeur, le clic ne les attend plus.
+ * TOUTES LES PAGES depuis le 25/11/2026 (Luc : « casi instant avec un skeleton
+ * preview ») : fiche, lecture, profil, accueil, planning, recherche, listes.
+ * La fiche en APERCU REMPLI (route-skeletons/AnimeSkeleton) : le gris vide du
+ * 18/09 avait ete retire parce qu'il « faisait bizarre ».
  *
- * Exclus : navigations shallow, et lecture → lecture (changement d'episode, que
- * EpisodeTransitionOverlay couvre deja en plein ecran).
+ * APRES 120 MS, JAMAIS AU CLIC. Un clic prechauffe (warmAnimeData, router.sdc)
+ * ou servi par le cache Cloudflare se termine en quelques dizaines de ms : il
+ * ne doit RIEN montrer, sinon le squelette d'une frame se lit comme un
+ * clignotement. Un vrai minuteur et pas seulement un fondu CSS : ce poste est
+ * en reduced-motion (memoire poste-reduced-motion), ou le fondu ne joue pas.
+ *
+ * Exclus : navigations shallow, lecture → lecture (changement d'episode, que
+ * EpisodeTransitionOverlay couvre deja en plein ecran), et une page vers
+ * elle-meme (recherche affinee, onglet de fiche) : son contenu d'avant vaut
+ * mieux qu'un squelette.
  *
  * Monte aussi les prechauffages (lib/navigation/warmAnimeData.ts).
  */
 
-type Target = { kind: "watch"; id: number };
+const SHOW_AFTER_MS = 120;
+
+type Target =
+  | { kind: "watch"; id: number }
+  | { kind: "anime"; id: number }
+  | { kind: "profile"; key: string }
+  | { kind: "home" }
+  | { kind: "schedule" }
+  | { kind: "search" }
+  | { kind: "catalog"; key: string };
 
 const WATCH_RE = /^\/(?:en|fr)\/anime\/watch\/(\d+)(?:[/?#]|$)/;
+const ANIME_RE = /^\/(?:en|fr)\/anime\/(\d+)(?:\/|$)/;
+const PROFILE_RE = /^\/(?:en|fr)\/(?:profile\/([^/]+)|my-list)\/?$/;
+const HOME_RE = /^\/(?:(?:en|fr)\/?)?$/;
+const SCHEDULE_RE = /^\/(?:en|fr)\/schedule\/?$/;
+const SEARCH_RE = /^\/(?:en|fr)\/search(?:\/|$)/;
+const CATALOG_RE = /^\/(?:en|fr)\/anime\/(popular|trending|recent|recently-watched)\/?$/;
 
 function parseTarget(url: string): Target | null {
   const path = url.split("?")[0].split("#")[0];
-  const w = path.match(WATCH_RE);
-  return w ? { kind: "watch", id: Number(w[1]) } : null;
+  let m: RegExpMatchArray | null;
+  if ((m = path.match(WATCH_RE))) return { kind: "watch", id: Number(m[1]) };
+  if ((m = path.match(ANIME_RE))) return { kind: "anime", id: Number(m[1]) };
+  if ((m = path.match(CATALOG_RE))) return { kind: "catalog", key: m[1] };
+  if ((m = path.match(PROFILE_RE))) return { kind: "profile", key: m[1] ?? "my-list" };
+  if (HOME_RE.test(path)) return { kind: "home" };
+  if (SCHEDULE_RE.test(path)) return { kind: "schedule" };
+  if (SEARCH_RE.test(path)) return { kind: "search" };
+  return null;
 }
 
-function knownTitle(id: number): any {
-  return peekPreview(id)?.title ?? getPrefetchedInfo(id)?.title ?? null;
+function samePage(a: Target, b: Target): boolean {
+  if (a.kind !== b.kind) return false;
+  if ("id" in a && "id" in b) return a.id === b.id;
+  if ("key" in a && "key" in b) return a.key === b.key;
+  return true;
+}
+
+/* ── Ce que la session sait d'un anime avant sa fiche ── */
+
+/* La carte TOUCHEE : sur mobile il n'y a pas de survol, donc pas d'apercu en
+   cache. L'image de la carte (deja affichee, donc deja en cache) et son `alt`
+   suffisent a remplir la couverture et le titre. Une seule entree : seul le
+   dernier clic compte. */
+let lastTouched: { id: number; cover: string | null; title: string | null } | null = null;
+
+function rememberTouchedCard(e: PointerEvent) {
+  const link = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+  if (!link) return;
+  const m = new URL(link.href, location.href).pathname.match(ANIME_RE);
+  if (!m) return;
+  const img = link.querySelector("img") as HTMLImageElement | null;
+  lastTouched = {
+    id: Number(m[1]),
+    cover: img?.currentSrc || img?.src || null,
+    title: img?.alt?.trim() || link.getAttribute("title") || null,
+  };
+}
+
+function animePeek(id: number, titlePref: any): AnimePeek {
+  const p = peekPreview(id);
+  const info = getPrefetchedInfo(id);
+  const touched = lastTouched?.id === id ? lastTouched : null;
+  const titleObj = p?.title ?? info?.title ?? null;
+  return {
+    title: (titleObj && pickTitle(titleObj, titlePref)) || touched?.title || null,
+    banner: p?.bannerImage ?? info?.bannerImage ?? null,
+    cover:
+      p?.coverImage?.large ??
+      info?.coverImage?.extraLarge ??
+      info?.coverImage?.large ??
+      touched?.cover ??
+      null,
+    genres: p?.genres ?? info?.genres ?? [],
+  };
 }
 
 export default function RouteSkeleton() {
   const [target, setTarget] = useState<Target | null>(null);
   const titlePref = useTitlePref();
+  const mobile = useIsMobile();
   const { data: session } = useSession();
   const ownProfile = profileHref(session?.user);
 
   useEffect(() => installAnimeDataWarmer(), []);
+
+  useEffect(() => {
+    document.addEventListener("pointerdown", rememberTouchedCard, { capture: true, passive: true });
+    return () => document.removeEventListener("pointerdown", rememberTouchedCard, { capture: true });
+  }, []);
 
   /* Le profil du compte connecte, prechauffe des l'ouverture du site : c'est la
      page la plus lente, et l'une des premieres ouvertes. */
@@ -62,19 +149,34 @@ export default function RouteSkeleton() {
   }, [session?.user, ownProfile]);
 
   useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const clear = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+    };
     const onStart = (url: string, opts?: { shallow?: boolean }) => {
+      clear();
+      setTarget(null);
       if (opts?.shallow) return;
       const next = parseTarget(url);
-      if (!next) return setTarget(null);
+      if (!next) return;
+      const here = parseTarget(window.location.pathname);
       // Lecture → lecture : changement d'episode, deja couvert ailleurs.
-      if (parseTarget(window.location.pathname)) return;
-      setTarget(next);
+      if (here?.kind === "watch" && next.kind === "watch") return;
+      // Une page vers elle-meme : son contenu d'avant reste a l'ecran.
+      if (here && samePage(here, next)) return;
+      if (next.kind === "search" && here?.kind === "search") return;
+      timer = setTimeout(() => setTarget(next), SHOW_AFTER_MS);
     };
-    const onEnd = () => setTarget(null);
+    const onEnd = () => {
+      clear();
+      setTarget(null);
+    };
     Router.events.on("routeChangeStart", onStart);
     Router.events.on("routeChangeComplete", onEnd);
     Router.events.on("routeChangeError", onEnd);
     return () => {
+      clear();
       Router.events.off("routeChangeStart", onStart);
       Router.events.off("routeChangeComplete", onEnd);
       Router.events.off("routeChangeError", onEnd);
@@ -82,8 +184,42 @@ export default function RouteSkeleton() {
   }, []);
 
   if (!target) return null;
-  const known = knownTitle(target.id);
-  const title = known ? pickTitle(known, titlePref) : null;
+
+  let body: React.ReactNode;
+  switch (target.kind) {
+    case "watch": {
+      const known = peekPreview(target.id)?.title ?? getPrefetchedInfo(target.id)?.title ?? null;
+      body = <WatchSkeleton title={known ? pickTitle(known, titlePref) : null} />;
+      break;
+    }
+    case "anime":
+      body = <AnimeSkeleton peek={animePeek(target.id, titlePref)} mobile={mobile} />;
+      break;
+    case "profile": {
+      const own =
+        !!session?.user &&
+        (target.key === "my-list" || `/en/profile/${target.key}` === ownProfile);
+      body = (
+        <ProfileSkeleton
+          name={own ? session?.user?.name ?? null : null}
+          avatar={own ? pickAvatar(session?.user) : null}
+        />
+      );
+      break;
+    }
+    case "home":
+      body = <HomeSkeleton />;
+      break;
+    case "schedule":
+      body = <ScheduleSkeleton />;
+      break;
+    case "search":
+      body = <SearchSkeleton />;
+      break;
+    case "catalog":
+      body = <CatalogSkeleton />;
+      break;
+  }
 
   return (
     <div
@@ -101,49 +237,7 @@ export default function RouteSkeleton() {
         background: "#0c0d10",
       }}
     >
-      <Watch title={title} />
-    </div>
-  );
-}
-
-/* ── Page de lecture : meme grille que #default (lecteur 16/9 dont la largeur
-      part de la hauteur d'ecran, liste d'episodes a droite a partir de lg). ── */
-function Watch({ title }: { title: string | null }) {
-  return (
-    <div className="mx-auto pt-16 lg:pt-20">
-      <div className="lg:max-w-[calc(100%_-_2.25rem)] [--player-col:min(100%_-_26rem,(100dvh_-_143px_-_1.125rem)_*_16_/_9)] lg:grid-cols-[var(--player-col)_minmax(0,1fr)] mx-auto flex w-full flex-col lg:grid">
-        <div className="w-full min-w-0">
-          <div className="flex-center aspect-video w-full bg-black rounded-card ring-1 ring-white/5" />
-          <div className="mt-3 px-3 lg:px-0">
-            <Skeleton height={45} borderRadius={12} />
-          </div>
-          <div className="mt-4 px-3 lg:px-0 lg:hidden">
-            {title ? (
-              <div className="font-outfit text-xl font-semibold text-white line-clamp-2">{title}</div>
-            ) : (
-              <Skeleton width="60%" height={24} />
-            )}
-          </div>
-        </div>
-        <div className="relative pt-4 lg:pt-0 lg:pl-4 px-3 lg:px-0">
-          <div className="hidden lg:block mb-3">
-            {title ? (
-              <div className="font-outfit text-lg font-semibold text-white line-clamp-1">{title}</div>
-            ) : (
-              <Skeleton width="70%" height={22} />
-            )}
-          </div>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="mb-2 flex gap-3">
-              <Skeleton width={120} height={68} borderRadius={8} />
-              <div className="flex-1">
-                <Skeleton width="80%" height={14} />
-                <Skeleton width="40%" height={12} />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      {body}
     </div>
   );
 }

@@ -1949,3 +1949,16 @@ Le Fluid Active CPU a explosé (**6h24 / 4h**, pic isolé **1h20 le 18/07**, pui
 - **Upstash a son plafond mensuel (500 000 / 500 000) le 31/10** : c'est pour ca que usage-monitor echoue (20/20) — il echoue expres. Reset le 1er.
 - Les 5xx (~18 % des requetes) sont TOUS sur proxy.aniscroll.com (504/503 relayes des lecteurs) ; le site lui-meme : 0.
 - `player_map.checked_at` melange ms (vieilles lignes) et s : `max()` mentait (« 25 j »).
+
+## 25/11/2026 — Squelettes de navigation sur toutes les pages, fiche en apercu rempli
+
+**Demande (Luc) :** « optimise le chargement d'une page pour qu'il soit casi instant avec un skeleton preview ». Un clic attendait `/_next/data` (fiche 0,9-4,4 s a froid, profil 1,5-2,7 s) sans rien changer a l'ecran ; seule la lecture avait un squelette.
+
+**Fait (components/shared/RouteSkeleton.tsx + route-skeletons/) :**
+- squelette pour fiche, lecture, profil, accueil, planning, recherche, listes ; chacun calque sur la vraie mise en page (captures avant/apres superposees au CDP, reseau `/_next/data` retarde de 2,5 s : couverture, onglets, synopsis a <10 px) ;
+- **fiche = apercu rempli** (Luc l'a choisi) : banniere, couverture, titre, genres tires de `peekPreview` / `getPrefetchedInfo`, ou de la carte TOUCHEE sur mobile (image + alt, capture au `pointerdown`). Meme banniere que la fiche : la carte de survol passe par le meme `resolveHeroBanner`. La place du logo-titre (280 px) est reservee, sinon chiffres et genres sautaient de 200 px ;
+- **apparition apres 120 ms par minuteur JS**, plus au `routeChangeStart` : un clic prechauffe ne montre RIEN (verifie : survol puis clic → aucun squelette). Minuteur et pas seulement fondu CSS : ce poste est en reduced-motion ;
+- exclus : shallow, lecture → lecture, page vers elle-meme, recherche → recherche ;
+- profil : generique (la forme varie par compte), avatar et pseudo du compte connecte s'il s'agit du sien ; manga = page « bientot », rien a couvrir.
+
+**Mesure locale :** apparition a 130-180 ms sur chaque page ; disparition au premier rendu de la vraie page. A valider sur dev au prochain push.
