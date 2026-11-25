@@ -621,7 +621,23 @@ export default function Info({
     // above-the-fold image/metadata fetches kick off, but well under the time
     // it takes a user to read the page and click "Watch". (Was 800ms, which
     // lost the race on fast clicks — the prefetch hadn't started yet.)
-    const timeoutId = window.setTimeout(runCritical, 200);
+    /* APRES LE CHARGEMENT DE LA PAGE (25/11/2026, passe vitesse). Partir a
+       200 ms lancait ~280 Ko de code du lecteur, la resolution de la source et
+       un premier segment video PENDANT l'affichage de la fiche : sur mobile en
+       4G lente, l'image principale arrivait apres (LCP 10 s sur Frieren). On
+       attend `load` (bureau : < 1 s, rien ne change), au plus 5 s. Le clic
+       rapide reste couvert : le bouton « Regarder » prechauffe au doigt et au
+       survol (warmWatchPath). */
+    let timeoutId: number | undefined;
+    const lancer = () => {
+      if (timeoutId == null && !cancelled) timeoutId = window.setTimeout(runCritical, 200);
+    };
+    let plafondId: number | undefined;
+    if (document.readyState === "complete") lancer();
+    else {
+      window.addEventListener("load", lancer, { once: true });
+      plafondId = window.setTimeout(lancer, 5000);
+    }
 
     const w = window as any;
     let idleId: number | undefined;
@@ -635,6 +651,8 @@ export default function Info({
     return () => {
       cancelled = true;
       window.clearTimeout(timeoutId);
+      window.clearTimeout(plafondId);
+      window.removeEventListener("load", lancer);
       if (idleId != null && typeof w.cancelIdleCallback === "function") {
         w.cancelIdleCallback(idleId);
       }
@@ -982,17 +1000,31 @@ function hasInfoShape(d: any): boolean {
   return true;
 }
 
-function makeTimer() {
+/* Les etapes du rendu, toujours dans l'en-tete `Server-Timing` (25/11/2026,
+   passe vitesse) : les journaux de fonction ne sont pas lisibles par le CLI sur
+   ce compte, et l'en-tete se lit de l'exterieur sur n'importe quel rendu
+   (DevTools > Reseau > Timing). Le journal reste reserve a PROFILE_SSR. */
+function makeTimer(res?: { setHeader?: (k: string, v: string) => unknown; headersSent?: boolean }) {
   const t0 = Date.now();
   const marks: Array<[string, number]> = [];
   return {
     mark(label: string) {
-      if (!PROFILE_SSR) return;
       marks.push([label, Date.now() - t0]);
     },
     end(label: string) {
-      if (!PROFILE_SSR) return;
       marks.push([label, Date.now() - t0]);
+      try {
+        if (res?.setHeader && !res.headersSent) {
+          const nom = (l: string) => l.replace(/[^a-zA-Z0-9_-]+/g, "_").slice(0, 40);
+          res.setHeader(
+            "Server-Timing",
+            marks.map(([l, ms], i) => `${i}-${nom(l)};dur=${ms}`).join(", "),
+          );
+        }
+      } catch {
+        /* un en-tete de mesure ne doit jamais casser une page */
+      }
+      if (!PROFILE_SSR) return;
       const summary = marks.map(([l, ms]) => `${l}=${ms}ms`).join(" ");
       // eslint-disable-next-line no-console
       console.log(`[ssr info] ${summary}`);
@@ -1042,7 +1074,7 @@ function withMalMeta(info: any, meta: MalMeta | null): any {
 
 export async function getServerSideProps(ctx: any) {
   const { id, notfound } = ctx.query;
-  const timer = makeTimer();
+  const timer = makeTimer(ctx.res);
 
   // Mobile or desktop layout, decided by the URL and NEVER by this request's
   // User-Agent: the response is edge-cached per URL, so reading the UA here let

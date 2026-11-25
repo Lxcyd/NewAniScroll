@@ -476,7 +476,36 @@ export default function RelationsGraph({
    * Everything below keys off this rather than `open`, except the things that
    * belong to a dialog (Escape, the page scroll lock).
    */
-  const active = open || !!embedded;
+  /* DANS LA PAGE, SEULEMENT A L'APPROCHE (25/11/2026, passe vitesse). La boite
+     fait 380 px mais toutes ses cartes existent dans la mise en page : le
+     `loading="lazy"` du navigateur juge leur distance sans voir le cadre qui
+     les coupe, et chargeait presque toutes les couvertures — des dizaines sur
+     One Piece, ~160 Ko piece, plus la requete de l'arbre (1,8 s), avant meme
+     qu'on ait fait defiler jusque-la. Sur mobile en 4G lente, ca passait avant
+     l'image principale de la fiche. La boite garde sa place et sa hauteur :
+     rien ne bouge quand l'arbre arrive. */
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  const [approche, setApproche] = useState(false);
+  useEffect(() => {
+    if (!embedded || approche) return;
+    const el = shellRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") {
+      setApproche(true);
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setApproche(true);
+          io.disconnect();
+        }
+      },
+      { rootMargin: "600px 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [embedded, approche]);
+  const active = open || (!!embedded && approche);
   /**
    * Whether the client has taken over from the server-rendered HTML.
    *
@@ -2301,7 +2330,9 @@ export default function RelationsGraph({
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerUp}
       >
-        {walking && nodes.length === 0 ? (
+        {/* `!active` : dans la page mais encore loin de l'ecran (cf. `approche`),
+            rien n'est demande — c'est « pas encore », pas « aucune relation ». */}
+        {(walking || !active) && nodes.length === 0 ? (
           /**
            * The board being built, said as a board.
            *
@@ -2400,7 +2431,7 @@ export default function RelationsGraph({
   // else. Expanding is the ⤢ in those controls, or the caller's own button.
   if (!open) {
     return (
-      <div style={gStyles.embedShell}>
+      <div ref={shellRef} style={gStyles.embedShell}>
         {header}
         <div style={gStyles.embedWrap}>{board}</div>
       </div>

@@ -62,18 +62,48 @@ type PopupImage = { alt: string; src: string };
 
 /** Une vidéo du carrousel : repart du début quand on arrive dessus, en pause
  *  quand on la quitte. Rien n'est téléchargé avant qu'elle soit affichée. */
+/* La page d'abord (25/11/2026, passe vitesse) : la popup s'ouvre a la premiere
+   visite, pendant que la page se charge, et sa premiere video (2,7 Mo) passait
+   avant l'image principale — mesure sur mobile en 4G lente, la moitie des
+   octets de la page. Rien n'est demande avant `load` puis un moment de repos. */
+function usePageChargee(): boolean {
+  const [pret, setPret] = useState(false);
+  useEffect(() => {
+    let fini = false;
+    let idle: number | undefined;
+    const w = window as any;
+    const ok = () => {
+      if (fini) return;
+      if (typeof w.requestIdleCallback === "function") idle = w.requestIdleCallback(() => !fini && setPret(true), { timeout: 2000 });
+      else idle = window.setTimeout(() => !fini && setPret(true), 300);
+    };
+    if (document.readyState === "complete") ok();
+    else window.addEventListener("load", ok, { once: true });
+    return () => {
+      fini = true;
+      window.removeEventListener("load", ok);
+      if (idle != null) {
+        if (typeof w.cancelIdleCallback === "function") w.cancelIdleCallback(idle);
+        window.clearTimeout(idle);
+      }
+    };
+  }, []);
+  return pret;
+}
+
 function CarouselVideo({ src, label, active }: { src: string; label: string; active: boolean }) {
   const ref = useRef<HTMLVideoElement>(null);
-  const [seen, setSeen] = useState(active);
+  const pageChargee = usePageChargee();
+  const [seen, setSeen] = useState(false);
   useEffect(() => {
-    if (active) setSeen(true);
+    if (active && pageChargee) setSeen(true);
     const v = ref.current;
     if (!v) return;
-    if (active) {
+    if (active && seen) {
       v.currentTime = 0;
       v.play().catch(() => {});
     } else v.pause();
-  }, [active, seen]);
+  }, [active, seen, pageChargee]);
   return (
     <video
       ref={ref}

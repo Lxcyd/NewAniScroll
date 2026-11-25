@@ -52,6 +52,7 @@ import {
 import { bannerCandidates, rankCandidates, studioOrder } from "@/lib/profile/favorite";
 import { useOwnLiveEntries } from "@/lib/profile/liveEntries";
 import { normalizeDressing, type Dressing } from "@/lib/profile/dressing";
+import { packEntries, unpackEntries, type PackedEntries } from "@/lib/profile/packEntries";
 import { resolveFavoriteBanner, type KnownArt } from "@/lib/profile/resolve";
 import { DEFAULT_BLOCKS, DEFAULT_LAYOUT, blockBounds, blockType, isKnownBlock } from "@/lib/profile/blocks";
 import { isValidLayout, sanitizeLayout, type GridItem } from "@/lib/profile/grid";
@@ -135,7 +136,9 @@ function parseLayout(raw: string | null | undefined): GridItem[] | null {
 type Props = {
   identity: ProfileIdentity;
   stats: ProfileStats;
-  entries: ProfileEntry[];
+  /** Compactees pour le voyage (lib/profile/packEntries), decompactees a
+   *  l'arrivee dans `Profile` : le reste de la page recoit des ProfileEntry. */
+  entries: PackedEntries | ProfileEntry[];
   /** Personnages favoris AniList — vide pour un compte qui n'en a pas. */
   characters: ProfileCharacter[];
   banner: HeroBanner;
@@ -185,7 +188,15 @@ import { PROFILE_AUTOPLAY_COOKIE } from "@/components/profile/ProfileHero";
  *  en avertissant). */
 const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 export default function Profile(props: Props) {
-  return <ProfileView key={props.identity?.tag ?? props.viewedName ?? "profile"} {...props} />;
+  /* Decompactees UNE fois par jeu de props (cf. lib/profile/packEntries). */
+  const entries = useMemo(() => unpackEntries(props.entries), [props.entries]);
+  return (
+    <ProfileView
+      key={props.identity?.tag ?? props.viewedName ?? "profile"}
+      {...props}
+      entries={entries}
+    />
+  );
 }
 
 function ProfileView({
@@ -208,7 +219,7 @@ function ProfileView({
   isPrivate,
   viewedName,
   musicPaused,
-}: Props) {
+}: Omit<Props, "entries"> & { entries: ProfileEntry[] }) {
   const { t } = useTranslation();
   /* Pour rafraîchir l'avatar et le cadre de la barre après une sauvegarde. */
   const { update: refreshSession } = useSession();
@@ -1432,7 +1443,7 @@ export async function getServerSideProps(context: any) {
     props: {
       identity,
       stats,
-      entries: entries.map(compacte),
+      entries: packEntries(entries.map(compacte)),
       characters,
       banner,
       topAnimes,
