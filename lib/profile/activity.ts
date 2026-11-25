@@ -137,6 +137,15 @@ export function decorateRows(rows: HistoryRow[], map: ProgressMap): ActivityRow[
        sans aucune progression enregistrée n'était pas pris pour un missclic —
        seul celui ouvert quelques secondes l'était — et gardait sa carte, barre
        vide (Apothecary ép. 1, King's Avatar ép. 4). */
+    /* UN VIEIL ÉPISODE ROUVERT SANS ÊTRE RELANCÉ ne compte pas non plus
+       (25/11/2026, Luc : l'ép. 1 de Firefly Wedding, vu le 14/10, rouvert
+       aujourd'hui sans lecture, prenait la carte — datée du 14/10, tombée en
+       bas — à la place de l'ép. 7 vu la veille). L'épisode a bien été vu un
+       jour, mais pas à CETTE ouverture : sa progression n'a pas été écrite
+       depuis. Une vraie relecture la date d'après l'ouverture et garde sa
+       carte. Seulement avec un `before` : sans ligne d'avant, rien à reprendre. */
+    const stale = !!row.before && !!own && Number(own.updatedAt) < row.at;
+    if (stale) end = null;
     const glance = end == null;
     /* ROUVERT MOINS D'UNE MINUTE : RIEN NE CHANGE (08/11/2026, Luc). Le
        lecteur a remplacé la ligne de l'anime à l'ouverture, mais a gardé la
@@ -536,6 +545,15 @@ export function busiestDay(map: ProgressMap, feed?: FeedEvent[] | null): Binge |
 }
 
 /** Les deux catégories dont dépend l'activité, et la série qu'elles portent. */
+/**
+ * Combien de lignes d'historique on lit avant d'écarter les coups d'œil.
+ * Douze ne suffisaient pas (25/11/2026) : neuf ép. 1 ouverts en rafale en
+ * occupaient neuf, et une vraie lecture de la veille était dixième — trois
+ * ouvertures de plus et elle disparaissait. Une ligne par anime, quelques
+ * centaines d'octets chacune.
+ */
+export const HISTORY_ROWS = 40;
+
 export function activityFromCloud(
   payloads: { recent?: unknown; progress?: unknown; feed?: FeedEvent[] | null },
   limit = 12,

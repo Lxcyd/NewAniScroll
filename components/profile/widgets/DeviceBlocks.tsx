@@ -6,7 +6,15 @@ import { useTranslation } from "react-i18next";
 
 import { extractSeasonFromTitle } from "@/components/anime/v2/helpers";
 import { readHistory, watchHref, type HistoryRow } from "@/lib/profile/history";
-import { decorateRows, watchStreak, type ActivityRow, type ProgressMap } from "@/lib/profile/activity";
+import {
+  decorateRows,
+  HISTORY_ROWS,
+  watchStreak,
+  withFeed,
+  type ActivityRow,
+  type FeedEvent,
+  type ProgressMap,
+} from "@/lib/profile/activity";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import type { ProfileTitle } from "@/lib/profile/types";
 import { readProgressMap, PROGRESS_EVENT } from "@/lib/watch/progress";
@@ -69,6 +77,7 @@ function useHistory(
   limit: number,
   extra?: ProgressMap | null,
   extraRows?: HistoryRow[] | null,
+  feed?: FeedEvent[] | null,
 ): {
   rows: ActivityRow[];
   streak: number;
@@ -87,7 +96,14 @@ function useHistory(
     const read = () => {
       const map = readProgressMap();
       setState({
-        rows: decorateRows(mergeHistory(readHistory(limit), extraRows, limit), mergeProgress(map, extra)),
+        /* LA RECETTE DU VISITEUR (lib/profile/activity.ts, activityFromCloud) :
+           le fil APRÈS la fusion des tables, pour qu'il l'emporte sur une
+           entrée non vue comme chez lui — fusionné avant, une entrée locale
+           plus récente mais non vue l'écrasait par sa date (25/11/2026). */
+        rows: decorateRows(
+          mergeHistory(readHistory(limit), extraRows, limit),
+          withFeed(mergeProgress(map, extra), feed),
+        ),
         /* Chez soi, la série est comptée ICI et pas au rendu serveur : le
            « jour » d'une série est un jour de CALENDRIER, donc il dépend du
            fuseau, et celui du navigateur est le bon. */
@@ -102,7 +118,7 @@ function useHistory(
       window.removeEventListener(PROGRESS_EVENT, read);
       window.removeEventListener("storage", read);
     };
-  }, [limit, extra, extraRows]);
+  }, [limit, extra, extraRows, feed]);
   return state;
 }
 
@@ -113,8 +129,9 @@ function useRows(
   servedStreak = 0,
   extra?: ProgressMap | null,
   extraRows?: HistoryRow[] | null,
+  feed?: FeedEvent[] | null,
 ) {
-  const local = useHistory(limit, extra, extraRows);
+  const local = useHistory(limit, extra, extraRows, feed);
   return served ? { rows: served, streak: servedStreak, loaded: true } : local;
 }
 
@@ -284,10 +301,12 @@ export function ResumeBlock({
   stacked = false,
   extra = null,
   extraRows = null,
+  feed = null,
 }: ActivityProps & {
   /** Chez soi : progression et historique du compte (cf. mergeProgress / mergeHistory). */
   extra?: ProgressMap | null;
   extraRows?: HistoryRow[] | null;
+  feed?: FeedEvent[] | null;
   ambient?: boolean;
   /** Bloc en 2×2 : l'image en haut, le texte dessous. Sinon, côte à côte. */
   stacked?: boolean;
@@ -296,7 +315,7 @@ export function ResumeBlock({
 } = {}) {
   const { t } = useTranslation();
   const rowTitle = useRowTitle(titles);
-  const { rows, loaded } = useRows(served, 12, 0, extra, extraRows);
+  const { rows, loaded } = useRows(served, HISTORY_ROWS, 0, extra, extraRows, feed);
 
   /* L'ANIME LE PLUS RÉCENT, et la bonne suite pour lui.
      — épisode commencé, pas fini : on le reprend ;
@@ -630,17 +649,19 @@ export function RecentsBlock({
   /* Chez soi : la progression du compte et du fil AniList (cf. mergeProgress). */
   extra = null,
   extraRows = null,
+  feed = null,
 }: ActivityProps & {
   streakOn?: boolean;
   editing?: boolean;
   coverArt?: boolean;
   extra?: ProgressMap | null;
   extraRows?: HistoryRow[] | null;
+  feed?: FeedEvent[] | null;
 } = {}) {
   const { t } = useTranslation();
   const ago = useAgo();
   const rowTitle = useRowTitle(titles);
-  const { rows: all, streak, loaded } = useRows(served, 12, servedStreak, extra, extraRows);
+  const { rows: all, streak, loaded } = useRows(served, HISTORY_ROWS, servedStreak, extra, extraRows, feed);
   /* Un épisode ouvert quelques secondes (missclic) n'a pas de carte. */
   const rows = useMemo(() => all.filter((r) => !r.glance), [all]);
   /* L'ENTRÉE (08/11/2026, Luc : « il manque l'anim du contenu ») : les lignes

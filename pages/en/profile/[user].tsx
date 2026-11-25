@@ -60,9 +60,10 @@ import {
   activityFromCloud,
   historyFromCloud,
   progressFromCloud,
-  withFeed,
+  HISTORY_ROWS,
   type ActivityRow,
   type Binge,
+  type FeedEvent,
   type ProgressMap,
   type WatchDays,
 } from "@/lib/profile/activity";
@@ -161,6 +162,8 @@ type Props = {
   ownerProgress?: ProgressMap | null;
   /** Chez soi seulement : l'historique du compte, mêlé à celui du navigateur. */
   ownerHistory?: HistoryRow[] | null;
+  /** Chez soi seulement : le fil AniList sur 120 jours, appliqué par withFeed. */
+  ownerFeed?: FeedEvent[] | null;
   /** Ses jours consécutifs de lecture, comptés en même temps que `activity`. */
   streak: number | null;
   /** Ses jours de lecture, pour le calendrier — seulement s'il est posé. */
@@ -215,6 +218,7 @@ function ProfileView({
   profileLayout,
   activity,
   ownerProgress,
+  ownerFeed,
   ownerHistory,
   streak,
   watchDays,
@@ -594,6 +598,7 @@ function ProfileView({
             activity={activity ?? null}
             ownerProgress={ownerProgress ?? null}
             ownerHistory={ownerHistory ?? null}
+            ownerFeed={ownerFeed ?? null}
             streak={streak ?? null}
             watchDays={watchDays ?? null}
             anilistDays={anilistDays}
@@ -1350,9 +1355,12 @@ export async function getServerSideProps(context: any) {
       ? await getAnilistFeed(account.id).catch(() => null)
       : null;
   const read = layoutWantsActivity(profileLayout)
-    ? activityFromCloud({ recent: payloadOf("recent"), progress: payloadOf("progress"), feed: feed?.e }, 12)
+    ? activityFromCloud({ recent: payloadOf("recent"), progress: payloadOf("progress"), feed: feed?.e }, HISTORY_ROWS)
     : null;
-  const activity: ActivityRow[] | null = read?.rows ?? null;
+  /* Les coups d'œil ne voyagent pas : aucun bloc ne les montre, et on lit
+     large (HISTORY_ROWS) justement pour qu'ils ne chassent pas les vraies
+     lignes. */
+  const activity: ActivityRow[] | null = read ? read.rows.filter((r) => !r.glance).slice(0, 20) : null;
   /* CHEZ SOI, LA PROGRESSION DU COMPTE ET DU FIL ANILIST (08/11/2026, Luc).
      « Vu récemment » lit le navigateur du propriétaire, plus frais et vivant —
      mais aveugle à ce qu'il a regardé ailleurs (un autre site, aniscroll.com vu
@@ -1366,19 +1374,23 @@ export async function getServerSideProps(context: any) {
   const ownerWants = isOwner && !!read && shown.some((o) => ["recents", "resume"].includes(blockType(o.i)));
   /* L'HISTORIQUE DU COMPTE, chez soi : ce qu'un autre appareil a regardé. Le
      navigateur garde le dernier mot anime par anime (DeviceBlocks.tsx). */
-  const ownerHistory: HistoryRow[] | null = ownerWants ? historyFromCloud(payloadOf("recent"), 12) : null;
-  const ownerProgress: ProgressMap | null =
-    ownerWants
-      ? withFeed(
-          Object.fromEntries(
-            Object.entries(progressFromCloud(payloadOf("progress"))).filter(
-              ([, e]) => Number(e?.updatedAt) > Date.now() - 120 * 86_400_000,
-            ),
-          ),
-          feed?.e,
-          Date.now() - 120 * 86_400_000,
-        )
-      : null;
+  const ownerHistory: HistoryRow[] | null = ownerWants ? historyFromCloud(payloadOf("recent"), HISTORY_ROWS) : null;
+  /* LA MÊME RECETTE QUE CHEZ LE VISITEUR (25/11/2026) : la table du compte et
+     le fil AniList partent SÉPARÉMENT, et le navigateur fait
+     withFeed(table locale ∪ table du compte, fil). Envoyer la table déjà
+     complétée laissait une entrée locale non vue (ép. 2 de Firefly Wedding,
+     7 s) écraser l'épisode que le fil disait vu, par sa seule date : la chaîne
+     1 → 7 cassait chez soi et pas chez les visiteurs. 120 jours suffisent aux
+     deux blocs. */
+  const since = Date.now() - 120 * 86_400_000;
+  const ownerProgress: ProgressMap | null = ownerWants
+    ? Object.fromEntries(
+        Object.entries(progressFromCloud(payloadOf("progress"))).filter(([, e]) => Number(e?.updatedAt) > since),
+      )
+    : null;
+  const ownerFeed: FeedEvent[] | null = ownerWants
+    ? (feed?.e ?? []).filter((f) => Array.isArray(f) && Number(f[0]) * 1000 > since)
+    : null;
   /* La serie suit exactement le meme garde-fou que les lignes : elle decrit la
      lecture du proprietaire, elle ne doit pas rester lisible dans
      __NEXT_DATA__ quand la grille n'affiche plus le bloc qui la montre. */
@@ -1466,6 +1478,7 @@ export async function getServerSideProps(context: any) {
       profileLayout,
       activity,
       ownerProgress,
+      ownerFeed,
       ownerHistory,
       streak,
       watchDays,
