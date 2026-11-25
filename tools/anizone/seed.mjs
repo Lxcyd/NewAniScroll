@@ -9,8 +9,12 @@
  *   node tools/anizone/seed.mjs --ids 154587,182255  titres AniList precis
  *   node tools/anizone/seed.mjs --top 50             les 50 plus populaires
  *   node tools/anizone/seed.mjs --map                tous les titres connus
+ *   node tools/anizone/seed.mjs --sonde              anizone joignable d'ici ?
  *   options : --force (relit les episodes deja ranges), --dry (n'ecrit rien),
  *             --budget N (minutes, arret propre avant)
+ *
+ * L'acces passe par tools/anizone/transport.mjs : direct avec des en-tetes de
+ * Chrome, sinon un vrai Chrome (test anti-robot de Cloudflare).
  *
  * --auto, dans l'ordre, jusqu'a epuisement du budget :
  *   1. la file `anizone_demande` (episodes ouverts par un visiteur, absents) :
@@ -28,6 +32,7 @@
 import { createClient } from "@libsql/client";
 import { loadEnv } from "../turso/lib.mjs";
 import { Bloque, capture, ecrisEpisode, lisEpisode, reglages, tables, trouve } from "../../lib/anizone/core.mjs";
+import { installe } from "./transport.mjs";
 
 loadEnv();
 reglages.ms = 20_000;
@@ -244,14 +249,29 @@ async function principal() {
   }
 }
 
+console.log("— acces a anizone");
+const acces = await installe();
+if (!acces) {
+  console.error("\n⛔ anizone refuse cette machine par tous les moyens essayes (voir ci-dessus).");
+  process.exit(1);
+}
+console.log(`  → mode ${acces.mode}`);
+if (opt("sonde")) {
+  await acces.fermer();
+  process.exit(0);
+}
+
 try {
   await tables(db);
   await principal();
 } catch (e) {
   if (e instanceof Bloque) {
-    console.error(`\n⛔ ${e.message} : anizone refuse les IP de cette machine.`);
+    console.error(`\n⛔ ${e.message} en cours de passage (mode ${acces.mode}).`);
+    await acces.fermer();
     process.exit(1);
   }
   throw e;
+} finally {
+  await acces.fermer().catch(() => {});
 }
 console.log(`\n${ranges} episode(s) range(s)${DRY ? " (--dry : rien ecrit)" : ""}${reste() ? "" : " — budget epuise"}`);
