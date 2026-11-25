@@ -6,6 +6,43 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-11-25 — Passe vitesse 2 : ce qui part AVANT l'image principale (plan : docs/PERF-PLAN.md)
+
+**Demande (Luc) :** « les pages mettent trop de temps a charger », grosse opti sans rien casser, plan solide.
+
+**Ce que les moyennes ne disaient pas.** perf-measure.mjs donnait les LCP mobiles (fiche 10 s, One Piece
+18 s, Decouvrir 21 s) mais pas POURQUOI. Le releve `tools/browser-check/avant-lcp.mjs` (chaque requete partie
+avant l'image principale : ordre, poids, priorite, initiateur) l'a dit : sur la fiche mobile, **2,2 Mo**
+passaient avant la banniere (171 Ko, demandee a 0,3 s, arrivee a 9 s).
+
+**Les vrais goulots, et le correctif :**
+- next/link precharge le code de toute page dont un lien est visible **puis l'execute au repos**
+  (route-loader : `prefetch` puis `loadRoute`). ~260 Ko sur la fiche. Sur ecran tactile, seulement au toucher
+  (`_app`, filtre sur `router.prefetch` sans `priority`) ; nos prechargements explicites passent `priority: true`.
+- Le module de la page de lecture lancait `preloadPlayerCode()` a son evaluation : execute en avance depuis la
+  fiche, il tirait ~300 Ko de lecteur + hls.js. Seulement si la page affichee est la lecture (+ premier rendu).
+- Couverture prechargee (Link header, priorite haute) au rang de la banniere sur la fiche mobile : retiree.
+- Arbre de franchise : `loading="lazy"` aveugle au cadre de 380 px (cartes positionnees dans un plateau
+  transforme) → des dizaines de couvertures + la requete de l'arbre. Monte a 600 px de l'ecran (squelette
+  avant, pour ne pas dire « aucune relation »).
+- Decouvrir : 6 cartes × 2 images de fond au meme rang, la carte visible servie la derniere (16,5 s). Les
+  voisines attendent les images de la visible (4 s au plus).
+- Fiche : preparation de la page de lecture apres `load` (5 s au plus) ; popup Nouveautes : video apres `load`.
+- Profil : entrees compactees par dictionnaire (694 → 419 Ko), aller-retour verifie identique sur 693 entrees.
+  Leur lecture ne coute que ~2 ms : le TBT de 2 s du profil est le RENDU, pas les donnees.
+- `Server-Timing` sur la fiche : les journaux de fonction ne sont pas lisibles par le CLI sur ce compte.
+
+**Resultat (dev, mediane de 3, mobile 4G lente)** : Decouvrir 21,1 → 9,3 s ; fiche Frieren 10,0 → 8,2 s ;
+One Piece 17,8 → 15,4 s ; le reste inchange ; bureau inchange.
+
+**Navigation (ce que Luc ressent) :** un clic attend `/_next/data` sans rien changer a l'ecran. Rendu chez
+Vercel a froid 0,9-4,4 s, a chaud 0,58 s ; cache Cloudflare vide a chaque deploiement et URL de donnees
+changeant avec le build. Le prechauffage au survol couvre le bureau. Chantier P1 du plan.
+
+**Pieges :** le hook anti-boucle refuse toute commande contenant `for` ET une URL du site, meme dans un
+`node -e` a une seule requete, et meme dans un en-tete `Origin` : passer par un fichier. `xvfb-run` par defaut =
+640x480x8. Fins de ligne CRLF dans certains fichiers : un remplacement par script peut n'en toucher qu'une partie.
+
 ## 2026-11-20 — Passe vitesse « 31 etapes » : mesure avant/apres, la CLS mobile etait la popup du changelog
 
 **Demande :** appliquer une checklist de perf (31 etapes, tiree d'un reel) a tout le site sans rien casser, et

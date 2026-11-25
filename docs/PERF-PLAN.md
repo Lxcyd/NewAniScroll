@@ -77,6 +77,32 @@ toucher (~100 ms d'avance).
    tags/genres/studios, préfixe des couvertures. 694 → 419 Ko brut, 128 → 103 Ko gz.
    Aller-retour vérifié identique sur 693 entrées réelles.
 5. **`Server-Timing` sur la fiche** : chaque rendu dit où il a passé son temps.
+6. **Écran tactile : plus de préchargement « parce que visible »** (`_app`) : next/link
+   préchargeait PUIS EXÉCUTAIT au repos le code de toute page dont un lien entrait dans
+   l'écran (~260 Ko). Il précharge maintenant au toucher ; nos appels explicites passent
+   `priority: true`. Bureau inchangé.
+7. **Page de lecture : le lecteur (~300 Ko, hls.js compris) ne se précharge que si elle est
+   affichée** — son module était exécuté en avance depuis la fiche, et le tirait.
+8. **Fiche mobile : la couverture n'est plus préchargée au rang de la bannière** (image
+   principale).
+9. **Découvrir : la carte visible charge ses images avant ses voisines** (12 images,
+   2,6 Mo au même rang ; l'image principale arrivait la dernière).
+
+### Résultat (dev, médiane de 3, à froid)
+
+| Mobile 4G lente | LCP avant | LCP après |
+|---|--:|--:|
+| Découvrir | 21,1 s | **9,3 s** |
+| Fiche Frieren | 10,0 s | **8,2 s** (relevé détaillé : 9,0 → 5,9 s ; octets avant l'image principale 2,2 → 1,0 Mo) |
+| Fiche One Piece | 17,8 s | **15,4 s** |
+| Profil | 12,0 s | 11,6 s |
+| Accueil, Recherche, Planning, Populaires, Lecture | — | inchangés |
+
+Bureau : inchangé, au bruit près (0,4-0,5 s ; profil 1,3 s).
+
+Outil ajouté pour la suite : un relevé « tout ce qui part avant l'image principale »
+(ordre, poids, priorité, initiateur) — c'est lui qui a trouvé les vrais goulots, là où
+les moyennes ne disaient rien. Versé : `tools/browser-check/avant-lcp.mjs`.
 
 ## 3. La suite, par gain attendu
 
@@ -92,10 +118,13 @@ toucher (~100 ms d'avance).
   À peser contre le quota Fluid (CLAUDE.md, règle 1).
 
 ### P2 — Mobile : moins d'octets avant l'image principale
-- **Préchargement `next/link`** : en viewport sur mobile, il tire ~400 Ko de code de pages
-  qu'on n'ouvrira pas. Le passer « à l'intention » (toucher) sur écran tactile.
-- **Carrousels** (Découvrir 21 s, accueil) : ne charger que la bannière visible, les autres
-  à l'approche du défilement.
+- ~~Préchargement `next/link` sur tactile~~ (fait, point 6) ; ~~Découvrir~~ (fait, point 9).
+- **One Piece (15 s)** : relevé « avant l'image principale » à faire, même méthode — la
+  bande de couvertures `medium` (saisons, PNG jusqu'à 160 Ko) est le suspect.
+- **Polices (~280 Ko, 16 fichiers, priorité très haute)** : Karla ×5, Outfit ×2, Roboto ×3,
+  Inter ×4… C'est le plus gros poste restant avant l'image principale, mais c'est du DESIGN :
+  réduire les familles/graisses demande l'accord de Luc.
+- **Accueil (5,7 s)** : relevé à faire.
 - **Couvertures** : vérifier les tailles demandées à AniList (`large` vs `medium`) carte par
   carte ; `decoding="async"` partout.
 - Polices : n'embarquer que les graisses réellement utilisées au premier écran.

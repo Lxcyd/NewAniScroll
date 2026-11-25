@@ -261,6 +261,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Infra, cout, cache & releases — [`devlog/infra.md`](devlog/infra.md)
 
+- 2026-11-25 — **Passe vitesse 2, ce qui part AVANT l'image principale** (avant-lcp.mjs) : prechargement next/link au viewport coupe sur tactile, lecteur plus precharge par la fiche, arbre de franchise a l'approche, Decouvrir carte visible d'abord ; mobile Decouvrir 21 -> 9,3 s, fiche 10 -> 8,2 s ; plan docs/PERF-PLAN.md
 - 2026-11-20 — **Passe vitesse « 31 etapes »** mesuree (perf-measure.mjs) : CLS mobile 0,29 -> 0 sur 7 pages (popup changelog ouverte avant la bascule FR), recherche mobile 5,0 -> 2,2 Mo, CSS global -23 % ; dedup episodes, waitUntil, timeouts, schema en 1 lecture, Speed Insights ; hydration-check aveugle (403 WAF)
 - 2026-10-23 (soir) — **Rendu hors cache 5-10x plus rapide** : Jikan muet bloquait 2,5-3 s chaque page anime (valeur perimee jamais remarquee) ; copie Turso avant AniList ; liste des retraits hors de Postgres a froid ; repli memoire quand Upstash est epuise
 - 2026-10-23 — **Passe d'optimisation page par page** : doublons `/api/auth/session` (toutes les pages), `anilist-health` et `discover/1` (visiteurs FR), `/w/track` (pages statiques comptees deux fois), 3 -> 1 requete AniList sur l'accueil ; planning 382 -> 62 Ko ; chunks anime/profil/my-list/parametres/admin alleges ; `art-counts` en memoire ; **Upstash a 500 000/500 000** (local + dev)
