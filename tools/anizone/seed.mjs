@@ -153,17 +153,17 @@ async function serie(slug, depuis = 1) {
         if (e instanceof Bloque) throw e;
         console.log(`  ✗ ${slug}/${ep} : ${e.message}`);
         await echec(e);
-        if (essai) return n;
+        if (essai) return { n, complet: false };
         await dort(10_000);
       }
     }
     await dort(PAUSE_MS);
-    if (cap.absent) break; // fin de la serie (ou episode pas encore sorti)
+    if (cap.absent) return { n, complet: true }; // fin de la serie (ou episode pas encore sorti)
     if (!DRY) await ecrisEpisode(db, slug, ep, cap);
     n++;
     ranges++;
   }
-  return n;
+  return { n, complet: false }; // budget ou borne atteints
 }
 
 async function titre(media) {
@@ -176,11 +176,16 @@ async function titre(media) {
     // Une recherche ratee ne coute que ce titre ; il reste a chercher.
     if (e instanceof Bloque) throw e;
     console.log(`✗ ${nom} : ${e.message}`);
-    return echec(e);
+    await echec(e);
+    return false;
   }
-  if (!slug) return console.log(`· ${nom} : pas sur anizone`);
-  const n = await serie(slug);
-  console.log(`✓ ${nom} (${slug}) : ${n} episode(s) range(s)`);
+  if (!slug) {
+    console.log(`· ${nom} : pas sur anizone`);
+    return true;
+  }
+  const { n, complet } = await serie(slug);
+  console.log(`${complet ? "✓" : "…"} ${nom} (${slug}) : ${n} episode(s) range(s)${complet ? "" : ", incomplet"}`);
+  return complet;
 }
 
 // ── Les modes ────────────────────────────────────────────────────────────
@@ -190,16 +195,21 @@ async function file() {
   const ids = r.rows.map((x) => Number(x.ani_id));
   if (!ids.length) return;
   console.log(`\n— file : ${ids.length} titre(s) demande(s)`);
-  for (const m of await medias(ids)) {
+  const trouves = await medias(ids);
+  for (const m of trouves) {
     if (!reste()) return;
-    await titre(m);
-    if (!DRY) await db.execute({ sql: "DELETE FROM anizone_demande WHERE ani_id = ?", args: [m.id] });
+    /* La demande ne quitte la file que si le titre est alle AU BOUT (ou
+       n'est pas sur anizone) : un passage coupe par une panne d'anizone la
+       supprimait, et les episodes restants n'etaient plus jamais demandes. */
+    const fini = await titre(m);
+    if (fini && !DRY) await db.execute({ sql: "DELETE FROM anizone_demande WHERE ani_id = ?", args: [m.id] });
   }
   // Ids inconnus d'AniList : rien a en faire.
-  if (!DRY && reste())
+  const inconnus = ids.filter((id) => !trouves.some((m) => m.id === id));
+  if (inconnus.length && !DRY)
     await db.execute({
-      sql: `DELETE FROM anizone_demande WHERE ani_id IN (${ids.map(() => "?").join(",")})`,
-      args: ids,
+      sql: `DELETE FROM anizone_demande WHERE ani_id IN (${inconnus.map(() => "?").join(",")})`,
+      args: inconnus,
     });
 }
 
@@ -225,7 +235,7 @@ async function suites() {
   for (const m of aSuivre) {
     if (!reste()) return;
     const x = parId.get(m.id);
-    const n = await serie(String(x.slug), Number(x.dernier) + 1);
+    const { n } = await serie(String(x.slug), Number(x.dernier) + 1);
     if (n) console.log(`✓ ${m.title?.romaji} : ${n} nouvel(s) episode(s)`);
   }
 }
@@ -261,7 +271,7 @@ async function principal() {
     const r = await db.execute("SELECT DISTINCT slug FROM anizone_map WHERE slug IS NOT NULL");
     for (const x of r.rows) {
       if (!reste()) break;
-      const n = await serie(String(x.slug));
+      const { n } = await serie(String(x.slug));
       console.log(`✓ ${x.slug} : ${n} episode(s) range(s)`);
     }
   } else if (opt("auto")) {

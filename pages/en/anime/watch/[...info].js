@@ -856,7 +856,8 @@ export default function Watch({
       // demarrage, fait pendant que l'episode courant se termine.
       warmClientExtract(data);
       const flux = data?.streams?.[0] || data?.sources?.[0];
-      if (flux?.directUrl && /\.m3u8(\?|$)/i.test(flux.url || "")) {
+      // Pas un flux natif (anizone) : son CDN refuse tout fetch() venu d'ici.
+      if (flux?.directUrl && !flux.native && /\.m3u8(\?|$)/i.test(flux.url || "")) {
         preconnectOrigin(flux.url);
         prechargeManifeste(flux.url);
       }

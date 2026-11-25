@@ -329,6 +329,11 @@ export async function warmStream(
 ): Promise<boolean> {
   const source = streamData?.sources?.[0] ?? streamData?.streams?.[0];
   if (!source?.url) return false;
+  /* LECTURE NATIVE (anizone, 25/11/2026). Le CDN n'accepte un fetch() que
+     depuis https://anizone.to : lire le master ici echoue TOUJOURS (CORS), et
+     ce `false` faisait basculer de lecteur alors que le <video> natif, lui,
+     lit sans CORS. Rien a chauffer ni a verifier d'ici : tenu pour sain. */
+  if (source.native) return true;
   const direct = source.directUrl === true;
   if (!direct && !opts.viaProxy) return false;
   const depart = playbackUrl(source, streamData?.referer);
