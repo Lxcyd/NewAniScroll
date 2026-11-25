@@ -114,6 +114,41 @@ const MERGERS: Partial<Record<DataKind, (payload: unknown) => boolean>> = {
       return false;
     }
   },
+  /* L'HISTORIQUE AUSSI (25/11/2026, Luc : son profil vu en navigation privée
+     montrait Firefly Wedding dans « Vu récemment » et « Regarde en ce moment »,
+     son propre navigateur non). Une ligne par anime : écrasé en bloc, le store
+     de dev.aniscroll.com ignorait ce que localhost avait poussé, et l'aurait
+     effacé du compte à son prochain envoi. Ici, anime par anime, la ligne la
+     plus récente (`createdAt`) gagne. Revers, le même que pour la progression :
+     une ligne retirée sur un appareil revient si un autre l'a encore. */
+  recent: (payload) => {
+    const raw = (payload as Record<string, unknown> | null)?.["artplayer_settings"];
+    if (typeof raw !== "string") return false;
+    try {
+      type R = { createdAt?: string | number };
+      const at = (r: R | undefined) => {
+        const v = r?.createdAt;
+        const t = typeof v === "number" ? v : Date.parse(String(v ?? ""));
+        return Number.isFinite(t) ? t : 0;
+      };
+      const cloud = JSON.parse(raw) as Record<string, R>;
+      const local = JSON.parse(localStorage.getItem("artplayer_settings") || "{}") as Record<string, R>;
+      let differs = false;
+      let changed = false;
+      for (const [k, r] of Object.entries(cloud)) {
+        const mine = local[k];
+        if (!mine || at(r) > at(mine)) {
+          local[k] = r;
+          changed = true;
+        } else if (at(r) !== at(mine)) differs = true;
+      }
+      for (const k of Object.keys(local)) if (!(k in cloud)) differs = true;
+      if (changed) localStorage.setItem("artplayer_settings", JSON.stringify(local));
+      return changed || differs;
+    } catch {
+      return false;
+    }
+  },
 };
 
 /**
