@@ -964,7 +964,14 @@ export default function ProfileOverview({
      après le dernier. */
   const totalsById = useMemo(() => {
     const map = new Map<number, number | null>();
-    for (const e of entries) map.set(e.mediaId, e.total);
+    /* LE DERNIER ÉPISODE SORTI, pas le total (25/11/2026, Luc : « Reprendre »
+       proposait l'ép. 8 de Firefly Wedding, pas encore diffusé). En
+       diffusion, AniList donne le prochain à sortir : celui d'avant est le
+       dernier regardable. « Reprendre » saute un anime dont on a tout vu. */
+    for (const e of entries) {
+      const out = e.nextEpisode ? e.nextEpisode - 1 : null;
+      map.set(e.mediaId, out != null ? Math.min(out, e.total ?? out) : e.total);
+    }
     return map;
   }, [entries]);
 

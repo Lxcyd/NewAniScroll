@@ -310,7 +310,7 @@ export function ResumeBlock({
   ambient?: boolean;
   /** Bloc en 2×2 : l'image en haut, le texte dessous. Sinon, côte à côte. */
   stacked?: boolean;
-  /** Nombre d'épisodes par `mediaId`, tiré de la liste — `null` si inconnu. */
+  /** Dernier épisode SORTI par `mediaId` (total, ou prochain à diffuser − 1), tiré de la liste — `null` si inconnu. */
   totals?: Map<number, number | null>;
 } = {}) {
   const { t } = useTranslation();
