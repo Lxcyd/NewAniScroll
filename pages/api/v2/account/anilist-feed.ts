@@ -6,7 +6,8 @@ import {
   putAnilistFeed,
   type FeedEvent,
 } from "@/lib/auth/userData";
-import { finsOf, mergeCompletions } from "@/lib/anilist/feedFins";
+import { finsOf } from "@/lib/anilist/feedFins";
+import { mergeFeed, validEvent as valid } from "@/lib/anilist/feedMerge";
 
 /**
  * Le fil d'activité AniList du compte (cf. lib/anilist/feedImport.ts).
@@ -18,21 +19,6 @@ import { finsOf, mergeCompletions } from "@/lib/anilist/feedFins";
  *          du passé. `full: true` remplace tout.
  */
 export const config = { api: { bodyParser: { sizeLimit: "2mb" } } };
-
-function valid(x: unknown, now: number): x is FeedEvent {
-  if (!Array.isArray(x) || x.length !== 3) return false;
-  const [t, m, ep] = x;
-  return (
-    Number.isInteger(t) &&
-    t > 1_000_000_000 &&
-    t < now / 1000 + 86_400 &&
-    Number.isInteger(m) &&
-    m > 0 &&
-    Number.isInteger(ep) &&
-    ep > 0 &&
-    ep < 10_000
-  );
-}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const user = await requireUser(req, res);
@@ -69,37 +55,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!Number.isInteger(last) || last < 0 || !incoming) return res.status(400).json({ error: "body" });
 
     const old = req.body?.full ? null : await getAnilistFeed(user.id);
-    const seen = new Set<string>();
-    const all: FeedEvent[] = [];
-    for (const ev of [...incoming, ...(old?.e ?? [])] as FeedEvent[]) {
-      const k = ev.join(":");
-      if (seen.has(k)) continue;
-      seen.add(k);
-      all.push(ev);
-    }
-    all.sort((a, b) => b[0] - a[0]);
-    /* La reprise de la lecture du passé : la date la plus ancienne lue, et si
-       on est arrivé au bout. */
-    const sent = Number(req.body?.oldest);
-    const oldest = [old?.oldest, Number.isInteger(sent) && sent > 0 ? sent : undefined]
-      .filter((x): x is number => !!x)
-      .reduce((a, b) => Math.min(a, b), Infinity);
-    /* Les lignes « completed » survivent à chaque envoi d'épisodes. */
-    const c = mergeCompletions(old?.c, req.body?.c, now);
-    const cSent = Number(req.body?.cOldest);
-    const cOldest = [old?.cOldest, Number.isInteger(cSent) && cSent > 0 ? cSent : undefined]
-      .filter((x): x is number => !!x)
-      .reduce((a, b) => Math.min(a, b), Infinity);
-    await putAnilistFeed(user.id, {
-      last: Math.max(last, old?.last ?? 0),
-      e: all.slice(0, FEED_MAX_EVENTS),
-      ...(Number.isFinite(oldest) ? { oldest } : {}),
-      ...(req.body?.done === true || old?.done ? { done: true } : {}),
-      ...(Object.keys(c).length ? { c } : {}),
-      ...(Number.isFinite(cOldest) ? { cOldest } : {}),
-      ...(req.body?.cDone === true || old?.cDone ? { cDone: true } : {}),
-    });
-    return res.status(200).json({ n: Math.min(all.length, FEED_MAX_EVENTS) });
+    /* La fusion est partagée avec tools/anilist-feed/backfill.mjs (25/11/2026). */
+    const feed = mergeFeed(old, { ...req.body, last, e: incoming as FeedEvent[] }, now, FEED_MAX_EVENTS);
+    await putAnilistFeed(user.id, feed);
+    return res.status(200).json({ n: feed.e.length });
   }
 
   return res.status(405).json({ error: "method" });
