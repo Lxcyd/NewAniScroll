@@ -10,12 +10,14 @@
 #   2. les nouveaux episodes des titres en cours ;
 #   3. la decouverte du reste du catalogue, par popularite AniList.
 #
-# GitHub (Azure) est refuse lui aussi en direct (403 le 25/11). D'ou une
-# CASCADE, arretee au premier moyen qui passe :
-#   a. direct avec des en-tetes de Chrome (tools/anizone/transport.mjs) ;
-#   b. un vrai Chrome sur ecran virtuel, qui passe le test anti-robot ;
-#   c. si a et b echouent : sortie par Cloudflare WARP (autres IP), puis a et b
-#      a nouveau.
+# GitHub (Azure) recoit en direct un TEST anti-robot de Cloudflare
+# (cf-mitigated: challenge, 25/11). D'ou une CASCADE, arretee au premier moyen
+# qui passe (tools/anizone/transport.mjs) :
+#   a. direct avec des en-tetes de Chrome ;
+#   b. un Chrome lance « a la main » sur ecran virtuel, qui passe le test
+#      (clic X11 sur la case s'il le faut), puis son cookie cf_clearance ;
+#   c. si a et b echouent : sortie par Tor, puis b a nouveau.
+# (WARP essaye le 25/11 : « Attention Required! » partout — retire.)
 # Le journal de l'etape « Sonde » dit lequel a marche, et decrit chaque refus.
 #
 # Secrets requis (Repository → Settings → Secrets and variables → Actions) :
@@ -39,8 +41,8 @@ on:
         required: false
         type: boolean
         default: false
-      warp:
-        description: "Passer par WARP d'emblee"
+      tor:
+        description: "Passer par Tor d'emblee"
         required: false
         type: boolean
         default: false
@@ -59,6 +61,8 @@ jobs:
       TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
       TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
       CHROME_PATH: /usr/bin/google-chrome
+      # Le bac a sable de Chrome bute sur l'AppArmor d'Ubuntu 24 en CI.
+      ANIZONE_NO_SANDBOX: "1"
 
     steps:
       # Le code vient de `dev` : GitHub ne lance un cron que depuis `main`, mais
@@ -81,34 +85,32 @@ jobs:
           npm install --silent @libsql/client@^0.17 playwright-core@^1.50
           ln -s /tmp/az/node_modules "$GITHUB_WORKSPACE/node_modules"
           echo "PLAYWRIGHT_CORE=/tmp/az/node_modules/playwright-core/index.mjs" >> "$GITHUB_ENV"
-          command -v xvfb-run || (sudo apt-get update -qq && sudo apt-get install -y -qq xvfb)
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb xdotool
           google-chrome --version
 
-      - name: Sonde (direct, puis navigateur)
+      # Ecran virtuel realiste : le defaut de xvfb-run (640x480, 8 bits) se remarque.
+      - name: Sonde (direct, puis Chrome)
         id: sonde
-        if: ${{ inputs.warp != true }}
+        if: ${{ inputs.tor != true }}
         continue-on-error: true
-        run: xvfb-run -a node tools/anizone/seed.mjs --sonde
+        run: xvfb-run -a -s "-screen 0 1366x768x24" node tools/anizone/seed.mjs --sonde
 
-      - name: WARP (si la sonde a echoue)
-        if: ${{ inputs.warp == true || steps.sonde.outcome != 'success' }}
+      - name: Tor (si la sonde a echoue)
+        if: ${{ inputs.tor == true || steps.sonde.outcome != 'success' }}
         run: |
-          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list >/dev/null
-          sudo apt-get update -qq && sudo apt-get install -y -qq cloudflare-warp
-          warp-cli --accept-tos registration new
-          warp-cli --accept-tos connect
-          for i in $(seq 1 20); do
-            warp-cli --accept-tos status | grep -q Connected && break
-            sleep 2
+          sudo apt-get install -y -qq tor
+          sudo systemctl start tor || sudo service tor start
+          for i in $(seq 1 30); do
+            curl -s --max-time 10 --socks5-hostname 127.0.0.1:9050 https://check.torproject.org/api/ip && break
+            sleep 3
           done
-          warp-cli --accept-tos status
-          curl -s https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|warp|colo)='
-          xvfb-run -a node tools/anizone/seed.mjs --sonde
+          echo
+          echo "ANIZONE_PROXY=socks5://127.0.0.1:9050" >> "$GITHUB_ENV"
+          ANIZONE_PROXY=socks5://127.0.0.1:9050 xvfb-run -a -s "-screen 0 1366x768x24" node tools/anizone/seed.mjs --sonde
 
       - name: Seed
         env:
           IDS: ${{ inputs.ids }}
         run: |
           if [ -n "$IDS" ]; then MODE="--ids $IDS"; else MODE="--auto"; fi
-          xvfb-run -a node tools/anizone/seed.mjs $MODE --budget 45 ${{ inputs.dry == true && '--dry' || '' }}
+          xvfb-run -a -s "-screen 0 1366x768x24" node tools/anizone/seed.mjs $MODE --budget 45 ${{ inputs.dry == true && '--dry' || '' }}

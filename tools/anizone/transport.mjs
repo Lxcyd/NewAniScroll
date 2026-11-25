@@ -8,24 +8,23 @@
  *   1. DIRECT, avec les en-tetes d'un vrai Chrome (Accept, sec-ch-ua,
  *      Sec-Fetch-*…) : ceux de Node (`accept: *\/*`, `sec-fetch-mode: cors`)
  *      signent un robot ;
- *   2. (hors de ce fichier) WARP : le workflow fait sortir la machine par
- *      Cloudflare WARP quand la sonde directe echoue, et relance — l'etape 1
- *      se rejoue alors depuis une autre IP ;
- *   3. NAVIGATEUR : un Chrome reel (playwright-core, Chrome installe sur la
- *      machine, ecran virtuel si DISPLAY) ouvre anizone.to, passe le test
- *      anti-robot de Cloudflare s'il y en a un, puis TOUTES les requetes
- *      partent de la page : meme origine pour anizone.to (cookie
- *      cf_clearance compris), et CORS accepte pour le CDN, qui n'autorise que
- *      l'origine https://anizone.to.
+ *   2. CHROME « A LA MAIN » (cf. section 3) : passe le test anti-robot de
+ *      Cloudflare, puis Node reutilise son cookie cf_clearance, ou a defaut
+ *      TOUTES les requetes partent de la page (meme origine pour anizone.to,
+ *      CORS accepte pour le CDN, qui n'autorise que https://anizone.to).
+ *   (le workflow peut en plus faire sortir la machine par Tor : ANIZONE_PROXY.)
  *
  * Chaque refus est DECRIT (statut, cf-mitigated, titre de la page) : un
  * blocage pur et un test anti-robot ne se contournent pas pareil.
  */
 
-import { existsSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const HOTES =/(^|\.)anizone\.to$|(^|\.)vid-cdn\.xyz$/i;
+const HOTES = /(^|\.)anizone\.to$|(^|\.)vid-cdn\.xyz$/i;
 const natif = globalThis.fetch.bind(globalThis);
 
 const CHROME_UA =
@@ -97,70 +96,163 @@ function direct(url, init = {}) {
   return natif(url, { ...init, headers: { ...base, ...propres } });
 }
 
-// ── 3. Navigateur ───────────────────────────────────────────────────────
+
+// ── 3. Chrome « a la main » ─────────────────────────────────────────────
+/*
+ * MESURE DU 25/11/2026 sur GitHub : en direct, anizone repond
+ * `cf-mitigated: challenge` (« Just a moment… ») — un TEST, pas un blocage ;
+ * un Chrome lance PAR PLAYWRIGHT recoit « Attention Required! » (bloque) :
+ * ses drapeaux d'automatisation et son attache CDP des l'ouverture se voient.
+ * WARP : « Attention Required! » en direct comme en Chrome — pire, retire.
+ *
+ * Donc : Chrome lance comme par un humain (aucun drapeau d'automatisation,
+ * vrai profil, fenetre sur l'ecran virtuel), et PERSONNE n'est attache a la
+ * page pendant le test — on ne lit que le titre de l'onglet par /json/list du
+ * port de debogage, qui ne touche pas la page. Si le test demande de cocher
+ * la case, un VRAI clic souris (xdotool) sur l'ecran virtuel. On ne s'attache
+ * (playwright connectOverCDP) qu'une fois le test passe.
+ */
 
 const INTERDITS = new Set(["user-agent", "cookie", "referer", "origin", "host", "content-length"]);
 
-async function navigateur(log) {
-  let chromium;
-  try {
-    // PLAYWRIGHT_CORE : chemin d'un playwright-core installe ailleurs (essai local).
-    const mod = await import(
-      process.env.PLAYWRIGHT_CORE ? pathToFileURL(process.env.PLAYWRIGHT_CORE).href : "playwright-core"
-    );
-    chromium = mod.chromium || mod.default?.chromium;
-  } catch {
-    log("  navigateur : playwright-core absent");
-    return null;
-  }
-  const executablePath =
+function cheminChrome() {
+  return (
     process.env.CHROME_PATH ||
-    ["/usr/bin/google-chrome", "/usr/bin/google-chrome-stable", "/usr/bin/chromium-browser", "/usr/bin/chromium",
-      "C:/Program Files/Google/Chrome/Application/chrome.exe"].find((p) => existsSync(p));
-  const browser = await chromium.launch({
-    executablePath: executablePath || undefined,
-    channel: executablePath ? undefined : "chrome",
-    // Un ecran virtuel (xvfb-run) vaut mieux que le mode sans tete, que
-    // Cloudflare reconnait.
-    headless: !process.env.DISPLAY,
-    args: [
-      "--disable-blink-features=AutomationControlled",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      "--window-size=1366,768",
-    ],
-  });
-  /* Le Chrome sans tete se dit « HeadlessChrome » : UA de bureau, a SA
-     version (un UA qui ment sur la version se repere aux sec-ch-ua). */
-  const majeure = String(await browser.version()).match(/\d+/)?.[0] || "131";
-  const ctx = await browser.newContext({
-    locale: "fr-FR",
-    timezoneId: "Europe/Paris",
-    viewport: { width: 1366, height: 768 },
-    userAgent: CHROME_UA.replace("131.0.0.0", `${majeure}.0.0.0`),
-  });
-  await ctx.addInitScript(() => {
-    Object.defineProperty(navigator, "webdriver", { get: () => undefined });
-    Object.defineProperty(navigator, "languages", { get: () => ["fr-FR", "fr", "en-US", "en"] });
-    Object.defineProperty(navigator, "plugins", { get: () => [1, 2, 3, 4, 5] });
-    window.chrome = window.chrome || { runtime: {} };
-  });
-  const page = await ctx.newPage();
-  await page.goto("https://anizone.to/anime", { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
-  // Le test « Just a moment… » se resout seul en quelques secondes.
-  const fin = Date.now() + 60_000;
-  while (Date.now() < fin) {
-    const html = await page.content().catch(() => "");
-    if (/data-csrf=/.test(html)) break;
-    await page.waitForTimeout(2000);
-  }
-  const titre = await page.title().catch(() => "");
-  if (!/data-csrf=/.test(await page.content().catch(() => ""))) {
-    log(`  navigateur : toujours refuse (titre « ${titre} »)`);
-    await browser.close();
+    [
+      "/usr/bin/google-chrome",
+      "/usr/bin/google-chrome-stable",
+      "/usr/bin/chromium-browser",
+      "/usr/bin/chromium",
+      "C:/Program Files/Google/Chrome/Application/chrome.exe",
+    ].find((p) => existsSync(p))
+  );
+}
+
+async function playwright() {
+  // PLAYWRIGHT_CORE : chemin d'un playwright-core installe ailleurs.
+  const mod = await import(
+    process.env.PLAYWRIGHT_CORE ? pathToFileURL(process.env.PLAYWRIGHT_CORE).href : "playwright-core"
+  );
+  return mod.chromium || mod.default?.chromium;
+}
+
+const attends = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function onglet(port) {
+  try {
+    const r = await natif(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000) });
+    const l = await r.json();
+    return l.find((t) => t.type === "page");
+  } catch {
     return null;
   }
-  log(`  navigateur : anizone ouvert (« ${titre} »)`);
+}
+
+const PASSE = (t) => /anizone/i.test(t) && !/just a moment|attention required|un instant/i.test(t);
+const BLOQUE = (t) => /attention required|access denied/i.test(t);
+
+/** Le clic sur la case du test : repere la boite du widget (~300×65) dans la
+ *  page, puis clic X11 a ses coordonnees ecran. */
+async function cocheLaCase(port, log) {
+  if (process.platform !== "linux" || !process.env.DISPLAY) return false;
+  try {
+    execFileSync("xdotool", ["version"], { stdio: "ignore" });
+  } catch {
+    log("  chrome : xdotool absent, pas de clic");
+    return false;
+  }
+  const chromium = await playwright();
+  const b = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+  try {
+    const page = b.contexts()[0]?.pages()[0];
+    const cible = await page.evaluate(() => {
+      const r = [...document.querySelectorAll("div, iframe")]
+        .map((e) => e.getBoundingClientRect())
+        .find((r) => r.width > 280 && r.width < 320 && r.height > 55 && r.height < 80);
+      if (!r) return null;
+      const bord = (window.outerWidth - window.innerWidth) / 2;
+      return {
+        x: Math.round(window.screenX + bord + r.left + 30),
+        y: Math.round(window.screenY + (window.outerHeight - window.innerHeight) - bord + r.top + r.height / 2),
+      };
+    });
+    if (!cible) {
+      log("  chrome : case introuvable");
+      return false;
+    }
+    execFileSync("xdotool", ["mousemove", String(cible.x - 40), String(cible.y + 25)]);
+    await attends(300);
+    execFileSync("xdotool", ["mousemove", String(cible.x), String(cible.y), "click", "1"]);
+    log(`  chrome : clic sur la case (${cible.x}, ${cible.y})`);
+    return true;
+  } finally {
+    // Se detacher sans fermer Chrome.
+    await b.close().catch(() => {});
+  }
+}
+
+async function chromeALaMain(log) {
+  const exe = cheminChrome();
+  if (!exe) {
+    log("  chrome : introuvable");
+    return null;
+  }
+  const port = 9300 + Math.floor(Math.random() * 400);
+  const profil = mkdtempSync(join(tmpdir(), "anizone-chrome-"));
+  const [fx, fy] = String(process.env.ANIZONE_FENETRE || "0,0").split(",");
+  const args = [
+    `--remote-debugging-port=${port}`,
+    `--user-data-dir=${profil}`,
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--lang=fr-FR",
+    `--window-position=${fx},${fy}`,
+    "--window-size=1366,768",
+    "--disable-dev-shm-usage",
+    ...(process.env.ANIZONE_PROXY ? [`--proxy-server=${process.env.ANIZONE_PROXY}`] : []),
+    ...(process.env.ANIZONE_NO_SANDBOX ? ["--no-sandbox"] : []),
+    ...(process.platform === "linux" && !process.env.DISPLAY ? ["--headless=new"] : []),
+    "https://anizone.to/anime",
+  ];
+  const proc = spawn(exe, args, { stdio: "ignore" });
+  const tuer = async () => {
+    try {
+      proc.kill();
+    } catch {}
+    await attends(800);
+    try {
+      rmSync(profil, { recursive: true, force: true });
+    } catch {}
+  };
+
+  const debut = Date.now();
+  let titre = "";
+  let clics = 0;
+  while (Date.now() - debut < 120_000) {
+    await attends(3000);
+    const o = await onglet(port);
+    if (!o) continue;
+    titre = o.title || "";
+    if (PASSE(titre) || BLOQUE(titre)) break;
+    // Le test non interactif se resout en ~5-15 s ; au-dela, il veut un clic.
+    if (Date.now() - debut > 25_000 * (clics + 1) && clics < 3) {
+      clics++;
+      await cocheLaCase(port, log).catch((e) => log(`  chrome : clic impossible (${e.message})`));
+    }
+  }
+  log(`  chrome : titre « ${titre} » apres ${Math.round((Date.now() - debut) / 1000)} s`);
+  if (!PASSE(titre)) {
+    await tuer();
+    return null;
+  }
+
+  // Passe : on s'attache maintenant, pour lire depuis la page.
+  const chromium = await playwright();
+  const b = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+  const ctx = b.contexts()[0];
+  const page = ctx.pages().find((p) => /anizone/.test(p.url())) || ctx.pages()[0];
+  const ua = await page.evaluate(() => navigator.userAgent);
+  const cookies = (await ctx.cookies("https://anizone.to")).map((c) => `${c.name}=${c.value}`).join("; ");
 
   const viaPage = async (url, init = {}) => {
     if (!HOTES.test(hoteDe(url))) return natif(url, init);
@@ -180,30 +272,51 @@ async function navigateur(log) {
     const { s, h, t } = await Promise.race([job, delai]);
     return new Response(s === 204 || s === 304 ? null : t, { status: s, headers: h });
   };
-  return { fetch: viaPage, fermer: () => browser.close() };
+
+  /* Le cookie cf_clearance vaut pour CET UA et CETTE IP : Node peut s'en
+     servir directement, sans passer par la page (plus rapide). Le CDN, lui,
+     passe toujours par la page. */
+  const viaCookie = (url, init = {}) => {
+    const hote = hoteDe(url);
+    if (!/(^|\.)anizone\.to$/i.test(hote)) return HOTES.test(hote) ? viaPage(url, init) : natif(url, init);
+    const h = { ...(init.headers || {}) };
+    const deja = h.Cookie ? `${h.Cookie}; ` : "";
+    return direct(url, { ...init, headers: { ...h, Cookie: deja + cookies, "User-Agent": ua } });
+  };
+
+  const fermer = async () => {
+    await b.close().catch(() => {});
+    await tuer();
+  };
+  return { viaPage, viaCookie, fermer };
 }
 
 /**
- * Installe le premier transport qui passe. Rend son nom, ou null si aucun ;
+ * Installe le premier transport qui passe. Rend `{ mode, fermer }`, ou null ;
  * `fermer()` libere le navigateur en fin de passage.
  */
 export async function installe(log = console.log) {
   globalThis.fetch = direct;
-  // ANIZONE_NAVIGATEUR=1 : saute le direct (pour essayer le navigateur d'une
-  // IP qui n'en a pas besoin).
+  // ANIZONE_NAVIGATEUR=1 : saute le direct (pour essayer Chrome d'une IP qui
+  // n'en a pas besoin).
   if (!process.env.ANIZONE_NAVIGATEUR) {
     const d = await sonde(direct).catch((e) => ({ ok: false, detail: e.message }));
     log(`  direct : ${d.ok ? "OK" : d.detail}`);
     if (d.ok) return { mode: "direct", fermer: async () => {} };
   }
 
-  const nav = await navigateur(log).catch((e) => (log(`  navigateur : ${e.message}`), null));
+  const nav = await chromeALaMain(log).catch((e) => (log(`  chrome : ${e.message}`), null));
   if (nav) {
-    const v = await sonde(nav.fetch).catch((e) => ({ ok: false, detail: e.message }));
-    log(`  navigateur, requete depuis la page : ${v.ok ? "OK" : v.detail}`);
-    if (v.ok) {
-      globalThis.fetch = nav.fetch;
-      return { mode: "navigateur", fermer: nav.fermer };
+    for (const [mode, f] of [
+      ["chrome+cookie", nav.viaCookie],
+      ["chrome", nav.viaPage],
+    ]) {
+      const v = await sonde(f).catch((e) => ({ ok: false, detail: e.message }));
+      log(`  ${mode} : ${v.ok ? "OK" : v.detail}`);
+      if (v.ok) {
+        globalThis.fetch = f;
+        return { mode, fermer: nav.fermer };
+      }
     }
     await nav.fermer();
   }
