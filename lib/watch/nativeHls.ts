@@ -57,7 +57,16 @@ export function masterUnePiste(m: NativeMaster, language: string | null): string
         `LANGUAGE="${q(a.language)}",CHANNELS="${q(a.channels || "2")}",URI="${a.uri}"`,
     );
   }
-  for (const v of m.variants) {
+  /* Chrome natif DEMARRE sur la plus basse variante, quel que soit l'ordre
+     (verifie : 1080p en tete, il part quand meme en 360p) et y restait ~15 s
+     — mesure du 25/11/2026. On retire donc ce qui est sous 720p des qu'il
+     existe mieux ; plus haut debit en tete. Prix : une connexion sous
+     ~2,4 Mbit/s ne peut plus descendre en 360p. */
+  const debit = (inf: string) => Number((inf.match(/BANDWIDTH=(\d+)/) || [])[1]) || 0;
+  const hauteur = (inf: string) => Number((inf.match(/RESOLUTION=\d+x(\d+)/) || [])[1]) || 0;
+  const hd = m.variants.filter((v) => hauteur(v.inf) >= 720);
+  const variantes = (hd.length ? hd : [...m.variants]).sort((x, y) => debit(y.inf) - debit(x.inf));
+  for (const v of variantes) {
     let inf = v.inf;
     if (a) inf = /AUDIO="[^"]*"/.test(inf) ? inf.replace(/AUDIO="[^"]*"/, 'AUDIO="a"') : `${inf},AUDIO="a"`;
     else inf = inf.replace(/,AUDIO="[^"]*"/, "");

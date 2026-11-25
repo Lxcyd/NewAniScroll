@@ -43,6 +43,15 @@ PARTOUT ou il a sa place, toutes pistes dans les trois chips, seul le defaut cha
 - Verifie en Chrome headless sur la vraie page (:3123) : VF = son fr ; VO = son ja + « Nous y
   revenons / en heros triomphants. » a 2:11 ; bascule fr → ja par le menu, lecture reprise a la
   meme seconde ; passe seul en 1080p. **Pas teste sur dev** (rien pousse).
+- **Rang 1** (demande de Luc : « le plus rapide en premier »). Mesure en Chrome, clic → lecture,
+  profil neuf, Frieren ep 1, 3 essais : anizone 1,6 / 1,8 / 2,4 s ; ansembed 2,4-2,6 s ; frembed
+  2,6 / 2,8 / 4,1 s. Les autres reculent d'un cran (frembed 2, ansembed 3, voiranime 4, sendvid 5).
+  Un visiteur avec un ordre de langues ouvre desormais sur anizone ; sans preference, c'est toujours
+  `DEFAULT_SERVER_ID` (ansembed : valeur fixe, identique au rendu serveur, qui ne peut pas savoir si
+  le navigateur a l'HLS natif).
+- **Chrome natif demarre sur la PLUS BASSE variante**, quel que soit l'ordre du master (verifie :
+  1080p en tete, depart en 360p, ~15 s avant de monter). Le master remonte ne garde donc que >= 720p
+  quand il existe ; prix : plus de repli en 360p sous ~2,4 Mbit/s.
 - Cache de /api/v2/source : prefixe `az2` pour anizone (les reponses de la 1re version, flux par le
   Worker, restaient servies 20 min).
 
