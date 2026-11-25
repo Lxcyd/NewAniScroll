@@ -2567,3 +2567,16 @@ Demande de Luc, trois regles :
   cartes, et Reprendre proposait la suite de ce que la base disait.
   Le seuil d'une minute (missclic, 08/11) reste.
 - « Termine » sur une carte : a 80 % aussi, comme le calendrier.
+
+## 25/11/2026 — Essai : la fiche anime en pop-up (/fr/lab/fiche-popup)
+
+Demande de Luc (modele free.cine-track). Un seul fichier, pages/en/lab/fiche-popup.tsx,
+supprimable sans rien toucher d'autre. La VRAIE fiche (composant de
+pages/en/anime/[...id].tsx) est rendue dans une feuille par-dessus une grille de
+tendances : code via `pageLoader.loadPage` (meme morceau que la navigation,
+feuilles de style posees a la main au format `style[data-n-href]`), donnees via
+la meme URL `/_next/data` (meme cache Cloudflare), prechauffes au survol 150 ms
+ou a l'appui. URL poussee = `/fr/anime/<id>` avec un etat `__N` que le routeur
+comprend ; Retour/Echap/clic a cote ferment. Navbar et pied de la fiche caches
+dans la feuille. Local : 1re ouverture 625 ms (dev froid), 2e 7 ms ; Retour
+referme et rend le defilement.
