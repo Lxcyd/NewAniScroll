@@ -249,6 +249,40 @@ export function addItem(
   return compact(items.concat([{ i: id, x: p.x, y: p.y, w, h }]));
 }
 
+/**
+ * AJOUTE UN BLOC EN DERNIER, derrière tous les autres dans l'ordre de lecture
+ * (ligne, puis colonne) — et qui le RESTE au compactage (25/11/2026, Luc).
+ *
+ * Posé sous la dernière ligne en x = 0, il remontait au compactage (au
+ * rechargement, au premier glisser) dans un trou de la colonne de gauche, et
+ * passait devant les blocs de la dernière ligne. On essaie donc chaque colonne
+ * et on garde la place la plus haute où il reste le dernier ; à défaut, la
+ * plus basse.
+ */
+export function appendItem(items: GridItem[], item: GridItem): GridItem[] {
+  const w = Math.min(COLS, Math.max(1, item.w));
+  const y = rowCount(items);
+  let best: GridItem[] | null = null;
+  let bestKey = Infinity;
+  let low: GridItem[] | null = null;
+  let lowY = -1;
+  for (let x = 0; x + w <= COLS; x++) {
+    const out = compact(items.concat([{ ...item, x, y }]));
+    const me = out.find((o) => o.i === item.i)!;
+    const last = out.every((o) => o === me || o.y < me.y || (o.y === me.y && o.x < me.x));
+    const key = me.y * COLS + me.x;
+    if (last && key < bestKey) {
+      best = out;
+      bestKey = key;
+    }
+    if (me.y > lowY) {
+      low = out;
+      lowY = me.y;
+    }
+  }
+  return best ?? low ?? items.concat([{ ...item, x: 0, y }]);
+}
+
 /** Nombre de lignes occupées — la hauteur que le conteneur doit réserver. */
 export function rowCount(items: GridItem[]): number {
   return items.reduce((m, o) => Math.max(m, o.y + o.h), 0);

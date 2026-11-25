@@ -71,6 +71,7 @@ import {
   GAP,
   ROW,
   addItem,
+  appendItem,
   compact,
   pixelRect,
   rowCount,
@@ -632,7 +633,7 @@ export default function ProfileOverview({
      l'Aperçu seulement — celle des Statistiques n'ajoute ni ne retire rien. */
   const gridBox = useRef<HTMLDivElement>(null);
   /** Le bloc qu'on vient d'ajouter depuis le menu, à faire apparaître. */
-  const [fresh, setFresh] = useState<{ id: string; n: number } | null>(null);
+  const [fresh, setFresh] = useState<{ id: string; n: number; added?: boolean } | null>(null);
   /** UN CLIC DANS LE MENU AJOUTE LE WIDGET À LA FIN (07/11/2026, Luc, à la
       place du glisser) : rien s'il est au plafond (posé, pour la plupart).
       Dans les deux cas la vue descend jusqu'à lui et le fait apparaître. */
@@ -642,12 +643,13 @@ export default function ProfileOverview({
     if (id) {
       const back = takeRemoved(id);
       const [w, h] = back ? clampSize(id, back.w, back.h) : blockSize(id);
-      /* Sous la dernière ligne, pas dans le premier trou venu. */
+      /* EN DERNIER, et qui le reste au compactage (cf. appendItem). */
       const item: GridItem = { i: id, x: 0, y: rowCount(cur), w, h, ...(back?.s ? { s: back.s } : null) };
-      commit(cur.concat([item]));
+      commit(appendItem(cur, item));
     } else id = cur.filter((o) => blockType(o.i) === type).pop()?.i ?? type;
     const target = id;
-    setFresh((f) => ({ id: target, n: (f?.n ?? 0) + 1 }));
+    const added = !cur.some((o) => o.i === target);
+    setFresh((f) => ({ id: target, n: (f?.n ?? 0) + 1, added }));
   }
   /* Après le rendu qui a posé le bloc : descendre jusqu'à lui, puis le faire
      surgir. Défilement et animation en JS (Web Animations) et pas en CSS :
@@ -655,10 +657,19 @@ export default function ProfileOverview({
      ou une animation sous la media query y seraient instantanés. */
   useEffect(() => {
     if (!fresh) return;
-    const el = gridBox.current?.querySelector<HTMLElement>(`[data-widget="${CSS.escape(fresh.id)}"]`);
-    if (!el) return;
     let raf = 0;
     let cancelled = false;
+    let el: HTMLElement | null = null;
+    /* Le bloc peut n'être monté qu'une image plus tard : on l'attend un peu
+       au lieu d'abandonner sans rien dire (la vue restait où elle était). */
+    let tries = 0;
+    const find = () => {
+      if (cancelled) return;
+      el = gridBox.current?.querySelector<HTMLElement>(`[data-widget="${CSS.escape(fresh.id)}"]`) ?? null;
+      if (el) start(el);
+      else if (++tries < 30) raf = requestAnimationFrame(find);
+    };
+    const start = (el: HTMLElement) => {
     const pop = () => {
       if (cancelled) return;
       /* NI `opacity` NI `filter` SUR LA CARTE (08/11/2026, Luc : fond « de
@@ -688,39 +699,62 @@ export default function ProfileOverview({
       box = box.parentElement;
     }
     const root = box ?? (document.scrollingElement as HTMLElement);
-    /* `.as-stage` est réduit par un `scale` dans le studio : les mesures à
-       l'écran se divisent par l'échelle pour devenir du défilement. */
-    const br = box?.getBoundingClientRect();
-    const k = box && br && box.offsetHeight ? br.height / box.offsetHeight || 1 : 1;
-    const viewTop = br ? br.top : 0;
-    const viewH = box ? box.clientHeight : window.innerHeight;
-    const r = el.getBoundingClientRect();
+    /* La cible, RECALCULÉE À CHAQUE IMAGE : le bloc ajouté grandit souvent
+       après son montage (contenu chargé, taille réglée), et une cible mesurée
+       une fois laissait la vue au-dessus du nouveau bas. */
+    const target = () => {
+      /* `.as-stage` est réduit par un `scale` dans le studio : les mesures à
+         l'écran se divisent par l'échelle pour devenir du défilement. */
+      const br = box?.getBoundingClientRect();
+      const k = box && br && box.offsetHeight ? br.height / box.offsetHeight || 1 : 1;
+      const viewTop = br ? br.top : 0;
+      const viewH = box ? box.clientHeight : window.innerHeight;
+      const r = el.getBoundingClientRect();
+      const top = root.scrollTop + (r.top - viewTop) / k;
+      const max = root.scrollHeight - root.clientHeight;
+      /* UN BLOC AJOUTÉ : TOUT EN BAS (25/11/2026, Luc : « en descendant bien
+         tout en bas »). Il est le dernier, le bas de page le montre en entier
+         — sauf s'il est plus haut que la vue : alors son haut, pas son milieu.
+         Un bloc déjà posé (plafond atteint) : centré, comme avant. */
+      const want = fresh.added ? top - 24 : top - (viewH - r.height / k) / 2;
+      return Math.max(0, Math.min(max, want));
+    };
     const from = root.scrollTop;
-    const max = root.scrollHeight - root.clientHeight;
-    const to = Math.max(0, Math.min(max, from + (r.top - viewTop) / k - (viewH - r.height / k) / 2));
-    if (Math.abs(to - from) < 4) {
+    if (Math.abs(target() - from) < 4) {
       pop();
     } else {
       el.style.visibility = "hidden";
       const t0 = performance.now();
-      const dur = Math.min(550, 220 + Math.abs(to - from) * 0.25);
+      const dur = Math.min(650, 260 + Math.abs(target() - from) * 0.2);
       const step = (now: number) => {
         if (cancelled) return;
         const p = Math.min(1, (now - t0) / dur);
         const e = p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
-        root.scrollTop = from + (to - from) * e;
+        root.scrollTop = from + (target() - from) * e;
         if (p < 1) raf = requestAnimationFrame(step);
         else {
           el.style.visibility = "";
           pop();
+          /* Encore un peu de suivi : ce qui finit de se poser après
+             l'arrivée ne laisse pas la vue à mi-chemin. */
+          const until = now + 700;
+          const settle = (t: number) => {
+            if (cancelled) return;
+            const to = target();
+            if (Math.abs(to - root.scrollTop) > 2) root.scrollTop = to;
+            if (t < until) raf = requestAnimationFrame(settle);
+          };
+          raf = requestAnimationFrame(settle);
         }
       };
       raf = requestAnimationFrame(step);
     }
+    };
+    find();
     return () => {
       cancelled = true;
       cancelAnimationFrame(raf);
-      el.style.visibility = "";
+      if (el) el.style.visibility = "";
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fresh?.n]);
