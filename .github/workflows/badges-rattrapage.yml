@@ -1,0 +1,51 @@
+# Le fil AniList et les badges des comptes lies qui ne reviennent pas.
+#
+# Les deux ne se calculaient que dans le navigateur du membre : Kuraryn
+# (16 283 episodes) avait 1 badge et une heatmap vide (26/11/2026). Chaque
+# jour, pour les comptes lies pas vus depuis 1 jour :
+#   1. tools/anilist-feed/backfill.mjs : le fil public AniList (dates, heures) ;
+#   2. tools/badges/rattrapage.mjs : les badges que les vraies regles
+#      accordent, ajoutes sans date, rien de retire.
+#
+# Ne part que depuis main (cron) ; le code est lu sur dev.
+# Secrets : TURSO_USERS_URL, TURSO_USERS_TOKEN.
+
+name: badges-rattrapage
+
+on:
+  schedule:
+    - cron: "30 5 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: badges-rattrapage
+
+jobs:
+  rattrapage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TURSO_USERS_URL: ${{ secrets.TURSO_USERS_URL }}
+      TURSO_USERS_TOKEN: ${{ secrets.TURSO_USERS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: dev
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Installer le strict necessaire
+        # Pas tout le site : le client Turso, et typescript + react pour
+        # compiler les regles de badges (check-catalog).
+        run: mv package.json /tmp/pkg.json; rm -f package-lock.json; ok=1; for i in 1 2 3; do npm install --no-save @libsql/client@^0.17 typescript@^5.2 react@^18.2 && ok=0 && break; sleep 20; done; mv /tmp/pkg.json package.json; exit $ok
+
+      - name: Fil AniList
+        run: node tools/anilist-feed/backfill.mjs
+
+      - name: Compiler et verifier les regles
+        run: node tools/badges/check-catalog.mjs
+
+      - name: Badges manquants
+        run: node tools/badges/rattrapage.mjs --jours=1

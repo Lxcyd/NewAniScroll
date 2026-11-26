@@ -15,7 +15,7 @@
  * garde pas (tags, popularité, relations). Aucun nom n'est envoyé à AniList.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -36,13 +36,16 @@ const { detailKind, detailOf } = await imp("detail.mjs");
 const { BADGES } = await imp("catalog.mjs");
 const { NO_DATE } = await imp("store.mjs");
 
-const env = Object.fromEntries(
-  readFileSync(join(ROOT, ".env"), "utf8")
-    .split(/\r?\n/)
-    .map((l) => l.match(/^([A-Z0-9_]+)=(.*)$/))
-    .filter(Boolean)
-    .map((m) => [m[1], m[2].replace(/^["']|["']$/g, "")]),
-);
+/* `.env` en local ; dans une Action, les secrets arrivent par l'environnement. */
+const env = existsSync(join(ROOT, ".env"))
+  ? Object.fromEntries(
+      readFileSync(join(ROOT, ".env"), "utf8")
+        .split(/\r?\n/)
+        .map((l) => l.match(/^([A-Z0-9_]+)=(.*)$/))
+        .filter(Boolean)
+        .map((m) => [m[1], m[2].replace(/^["']|["']$/g, "")]),
+    )
+  : process.env;
 const { createClient } = createRequire(join(ROOT, "package.json"))("@libsql/client");
 const db = createClient({ url: env.TURSO_USERS_URL, authToken: env.TURSO_USERS_TOKEN });
 
