@@ -1,4 +1,5 @@
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useListFields } from "@/lib/profile/listFields";
 import ViewSwitch, { VIEWS, type View } from "./ViewSwitch";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
@@ -97,8 +98,12 @@ export default function ProfileList({
   emptyAction,
   focus,
   editable = false,
+  fieldsFrom = null,
 }: {
   entries: ProfileEntry[];
+  /** Le profil dont il faut charger les champs du filtre, que la page n'envoie
+   *  plus (lib/profile/listFields.ts) ; `null` = les entrées les portent. */
+  fieldsFrom?: string | null;
   /** Son propre profil : le « + » (gestionnaire de listes) et le registre de
    *  CET appareil (ordre et couleurs des statuts, listes AniScroll). Sur le
    *  profil d'un autre, le registre du visiteur n'a rien à faire. */
@@ -113,9 +118,10 @@ export default function ProfileList({
      pas ici (ni cartes, ni compteurs, ni filtres), pour que personne ne tombe
      dessus par mégarde. Éteint par défaut tant que le navigateur n'a pas lu. */
   const showAdult = useShowAdult();
+  const withFields = useListFields(allEntries, fieldsFrom);
   const entries = useMemo(
-    () => (showAdult ? allEntries : allEntries.filter((e) => !e.isAdult)),
-    [allEntries, showAdult],
+    () => (showAdult ? withFields : withFields.filter((e) => !e.isAdult)),
+    [withFields, showAdult],
   );
   const titlePref = useTitlePref();
   const clickTarget = useClickTarget();

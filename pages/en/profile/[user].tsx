@@ -184,6 +184,9 @@ type Props = {
   /** Le visiteur a mis la musique du profil en pause une fois (cookie) : le
    *  lecteur YouTube est alors rendu SANS `autoplay`. */
   musicPaused?: boolean;
+  /** Le segment du profil quand les champs du filtre ne sont pas dans les
+   *  entrées : l'onglet Liste les demande (lib/profile/listFields.ts). */
+  champsDiff?: string;
 };
 
 import { PROFILE_AUTOPLAY_COOKIE } from "@/components/profile/ProfileHero";
@@ -230,6 +233,7 @@ function ProfileView({
   badges,
   isPrivate,
   viewedName,
+  champsDiff,
   musicPaused,
 }: Omit<Props, "entries"> & { entries: ProfileEntry[] }) {
   const { t } = useTranslation();
@@ -683,6 +687,7 @@ function ProfileView({
             {isOwner && <QueueSection />}
             <ProfileList
               entries={entries}
+              fieldsFrom={champsDiff ?? null}
               focus={listFocus}
               editable={!!isOwner}
               emptyAction={
@@ -1110,6 +1115,51 @@ function borne<T, R>(p: Promise<T>, ms: number, repli: R): Promise<T | R> {
  * false`, `repeat: 0`, `customLists: []`, `trailer: null` sont les valeurs
  * par défaut que tout lecteur de ProfileEntry sait déjà supposer (`?.`, `|| 0`).
  */
+/* ────────────────────────────────────────────────────────────────
+   LES CHAMPS DU FILTRE DE LA LISTE QUITTENT LA PAGE (26/11/2026, passe
+   vitesse du profil). Mesuré sur un profil de 693 animes (dev) : les entrées
+   pesaient 105 Ko compressés dans le HTML — 130 Ko en tout, arrivés à 4,9 s
+   sur une 4G lente, l'hydratation ne pouvant partir qu'après. Tous les tags
+   d'un titre, son état de diffusion, sa source et son pays en faisaient 22 Ko,
+   et SEUL le filtre de l'onglet Liste les lit (lib/profile/listFilter.ts,
+   ListSortFilter). L'onglet les demande à son ouverture (`?champs=1`, même
+   fonction, mêmes contrôles) et les recolle (lib/profile/listFields.ts).
+   ──────────────────────────────────────────────────────────────── */
+const CHAMPS_FILTRE = ["allTags", "airStatus", "source", "country"] as const;
+
+function pourLaPage(e: ProfileEntry, isOwner: boolean): ProfileEntry {
+  const out: any = e;
+  for (const k of CHAMPS_FILTRE) delete out[k];
+  if (!isOwner) delete out.trailer;
+  return out;
+}
+
+/** Par titre : [tous les tags, diffusion, source, pays] ; les tags en indices
+ *  d'un dictionnaire, comme packEntries. */
+function champsDuFiltre(entries: ProfileEntry[]): { d: string[]; c: Record<number, unknown[]> } {
+  const d: string[] = [];
+  const idx = new Map<string, number>();
+  const ix = (t: string) => {
+    let i = idx.get(t);
+    if (i === undefined) {
+      i = d.length;
+      idx.set(t, i);
+      d.push(t);
+    }
+    return i;
+  };
+  const c: Record<number, unknown[]> = {};
+  for (const e of entries) {
+    c[e.mediaId] = [
+      Array.isArray(e.allTags) ? e.allTags.map(ix) : null,
+      e.airStatus ?? null,
+      e.source ?? null,
+      e.country ?? null,
+    ];
+  }
+  return { d, c };
+}
+
 function compacte(e: ProfileEntry): ProfileEntry {
   const out: ProfileEntry = { ...e };
   const t = e.title;
@@ -1378,6 +1428,11 @@ function chrono(res: any) {
 export async function getServerSideProps(context: any) {
   const tm = chrono(context.res);
   const segment = String(context.query.user || "");
+  /* LES CHAMPS DU FILTRE DE LA LISTE, SEULS (`?champs=1`, cf. CHAMPS_FILTRE) :
+     l'onglet Liste les demande ici, à la MÊME fonction, pour passer par les
+     mêmes contrôles — compte, profil privé, propriétaire — sans rien dupliquer.
+     Ni activité, ni badges, ni fil : on répond dès que la liste est connue. */
+  const champsSeuls = context.query.champs === "1";
 
   /* The tag is the identity; the pseudo in front of it is decoration. A
      segment with no tag (or an unknown one) is taken as an AniList username,
@@ -1417,6 +1472,10 @@ export async function getServerSideProps(context: any) {
       : DEFAULT_BLOCKS.some((id) => ACTIVITY_BLOCKS.has(id));
 
   const kinds: DataKind[] = [];
+  if (champsSeuls) {
+    /* Seule la liste compte : sans AniList, c'est la sauvegarde du compte. */
+    if (account && !anilistName) kinds.push("list");
+  } else {
   /* Les badges sont TOUJOURS demandes : l'onglet existe sur tous les profils,
      et la charge est minuscule (un objet id -> date). Ils rejoignent la lecture
      unique de `user_data` deja faite ici, donc ils ne coutent AUCUNE requete de
@@ -1429,6 +1488,7 @@ export async function getServerSideProps(context: any) {
   if (account && !layoutInColumn) kinds.push("prefs");
   if (account && (!layoutInColumn || layoutWantsActivity(layoutInColumn))) {
     kinds.push("progress", "recent");
+  }
   }
 
   /* LES DEUX EN MÊME TEMPS. La session ne dit rien de la liste et la liste ne
@@ -1446,7 +1506,7 @@ export async function getServerSideProps(context: any) {
      Il n'est SERVI que si la grille finale le montre (garde-fou plus bas). */
   const wantsFeed = (items: readonly GridItem[]) => items.some((o) => FEED_BLOCKS.has(blockType(o.i)));
   const feedEarly =
-    account && account.anilistId && wantsFeed(layoutInColumn ?? DEFAULT_LAYOUT)
+    !champsSeuls && account && account.anilistId && wantsFeed(layoutInColumn ?? DEFAULT_LAYOUT)
       ? tm.wrap("feed", getAnilistFeed(account.id).catch(() => null))
       : null;
   /* La ligne « profil prêt » d'abord ; AniList (ou Upstash) seulement si elle
@@ -1606,6 +1666,11 @@ export async function getServerSideProps(context: any) {
      alimente. C'est donc la même source, en une requête pour toute la liste.
 
      Réservé au PROPRIÉTAIRE : seul le studio les propose, et lui seul l'ouvre. */
+  if (champsSeuls) {
+    tm.flush();
+    return { props: { champs: champsDuFiltre(entries) } };
+  }
+
   /* ── The plate ──────────────────────────────────────────────── */
   /* L'habillage épinglé. `normalizeDressing` relit aussi bien la forme du
      studio que l'ancienne (`{url, animeId, title, source}`) — donc rien à
@@ -1803,7 +1868,11 @@ export async function getServerSideProps(context: any) {
     props: {
       identity,
       stats,
-      entries: packEntries(entries.map(compacte)),
+      /* Sans les champs du filtre (chargés par l'onglet Liste, cf.
+         CHAMPS_FILTRE), et sans bandes-annonces chez le visiteur : seul le
+         studio du propriétaire les lit. */
+      entries: packEntries(entries.map((e) => pourLaPage(compacte(e), !!isOwner))),
+      champsDiff: segment,
       characters,
       banner,
       topAnimes,
