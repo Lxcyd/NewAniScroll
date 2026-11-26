@@ -323,6 +323,25 @@ function useFlip(ref: React.RefObject<HTMLDivElement | null>, deps: unknown[]) {
   useIsoLayoutEffect(() => {
     const grid = ref.current;
     if (!grid) return;
+    /* LA TOUTE PREMIÈRE LECTURE ATTEND LA PEINTURE (26/11/2026, passe vitesse,
+       comme les blocs de liste) : au montage rien ne glisse, et lire
+       `offsetLeft` ici forçait la mise en page de toute la page en plein
+       chargement. Après une peinture (rAF puis tâche), elle est gratuite. */
+    if (!boxes.current.size) {
+      let t = 0;
+      const r = requestAnimationFrame(() => {
+        t = window.setTimeout(() => {
+          const first = new Map<string, { x: number; y: number }>();
+          for (const el of Array.from(grid.querySelectorAll<HTMLElement>("[data-char]")))
+            first.set(el.dataset.char!, { x: el.offsetLeft, y: el.offsetTop });
+          boxes.current = first;
+        }, 0);
+      });
+      return () => {
+        cancelAnimationFrame(r);
+        clearTimeout(t);
+      };
+    }
     const now = new Map<string, { x: number; y: number }>();
     const moves: Array<[HTMLElement, number, number]> = [];
     for (const el of Array.from(grid.querySelectorAll<HTMLElement>("[data-char]"))) {

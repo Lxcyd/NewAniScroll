@@ -3,7 +3,7 @@ import { useEntranceReplay } from "@/lib/profile/useKeepAliveTabs";
 /* Sans URL en bas de l'écran au survol (QuietLink). */
 import Link from "./QuietLink";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
@@ -239,9 +239,33 @@ function useShelfReflow(
     if (!row) return;
     const reset = frozen || resetKey !== lastReset.current;
     lastReset.current = resetKey;
-    const nodes = Array.from(
-      row.querySelectorAll<HTMLElement>(".as-fav-card"),
-    );
+    const cardsOf = () => Array.from(row.querySelectorAll<HTMLElement>(".as-fav-card"));
+
+    /* LA TOUTE PREMIÈRE LECTURE ATTEND LA PEINTURE (26/11/2026, passe vitesse,
+       comme StatusesBlock) : au montage il n'y a rien à faire glisser — aucune
+       position d'avant —, et lire `offsetLeft` ici forçait la mise en page de
+       toute la page en plein chargement (180 ms sur mobile, CPU ×4). Après une
+       peinture (rAF puis tâche), la mise en page est faite : la lecture est
+       gratuite, et le prochain changement d'ordre glisse comme avant. */
+    if (!previous.current.size) {
+      let t = 0;
+      const r = requestAnimationFrame(() => {
+        t = window.setTimeout(() => {
+          const first = new Map<number, number>();
+          for (const node of cardsOf()) {
+            const id = Number(node.dataset.mediaId);
+            if (id) first.set(id, node.offsetLeft);
+          }
+          previous.current = first;
+        }, 0);
+      });
+      return () => {
+        cancelAnimationFrame(r);
+        clearTimeout(t);
+      };
+    }
+
+    const nodes = cardsOf();
 
     // 1) Lecture seule : une seule mise en page pour toute la bande.
     const now = new Map<number, number>();
@@ -453,8 +477,15 @@ export function FavoritesBlock({
       if (w) row.style.setProperty("--as-fav-w", `${w}px`);
       syncFades();
     };
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
+    /* PAS DE MESURE SYNCHRONE QUAND LE ResizeObserver EXISTE (26/11/2026, passe
+       vitesse) : lire `offsetWidth` ici, au montage, forçait une mise en page
+       de toute la page — 180 ms sur mobile (CPU ×4) au chargement du profil.
+       Le premier rappel du ResizeObserver arrive de toute façon, APRÈS la mise
+       en page et AVANT la peinture : même valeur, à la même image, gratuite. */
+    if (typeof ResizeObserver === "undefined") {
+      measure();
+      return;
+    }
     const ro = new ResizeObserver(measure);
     ro.observe(row);
     return () => ro.disconnect();
@@ -1612,12 +1643,27 @@ export function YearsBlock({
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.scrollLeft = el.scrollWidth;
     /* La carte se redimensionne à la main, dans la grille : un observateur, pas
-       une mesure au montage. */
-    const ro = new ResizeObserver(() => setBox(el.clientHeight));
+       une mesure au montage.
+       LE CALAGE À DROITE PASSE AUSSI PAR LUI (26/11/2026, passe vitesse) : lire
+       `scrollWidth` et `clientHeight` ici, au montage, forçait la mise en page
+       de toute la page en plein chargement. Le premier rappel arrive après la
+       mise en page et AVANT la peinture : la frise est calée au même moment,
+       sans rien forcer. */
+    let first = true;
+    const ro = new ResizeObserver(() => {
+      if (first) {
+        first = false;
+        el.scrollLeft = el.scrollWidth;
+        /* Rendue tout de suite, comme quand elle était posée dans cet effet :
+           un `setBox` ordinaire, ici, attendrait une tâche — APRÈS la
+           peinture — et la frise se montrerait une image à 200 px. */
+        flushSync(() => setBox(el.clientHeight));
+        return;
+      }
+      setBox(el.clientHeight);
+    });
     ro.observe(el);
-    setBox(el.clientHeight);
     return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ref, n0 >= 3]);
@@ -2298,6 +2344,34 @@ export function SeasonBlock({
   useIsoLayoutEffect(() => {
     const grid = gridRef.current;
     if (!grid) return;
+    /* LA TOUTE PREMIÈRE LECTURE ATTEND LA PEINTURE (26/11/2026, passe vitesse,
+       comme StatusesBlock et la vitrine) : au montage rien ne glisse ni ne
+       fond, on ne fait que noter les boîtes — et les lire ici forçait la mise
+       en page de toute la page en plein chargement. Après une peinture (rAF
+       puis tâche), la lecture est gratuite. */
+    if (!boxes.current.size) {
+      let t = 0;
+      const r = requestAnimationFrame(() => {
+        t = window.setTimeout(() => {
+          const g0 = grid.getBoundingClientRect();
+          const first = new Map<string, Box>();
+          for (const card of Array.from(grid.querySelectorAll<HTMLElement>("[data-season]"))) {
+            const c = card.getBoundingClientRect();
+            first.set(card.dataset.season!, {
+              left: c.left - g0.left + grid.scrollLeft,
+              top: c.top - g0.top + grid.scrollTop,
+              width: c.width,
+              height: c.height,
+            });
+          }
+          boxes.current = first;
+        }, 0);
+      });
+      return () => {
+        cancelAnimationFrame(r);
+        clearTimeout(t);
+      };
+    }
     const cards = Array.from(grid.querySelectorAll<HTMLElement>("[data-season]"));
     /* PAS PENDANT LE CHARGEMENT (08/11/2026, Luc : « un deuxième chargement
        après 1 ou 2 secondes »). Chez soi, la liste arrive en plusieurs fois

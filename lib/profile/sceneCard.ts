@@ -54,9 +54,26 @@ export function useSceneScrollFix(): (el: HTMLDivElement | null) => void {
 export function useAboveFooter(): (el: HTMLDivElement | null) => void {
   const card = useRef<HTMLDivElement | null>(null);
   const lifted = useRef(0);
+  /* LE PIED DE PAGE EST-IL PRÈS DE L'ÉCRAN ? (26/11/2026, passe vitesse du
+     profil). La mesure lit deux `getBoundingClientRect`, et elle tournait à
+     chaque changement de taille de la page — pendant le chargement, une fois
+     par bloc qui arrive : autant de mises en page forcées (130 ms sur mobile,
+     CPU ×4). Or la case est collée au bas de l'écran : tant que le pied de
+     page n'y est pas, il n'y a rien à remonter, sans rien mesurer. Un
+     IntersectionObserver (asynchrone, gratuit) dit quand il approche ; `null`
+     = pas d'observateur, on mesure comme avant. */
+  const near = useRef<boolean | null>(null);
   const update = useCallback(() => {
     const el = card.current;
     if (!el) return;
+    if (near.current === false) {
+      /* Pied de page loin sous l'écran : la case est à sa place naturelle. */
+      if (lifted.current) {
+        lifted.current = 0;
+        el.style.marginBottom = "";
+      }
+      return;
+    }
     const footers = document.querySelectorAll("footer");
     const footer = footers[footers.length - 1];
     const natural = el.getBoundingClientRect().bottom + lifted.current;
@@ -76,6 +93,24 @@ export function useAboveFooter(): (el: HTMLDivElement | null) => void {
     [update],
   );
   useEffect(() => {
+    const footers = document.querySelectorAll("footer");
+    const footer = footers[footers.length - 1];
+    let io: IntersectionObserver | null = null;
+    if (footer && typeof IntersectionObserver !== "undefined") {
+      /* Loin jusqu'à preuve du contraire : le premier rappel arrive aussitôt
+         (il y en a toujours un) et mesure si le pied de page est là. Large
+         marge : la case se lève 16 px avant lui, et le cadre de la scène
+         peut le rapprocher en défilant. */
+      near.current = false;
+      io = new IntersectionObserver(
+        (seen) => {
+          near.current = seen[seen.length - 1]?.isIntersecting ?? true;
+          update();
+        },
+        { rootMargin: "0px 0px 200px 0px" },
+      );
+      io.observe(footer);
+    }
     /* `scroll` ne remonte pas : en capture, il attrape la fenêtre comme le cadre de la scène. */
     document.addEventListener("scroll", update, { passive: true, capture: true });
     window.addEventListener("resize", update);
@@ -83,6 +118,8 @@ export function useAboveFooter(): (el: HTMLDivElement | null) => void {
     size.observe(document.body);
     update();
     return () => {
+      io?.disconnect();
+      near.current = null;
       size.disconnect();
       document.removeEventListener("scroll", update, true);
       window.removeEventListener("resize", update);

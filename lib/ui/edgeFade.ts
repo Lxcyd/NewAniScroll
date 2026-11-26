@@ -50,8 +50,13 @@ export function useEdgeFade<T extends HTMLElement>(
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    sync();
-    if (typeof ResizeObserver === "undefined") return;
+    /* Le premier rappel du ResizeObserver fait la première lecture, après la
+       mise en page : un `sync()` ici la forçait au montage (26/11/2026, passe
+       vitesse du profil). */
+    if (typeof ResizeObserver === "undefined") {
+      sync();
+      return;
+    }
     const ro = new ResizeObserver(sync);
     ro.observe(el);
     return () => ro.disconnect();
