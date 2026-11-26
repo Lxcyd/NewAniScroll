@@ -200,4 +200,42 @@ for (const b of BADGES) {
 }
 console.log(`\n${ecarts.length} écart(s)`);
 for (const e of ecarts) console.log("  " + e);
+
+/* ── --ecrire : ACCORDER LES « MANQUE » (26/11/2026) ─────────────────────────
+   Les badges ne sont calculés que dans le navigateur du membre : un compte lié
+   à AniList qui ne revient pas (Kuraryn : 1 050 animés, 16 283 épisodes) n'en
+   a AUCUN aux yeux des visiteurs. Ceci écrit dans sa collection enregistrée
+   les badges que les VRAIES règles lui accordent (même calcul que ci-dessus),
+   et rien d'autre :
+     - SANS DATE (NO_DATE) : la date d'obtention, le navigateur la pose sur
+       preuve ; ici on n'en a pas de certaine, donc elle ne s'affiche pas ;
+     - AJOUT SEULEMENT : aucun « FAUX » retiré, aucun drapeau touché — la
+       fusion de ses appareils (union, date la plus ancienne) reste valable ;
+     - un badge accordé sort de `revoked`, comme quand l'évaluateur l'accorde
+       de nouveau preuve à l'appui. */
+if ("ecrire" in args) {
+  const ajout = BADGES.filter((b) => {
+    const p = measure(b, d, state);
+    return state.got[b.id] == null && !!p && p[1] > 0 && p[0] >= p[1];
+  }).map((b) => b.id);
+  if (!ajout.length) {
+    console.log("\n--ecrire : rien à accorder.");
+    process.exit(0);
+  }
+  const next = { ...state, got: { ...state.got } };
+  for (const id of ajout) {
+    next.got[id] = NO_DATE;
+    if (next.revoked) delete next.revoked[id];
+  }
+  if (next.revoked && !Object.keys(next.revoked).length) delete next.revoked;
+  const payload = { ...(K.badges ?? {}), "aniscroll:badges": JSON.stringify(next) };
+  await db.execute({
+    sql: `INSERT INTO user_data (user_id, kind, payload, rev, updated_at)
+          VALUES (?, 'badges', ?, 1, ?)
+          ON CONFLICT(user_id, kind) DO UPDATE
+            SET payload = excluded.payload, rev = user_data.rev + 1, updated_at = excluded.updated_at`,
+    args: [user.id, JSON.stringify(payload), Date.now()],
+  });
+  console.log(`\n--ecrire : ${ajout.length} badge(s) accordé(s) sans date : ${ajout.join(", ")}`);
+}
 process.exit(0);

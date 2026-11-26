@@ -1,10 +1,8 @@
-import Link from "next/link";
 import { audioFirst } from "@/lib/animethemes/audioUrl";
 import FramedAvatar from "@/components/profile/FramedAvatar";
 import FeaturedBadges from "@/components/profile/FeaturedBadges";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useNavBackdrop } from "@/lib/color/navContrast";
 import { watchTime } from "@/lib/profile/sources";
 import { plateMode } from "@/lib/profile/types";
@@ -224,7 +222,6 @@ export default function ProfileHero({
   musicPaused,
 }: Props) {
   const { t, i18n } = useTranslation();
-  const clickTarget = useClickTarget();
   /* The navbar floats transparent over this plate, and a profile's artwork is
      picked by its owner — nothing stops it being a white one. Same measurement
      the info page's hero declares (lib/color/navContrast.ts). */
@@ -1358,16 +1355,8 @@ export default function ProfileHero({
             sa boîte pleine largeur remonte jusqu'ici une fois les badges sous
             le pseudo, et avalait le clic du bouton bannière (16/10/2026). */}
         <div className="absolute right-3 top-[4.75rem] z-20 flex flex-wrap items-center justify-end gap-2 md:right-6">
-          {banner.title && banner.animeId ? (
-            <Link
-              href={animeHref(banner.animeId, clickTarget)}
-              className="rounded-full bg-black/45 px-3 py-1.5 text-[11px] font-medium text-white/75 ring-1 ring-white/10 backdrop-blur-md transition-colors hover:bg-black/70 hover:text-white"
-            >
-              {banner.kind === "video" && banner.episode
-                ? t("profile.episodeFrom", { title: banner.title, n: banner.episode.n })
-                : t("profile.bannerFrom", { title: banner.title })}
-            </Link>
-          ) : null}
+          {/* Plus de pastille « Bannière — <anime> » (26/11/2026, Luc) : le
+              nom de l'image ne s'affiche plus sur les profils. */}
           {/* Plus d'icône de son ici (17/10/2026) : la musique YouTube se
               lance depuis sa case, en bas à droite, toujours affichée. */}
           {/* Caché pendant l'édition (21/10/2026) : le studio est déjà ouvert. */}
