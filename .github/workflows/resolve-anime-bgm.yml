@@ -57,13 +57,15 @@ jobs:
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-        run: node scripts/music/import-anime-bgm.mjs --done=tools/ost-resolver/bgm-done.json
+        # --refresh : les animes en cours ou finis depuis moins de 12 mois,
+        # revus tous les 14 j (30 j sans BGM), 100 au plus par passage.
+        run: node scripts/music/import-anime-bgm.mjs --done=tools/ost-resolver/bgm-done.json --refresh=tools/ost-resolver/bgm-refresh.json
 
       - name: Resoudre une tranche
         working-directory: tools/ost-resolver
         env:
           PYTHONIOENCODING: utf-8
-        run: python bgm.py --top "${{ inputs.top || '200' }}" --skip-file bgm-done.json --out bgm-ci.jsonl
+        run: python bgm.py --top "${{ inputs.top || '200' }}" --skip-file bgm-done.json --refresh-file bgm-refresh.json --out bgm-ci.jsonl
 
       - name: Importer dans Turso
         if: always()

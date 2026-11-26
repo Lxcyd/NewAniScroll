@@ -309,6 +309,8 @@ def main() -> int:
     ap.add_argument("--ids", help="ids AniList, separes par des virgules")
     ap.add_argument("--top", type=int, help="les N plus populaires pas encore faits")
     ap.add_argument("--skip-file", help="JSON : ids deja traites")
+    ap.add_argument("--refresh-file", help="JSON : ids a refaire d'abord (anime en cours, "
+                                           "cf. scripts/music/import-anime-bgm.mjs)")
     ap.add_argument("--out", default="bgm.jsonl")
     args = ap.parse_args()
 
@@ -317,11 +319,24 @@ def main() -> int:
         with open(args.skip_file, encoding="utf-8") as fh:
             skip = set(json.load(fh))
 
+    def by_ids(ids: list[int]) -> list[dict]:
+        out = []
+        for i in range(0, len(ids), 50):
+            out += [as_anime(m) for m in anilist({"ids": ids[i:i + 50], "page": 1, "per": 50})]
+            time.sleep(2.5)
+        return out
+
+    # Les rafraichissements passent AVANT la tranche des nouveaux, en plus d'elle.
+    first: list[dict] = []
+    if args.refresh_file:
+        with open(args.refresh_file, encoding="utf-8") as fh:
+            ids = [int(x) for x in json.load(fh)]
+        first = by_ids(ids)
+        skip |= set(ids)
+
     todo: list[dict] = []
     if args.ids:
-        ids = [int(x) for x in args.ids.split(",") if x.strip()]
-        for i in range(0, len(ids), 50):
-            todo += [as_anime(m) for m in anilist({"ids": ids[i:i + 50], "page": 1, "per": 50})]
+        todo = by_ids([int(x) for x in args.ids.split(",") if x.strip()])
     elif args.top:
         page = 1
         while len(todo) < args.top and page < 400:
@@ -332,8 +347,9 @@ def main() -> int:
             page += 1
             time.sleep(2.5)  # 30 points/min
         todo = todo[:args.top]
-    else:
-        ap.error("--ids ou --top")
+    elif not first:
+        ap.error("--ids, --top ou --refresh-file")
+    todo = first + todo
 
     n_ok = 0
     with open(args.out, "a", encoding="utf-8") as fh:
