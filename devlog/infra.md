@@ -33,6 +33,24 @@ Upstash (24 h) avait expiré.
 sur Lucyd (~700 titres, ligne 142 Ko) et dechu ; ligne vieillie de 10 min → servie identique puis refaite (rev+1,
 `at` = heure de la copie fraîche). Serveur local : dechu 496 → 186 ms.
 
+**Suite (même jour) — mesuré sur dev, puis corrigé :**
+- Server-Timing sur dev : Prisma finissait à 152 ms sur 174 (chaud), 950 sur 991 (froid). Copie du réglage
+  « privé » dans `users.profile_private` (`{k,p,at}`) : même nom Prisma et < 15 min, sinon Postgres ; oubliée
+  AVANT et APRÈS chaque écriture (api/user/profile.js) ; une panne Postgres n'est jamais recopiée. Le délai de
+  15 min couvre la prod d'avant ce code, qui écrit sans oublier (bases partagées).
+- **Navigateur : la grille de l'aperçu n'est PAS rendue par le serveur** (`layout` posé dans un effet,
+  WidgetGrid place en pixels d'après une largeur mesurée). Les 12 blocs montaient dans UNE tâche de 1,4 s :
+  rendu + toute première mise en page (781 ms, forcée par la mesure FLIP de Statuts), puis 201 ms forcées par
+  `useEndRoom` (heatmap). Un bloc déjà monté se remet en page en < 1 ms : c'est le premier passage qui coûte.
+  → blocs visibles (+ ½ écran) montés ensemble, les autres un par image ; Statuts relève sa position de départ
+  après la peinture ; useEndRoom mesure dans le ResizeObserver.
+- **Résultat (Lucyd, mobile CPU ×4, dev)** : TBT 2 693 → **1 445 ms**, plus longue tâche 1 403 → 409 ms, mises
+  en page 229 → 113, temps des tâches 9,7 → 7,9 s. Captures mobile et bureau : 12 blocs, aucun corps vide.
+- Outils (scratchpad, à verser si utiles) : profil CPU par chunk/fonction, trace des mises en page FORCÉES avec
+  leur appelant et leurs causes d'invalidation, coût de remise en page par widget.
+- Piège : le garde anti-boucle refuse aussi un `node -e` contenant `for` s'il suit un curl du site dans la même
+  commande. Séparer téléchargement et lecture.
+
 **Trouvé :** en local, au premier rendu **Prisma (`getUser`, réglage « privé ») = 2,0 s**, la plus longue étape —
 AniList via la copie finissait à 0,9 s. À relire sur dev dans Server-Timing. S'il domine aussi chez Vercel :
 recopier `setting.private` sur la ligne `users` (migration sensible : une erreur rend public un profil privé,

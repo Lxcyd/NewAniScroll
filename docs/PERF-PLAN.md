@@ -136,7 +136,9 @@ les moyennes ne disaient rien. Versé : `tools/browser-check/avant-lcp.mjs`.
 
 ### P3 — Profil (TBT mobile 2 s, données jamais en cache)
 - **Serveur, fait le 26/11** (devlog/infra.md) : ligne « profil prêt » (`profile_digest`), fil AniList en
-  parallèle, `Server-Timing`. Reste : Prisma `getUser` (2 s à froid en local) si dev le confirme.
+  parallèle, `Server-Timing`, réglage « privé » sans Postgres. **Navigateur** : blocs par vagues, deux
+  mises en page forcées en moins — TBT mobile 2,7 → 1,4 s (devlog/infra.md, 26/11).
+- Les 5 champs du filtre (a) pèsent ~30 Ko gz sur 103 : gain modeste, nouvelle route avec contrôle « privé ».
 - **À suivre, dans l'ordre** : (a) `allTags`/`studios`/`airStatus`/`source`/`country` hors de la page, chargés
   par l'onglet Liste (seul le filtre les lit) ; (b) profil jamais vu : coquille tout de suite + squelette ;
   (c) une frontière `<Suspense>` par widget (hydratation découpée, HTML identique) ; (d) code des widgets par
