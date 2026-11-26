@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "../auth/[...nextauth]";
 
 import { createUser, deleteUser, getUser, updateUser } from "@/prisma/user";
+import { forgetProfilePrivate } from "@/lib/auth/users";
 
 export default async function handler(req, res) {
   const session = await getServerSession(req, res, authOptions);
@@ -20,7 +21,7 @@ export default async function handler(req, res) {
     try {
       switch (req.method) {
         case "POST": {
-          const new_user = await createUser(name);
+          const new_user = await createUser(name).finally(() => forgetProfilePrivate(name));
           if (!new_user) {
             return res.status(200).json({ message: "User is already created" });
           } else {
@@ -29,7 +30,14 @@ export default async function handler(req, res) {
         }
         case "PUT": {
           const { settings } = req.body;
-          const user = await updateUser(name, settings);
+          /* La copie du réglage « privé » sur la ligne `users` (lue par la page
+             de profil à la place de Postgres) est oubliée AVANT l'écriture, et
+             APRÈS : un profil affiché entre les deux aurait pu recopier
+             l'ancienne valeur. Une copie oubliée de trop ne coûte qu'une
+             lecture Postgres ; une copie fausse rendrait public un profil
+             privé. */
+          await forgetProfilePrivate(name);
+          const user = await updateUser(name, settings).finally(() => forgetProfilePrivate(name));
           if (!user) {
             return res.status(200).json({ message: "Can't update settings" });
           } else {
@@ -45,7 +53,7 @@ export default async function handler(req, res) {
           }
         }
         case "DELETE": {
-          const user = await deleteUser(name);
+          const user = await deleteUser(name).finally(() => forgetProfilePrivate(name));
           if (!user) {
             return res.status(404).json({ message: "User not found" });
           } else {

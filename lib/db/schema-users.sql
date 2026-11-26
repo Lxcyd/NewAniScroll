@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS users (
   avatar_url        TEXT,
   profile_banner    TEXT,                    -- {url, animeId, title} — PUBLIC
   profile_layout    TEXT,                    -- [{i,x,y,w,h}]        — PUBLIC
+  profile_private   TEXT,                    -- copie {k,p,at} du reglage Postgres, NULL = relire
   role              TEXT NOT NULL DEFAULT 'user',   -- 'user' | 'admin'
   status            TEXT NOT NULL DEFAULT 'active', -- 'active' | 'disabled'
   created_at        INTEGER NOT NULL,

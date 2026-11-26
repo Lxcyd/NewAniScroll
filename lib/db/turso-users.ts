@@ -57,7 +57,7 @@ export async function ensureUsersSchema(): Promise<void> {
   if (
     await schemaAlreadyThere(db, {
       tables: {
-        users: ["anilist_token", "anilist_lists", "anilist_avatar_url", "profile_banner", "profile_layout"],
+        users: ["anilist_token", "anilist_lists", "anilist_avatar_url", "profile_banner", "profile_layout", "profile_private"],
         user_data: ["payload"],
         auth_tokens: ["token_hash"],
         auth_throttle: ["reset_at"],
@@ -143,6 +143,14 @@ export async function ensureUsersSchema(): Promise<void> {
        `prefs` de user_data, c'est-à-dire chez le LECTEUR — un visiteur voyait
        donc sa propre disposition, jamais celle du profil qu'il regardait. */
     "profile_layout TEXT",
+    /* UNE COPIE, PAS LA SOURCE (26/11/2026) : le réglage « profil privé » vit
+       dans Postgres (Prisma, userProfile.setting.private), et le lire coûtait
+       les 2/3 du rendu du profil (~150 ms à chaud, ~1 s à froid). JSON
+       `{k, p, at}` : le nom Prisma lu, la valeur, l'heure. NULL = inconnu = on
+       relit Postgres. Remise à NULL avant ET après chaque écriture du réglage
+       (pages/api/user/profile.js), et périmée au bout de 15 min quoi qu'il
+       arrive (pages/en/profile/[user].tsx). */
+    "profile_private TEXT",
   ]) {
     try {
       await db.execute(`ALTER TABLE users ADD COLUMN ${column}`);

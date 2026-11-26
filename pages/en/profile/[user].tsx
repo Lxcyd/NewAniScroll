@@ -32,7 +32,7 @@ import { notify } from "@/lib/notifications/noticeStore";
 import { redis } from "@/lib/redis";
 import { waitUntil } from "@/lib/http/waitUntil";
 import { getUser } from "@/prisma/user";
-import { findByTag, setProfileLayout } from "@/lib/auth/users";
+import { findByTag, setProfileLayout, setProfilePrivateCache } from "@/lib/auth/users";
 import { pickAvatar } from "@/lib/auth/avatar";
 import {
   getAnilistFeed,
@@ -1318,6 +1318,24 @@ async function rafraichirDigest(
   await ecrireDigest(userId, anilistName, c.at, derived, derived.entries.map(compacte), known, undefined, false);
 }
 
+/** Au-delà, la copie du réglage « privé » est relue dans Postgres même sans
+ *  écriture connue : c'est ce qui borne une écriture faite par un code qui ne
+ *  l'oublie pas (la prod d'avant ce changement, une retouche à la main). */
+const PRIVE_TTL_MS = 15 * 60_000;
+
+/** `true`/`false` si la copie est sûre, `undefined` = relire Postgres. */
+function lirePrive(raw: string | null | undefined, key: string | null): boolean | undefined {
+  if (!raw || !key) return undefined;
+  try {
+    const c = JSON.parse(raw);
+    if (c?.k !== key || typeof c?.p !== "boolean" || typeof c?.at !== "number") return undefined;
+    if (Date.now() - c.at >= PRIVE_TTL_MS || c.at > Date.now() + 60_000) return undefined;
+    return c.p;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Le chronomètre du rendu, dans l'en-tête `Server-Timing` (DevTools > Réseau >
  *  Timing) : chaque étape porte l'heure à laquelle ELLE a fini, depuis le début
  *  du rendu — les étapes parallèles se lisent donc côte à côte. */
@@ -1429,11 +1447,35 @@ export async function getServerSideProps(context: any) {
         d ? null : tm.wrap("anilist", cachedAniList(anilistName, rangeCopie)),
       )
     : null;
+  /* LE RÉGLAGE « PRIVÉ » SANS POSTGRES, quand on en a une copie sûre sur la
+     ligne `users` (déjà lue) : Prisma prenait les 2/3 du rendu (mesuré sur dev
+     le 26/11 : fini à 152 ms sur 174 à chaud, 950 sur 991 à froid). La copie ne
+     vaut que pour le MÊME nom Prisma et pendant PRIVE_TTL_MS ; sinon on relit
+     Postgres comme avant, et une PANNE de Postgres n'est jamais recopiée. */
+  const prive = lirePrive(account?.profilePrivate, settingsKey);
+  const viewedP: Promise<{ setting?: { private?: boolean } } | null> | null =
+    prive !== undefined
+      ? Promise.resolve(prive ? { setting: { private: true } } : null)
+      : settingsKey
+        ? tm.wrap(
+            "prisma",
+            getUser(settingsKey, false).then(
+              (u) => {
+                if (account) {
+                  const value = JSON.stringify({ k: settingsKey, p: u?.setting?.private === true, at: Date.now() });
+                  waitUntil(setProfilePrivateCache(account.id, value));
+                }
+                return u;
+              },
+              () => null,
+            ),
+          )
+        : null;
   const [session, digest, collected, viewed, stored] = await Promise.all([
     sessionPromise,
     digestP,
     collectionP,
-    settingsKey ? tm.wrap("prisma", getUser(settingsKey, false).catch(() => null)) : null,
+    viewedP,
     account && kinds.length
       ? tm.wrap("userdata", getData(account.id, kinds).catch(() => [] as StoredKind[]))
       : ([] as StoredKind[]),

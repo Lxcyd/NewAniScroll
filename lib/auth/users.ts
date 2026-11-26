@@ -33,6 +33,9 @@ export type UserRecord = {
    *  Publique comme la bannière : c'est ainsi que le profil se présente aux
    *  autres. Null = la disposition par défaut. */
   profileLayout: string | null;
+  /** Copie du réglage « profil privé » de Postgres, `{k, p, at}` ; null =
+   *  inconnu (cf. turso-users.ts). Jamais la source : voir lirePrive. */
+  profilePrivate: string | null;
   role: "user" | "admin";
   status: "active" | "disabled";
   createdAt: number;
@@ -40,7 +43,7 @@ export type UserRecord = {
 };
 
 /** What a client is ever allowed to see. Never carries `passwordHash`. */
-export type PublicUser = Omit<UserRecord, "passwordHash" | "usernameLower">;
+export type PublicUser = Omit<UserRecord, "passwordHash" | "usernameLower" | "profilePrivate">;
 
 function str(v: unknown): string | null {
   return typeof v === "string" ? v : null;
@@ -64,6 +67,7 @@ function toRecord(row: Row): UserRecord {
     anilistAvatarUrl: str(row.anilist_avatar_url),
     profileBanner: str(row.profile_banner),
     profileLayout: str(row.profile_layout),
+    profilePrivate: str(row.profile_private),
     role: row.role === "admin" ? "admin" : "user",
     status: row.status === "disabled" ? "disabled" : "active",
     createdAt: Number(row.created_at),
@@ -72,7 +76,7 @@ function toRecord(row: Row): UserRecord {
 }
 
 export function toPublicUser(u: UserRecord): PublicUser {
-  const { passwordHash, usernameLower, ...rest } = u;
+  const { passwordHash, usernameLower, profilePrivate, ...rest } = u;
   return rest;
 }
 
@@ -81,7 +85,7 @@ export function toPublicUser(u: UserRecord): PublicUser {
    de session. Une colonne lue par toRecord doit etre ajoutee ici. */
 const SELECT = `SELECT id, tag, username, username_lower, email, email_verified_at,
   password_hash, anilist_id, anilist_name, avatar_url, anilist_avatar_url,
-  profile_banner, profile_layout, role, status, created_at, last_seen_at FROM users`;
+  profile_banner, profile_layout, profile_private, role, status, created_at, last_seen_at FROM users`;
 
 async function findOne(sql: string, args: unknown[]): Promise<UserRecord | null> {
   const client = await db();
@@ -535,6 +539,33 @@ export async function setProfileLayout(userId: string, value: string | null) {
   await client.execute({
     sql: `UPDATE users SET profile_layout = ? WHERE id = ?`,
     args: [value, userId],
+  });
+}
+
+/** Range la copie du réglage « privé » lue dans Postgres (cf. turso-users.ts). */
+export async function setProfilePrivateCache(userId: string, value: string) {
+  const client = await db();
+  if (!client) return;
+  await client.execute({
+    sql: `UPDATE users SET profile_private = ? WHERE id = ?`,
+    args: [value, userId],
+  });
+}
+
+/**
+ * Oublie la copie du réglage « privé » de tout compte dont le profil Prisma
+ * porte ce nom : le prochain affichage relira Postgres. Large exprès (nom
+ * AniList OU pseudo, sans casse) : oublier de trop ne coûte qu'une lecture.
+ */
+export async function forgetProfilePrivate(name: string) {
+  const client = await db();
+  if (!client || !name) return;
+  const n = name.toLowerCase();
+  await client.execute({
+    sql: `UPDATE users SET profile_private = NULL
+           WHERE profile_private IS NOT NULL
+             AND (lower(anilist_name) = ? OR username_lower = ?)`,
+    args: [n, n],
   });
 }
 
