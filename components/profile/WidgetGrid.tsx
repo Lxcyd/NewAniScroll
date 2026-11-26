@@ -211,7 +211,11 @@ export function useEndRoom() {
        tombait trop petite quand la légende revenait (04/11/2026, Luc). Les
        enfants comptent aussi : la légende s'ouvre en transition. */
     const put = () => box.style.setProperty("--as-end-room", `${el.offsetWidth + 10}px`);
-    put();
+    /* PAS de `put()` ici (26/11/2026, passe vitesse) : lire `offsetWidth` dans
+       un effet de mise en page, au montage, forçait la mise en page de TOUTE la
+       page encore sale (201 ms mesurées sur dev, mobile CPU ×4). Le premier
+       rappel du ResizeObserver arrive après la mise en page et avant la
+       première peinture : la lecture y est gratuite, et l'image est la même. */
     const ro = new ResizeObserver(put);
     ro.observe(el);
     for (const c of Array.from(el.children)) ro.observe(c);
@@ -242,7 +246,22 @@ export default function WidgetGrid({
     [limits],
   );
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const hostTop = useRef(0);
   const [width, setWidth] = useState(0);
+  /* LE CONTENU DES BLOCS ARRIVE PAR VAGUES (26/11/2026, passe vitesse du
+     profil). Mesuré sur dev (mobile, CPU ×4) : les douze blocs montaient dans
+     UNE tâche de 1,4 s — leur rendu React plus leur toute première mise en
+     page (781 ms), alors qu'un bloc déjà monté se remet en page en moins d'une
+     milliseconde. Les blocs VISIBLES à l'arrivée (plus un demi-écran)
+     montent ensemble, comme avant : la première image est la même. Les
+     autres suivent un par image, bien avant qu'on puisse défiler jusqu'à
+     eux ; leur carte (fond, flou, titre) est là dès le début, à sa taille,
+     donc rien ne bouge. Les entrées animées des blocs se déclenchent à la
+     visibilité : elles se jouent comme avant. Une fois la vague passée, tout
+     bloc s'affiche aussitôt (ajout depuis le studio, autre onglet). */
+  const wave = useRef<Set<string> | null>(null);
+  const [waveDone, setWaveDone] = useState(false);
+  const [, waveTick] = useState(0);
   const dragRef = useRef<Drag | null>(null);
   /* Le rectangle de DÉPART, en unités de grille, plus le mode. Le rendu en a
      besoin — la taille qui suit le curseur se calcule à partir de lui — et un
@@ -278,6 +297,10 @@ export default function WidgetGrid({
       if (w) setWidth(w);
     };
     measure();
+    /* Où la grille commence À L'ÉCRAN, pour la première vague (cf. `wave`).
+       Lu juste après `clientWidth` : la mise en page est déjà faite, c'est
+       gratuit. */
+    hostTop.current = el.getBoundingClientRect().top;
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
@@ -844,6 +867,40 @@ export default function WidgetGrid({
     };
   }
 
+  /* La première vague, au premier rendu qui connaît la largeur (celui qui
+     précède la première peinture, cf. la mesure en `useLayoutEffect`). */
+  if (width && !waveDone && !wave.current) {
+    const limit = (typeof window !== "undefined" ? window.innerHeight * 1.5 : Infinity) - hostTop.current;
+    wave.current = new Set(shown.filter((it) => livePixels(it).top < limit).map((it) => it.i));
+  }
+  const revealed = (id: string) => waveDone || !!wave.current?.has(id);
+  /* La suite : un bloc par image, dans l'ordre de lecture. */
+  const nextInWave =
+    !waveDone && wave.current
+      ? shown
+          .filter((it) => !wave.current!.has(it.i))
+          .sort((a, b) => livePixels(a).top - livePixels(b).top || livePixels(a).left - livePixels(b).left)[0]?.i ?? null
+      : undefined;
+  useEffect(() => {
+    if (nextInWave === undefined) return;
+    if (nextInWave === null) {
+      setWaveDone(true);
+      return;
+    }
+    let t = 0;
+    /* Après une peinture (rAF puis tâche) : chaque bloc a sa propre tâche. */
+    const r = requestAnimationFrame(() => {
+      t = window.setTimeout(() => {
+        wave.current?.add(nextInWave);
+        waveTick((n) => n + 1);
+      }, 0);
+    });
+    return () => {
+      cancelAnimationFrame(r);
+      clearTimeout(t);
+    };
+  }, [nextInWave]);
+
   return (
     <div ref={hostRef} className={`relative w-full ${drag ? "as-grid-dragging" : ""}`} style={{ height }}>
       {/* Où le bloc tombera s'il est lâché maintenant — pour un déplacement
@@ -893,6 +950,7 @@ export default function WidgetGrid({
         const sig = [
           Math.round(rect.left), Math.round(rect.top), Math.round(rect.width), Math.round(rect.height),
           active ? drag?.mode : "", editing, contentEdit === it.i, settings === it.i, !!width, placed,
+          revealed(it.i),
         ].join("|");
         const hit = cardCache.current.get(it.i);
         /* La carte tenue est toujours refaite : sa position vient de `moveRef`. */
@@ -1099,7 +1157,7 @@ export default function WidgetGrid({
               <div
                 className={`min-h-0 flex-1 ${editing ? "select-none [&_*]:pointer-events-none" : ""}`}
               >
-                {chrome.body}
+                {revealed(it.i) ? chrome.body : null}
               </div>
             )}
 

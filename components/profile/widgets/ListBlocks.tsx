@@ -764,6 +764,28 @@ export function StatusesBlock({
   useIsoLayoutEffect(() => {
     const list = listRef.current;
     if (!list) return;
+    /* LA PREMIÈRE MESURE ATTEND UNE IMAGE (26/11/2026, passe vitesse). Au
+       montage il n'y a rien à faire glisser — aucune position d'avant — et
+       lire `offsetTop` ici forçait la mise en page de toute la page en plein
+       chargement : 589 ms mesurées sur dev (mobile, CPU ×4), la plus chère de
+       la page. On ne relève que la position de départ, après la mise en page
+       que le navigateur fait de lui-même. */
+    if (!tops.current.size) {
+      /* rAF PUIS tâche : après la peinture, quand la mise en page est propre
+         (un rappel rAF seul passe AVANT elle, et la forcerait encore). */
+      let t = 0;
+      const r = requestAnimationFrame(() => {
+        t = window.setTimeout(() => {
+          const first = new Map<string, number>();
+          for (const row of Array.from(list.querySelectorAll<HTMLElement>("[data-row]"))) first.set(row.dataset.row!, row.offsetTop);
+          if (!tops.current.size) tops.current = first;
+        }, 0);
+      });
+      return () => {
+        cancelAnimationFrame(r);
+        clearTimeout(t);
+      };
+    }
     const moved: Array<[HTMLElement, number]> = [];
     const now = new Map<string, number>();
     for (const row of Array.from(list.querySelectorAll<HTMLElement>("[data-row]"))) {
