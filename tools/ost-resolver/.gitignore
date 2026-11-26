@@ -2,3 +2,5 @@ state.json
 backfill.jsonl
 *.json
 !package.json
+bgm*.jsonl
+__pycache__/

@@ -947,7 +947,11 @@ function themesOf(id: number, onBase?: (rows: ThemeRow[]) => void): Promise<Them
       });
     const extra = fetch(`/api/v2/anisongs/${id}?v=6`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => (Array.isArray(j?.songs) ? (j.songs as ThemeRow[]) : []))
+      /* Sans les BGM (26/11/2026) : YouTube seul, que le lecteur <audio> de ce
+         bloc ne sait pas jouer. */
+      .then((j) =>
+        Array.isArray(j?.songs) ? ((j.songs as { kind?: string }[]).filter((x) => x.kind !== "bgm") as ThemeRow[]) : [],
+      )
       .catch(() => [] as ThemeRow[]);
     p = Promise.all([main, extra])
       .then(([base, more]) => {

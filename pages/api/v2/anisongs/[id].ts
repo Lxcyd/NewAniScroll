@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { fetchByMal, malIdsOf, pickSongs, type AnisongRaw } from "@/lib/music/anisongdb";
 import { seasonCacheGet, seasonCacheGetEntry, seasonCacheSet } from "@/lib/db/seasonCache";
 import { getAplSongs, type AplSong } from "@/lib/db/aniplaylistSongs";
+import { getBgm } from "@/lib/db/animeBgm";
 import { THEMES_KEY } from "@/lib/animethemes/themesKey";
 import { sameSong, titleKey } from "@/lib/music/titleKey";
 import { deezerTrack, norm as dzNorm } from "@/lib/music/deezer";
@@ -48,13 +49,16 @@ const BUDGET_MS = 8000;
 
 export type AnisongRow = {
   slug: string;
-  kind: "op" | "ed" | "ins";
+  /** `bgm` : bande originale (table anime_bgm), jouée sur YouTube seulement. */
+  kind: "op" | "ed" | "ins" | "bgm";
   song: string | null;
   artists: string[];
   /** La pochette Deezer, ou null (le studio montre alors l'affiche de l'anime). */
   cover: string | null;
-  video: { url: string; audio: string; episodes: string | null };
+  video: { url: string; audio: string | null; episodes: string | null };
   videoNc: null;
+  /** BGM : la version complète sur YouTube, seule source. */
+  youtubeId?: string;
 };
 
 type Raw = AnisongRaw;
@@ -203,6 +207,29 @@ async function withAniplaylist(anilistId: number, malId: number | undefined, son
   return { songs: [...head, ...opEd, ...tail, ...ins], added: opEd.length + ins.length };
 }
 
+/* ── BGM (26/11/2026, Luc) ─────────────────────────────────────────────────
+   La bande originale (« L no Theme », « Vogel im Käfig »), que ni AnimeThemes,
+   ni AnisongDB, ni AniPlaylist n'ont : table anime_bgm (lib/db/animeBgm.ts),
+   déjà triée par popularité Deezer. Après tout le reste, comme AniPlaylist
+   lue à chaque réponse : un passage du résolveur se voit le jour même. Un
+   titre déjà dans la liste (même clé) n'est pas repris. */
+function bgmRows(list: Awaited<ReturnType<typeof getBgm>>, songs: AnisongRow[]): AnisongRow[] {
+  const have = new Set(songs.map((s) => titleKey(s.song)).filter(Boolean));
+  let i = 0;
+  return list
+    .filter((x) => !have.has(titleKey(x.t)))
+    .map((x) => ({
+      slug: `BGM${++i}`,
+      kind: "bgm" as const,
+      song: x.t,
+      artists: x.a ? [x.a] : [],
+      cover: x.c,
+      video: { url: `https://www.youtube.com/watch?v=${x.y}`, audio: null, episodes: null },
+      videoNc: null,
+      youtubeId: x.y,
+    }));
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
   const anilistId = Number(req.query.id);
@@ -219,9 +246,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   /* Toutes les réponses passent par ici : AniPlaylist ajouté, et un cache du
      bord d'un jour au plus quand il a ajouté quelque chose (relevé quotidien). */
   const send = async (base: AnisongRow[], cache: string, extra: Record<string, unknown> = {}) => {
-    const { songs, added } = await withAniplaylist(anilistId, malId, base);
-    res.setHeader("Cache-Control", added && cache !== BRIEF ? DAILY : cache);
-    return res.status(200).json({ songs, ...extra });
+    const [{ songs, added }, bgm] = await Promise.all([withAniplaylist(anilistId, malId, base), getBgm(anilistId)]);
+    const all = [...songs, ...bgmRows(bgm, songs)];
+    res.setHeader("Cache-Control", (added || all.length > songs.length) && cache !== BRIEF ? DAILY : cache);
+    return res.status(200).json({ songs: all, ...extra });
   };
 
   /* UN VIDE SE REDEMANDE AU BOUT DE 6 H (24/10/2026), une liste pleine garde

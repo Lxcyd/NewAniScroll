@@ -795,7 +795,8 @@ function writeLastScope(s: PaletteScope) {
    forme ou l'ordre des listes change, sinon l'ancienne revient sept jours. */
 /* v9 + UN JOUR (24/10/2026) : les listes portent les morceaux d'AniPlaylist,
    relevés chaque jour — sept jours de cache cachaient ceux du jour. */
-const MUSIC_KEY = "as-music-cache-v9";
+/* v10 (26/11/2026) : les listes portent les BGM (table anime_bgm). */
+const MUSIC_KEY = "as-music-cache-v10";
 const MUSIC_TTL = 24 * 3600 * 1000;
 type MusicStore = Record<string, { t?: ThemeRow[]; c?: Record<string, string | null>; at: number }>;
 function readMusicStore(): MusicStore {
@@ -914,8 +915,9 @@ function FrameIcon({ className }: { className?: string; strokeWidth?: number }) 
 
 type ThemeRow = {
   slug: string;
-  /** `ins` : une autre musique de l'anime, venue d'AnisongDB (/api/v2/anisongs). */
-  kind: "op" | "ed" | "ins";
+  /** `ins` : une autre musique de l'anime, venue d'AnisongDB (/api/v2/anisongs).
+      `bgm` : la bande originale (table anime_bgm), YouTube seul (`youtubeId`). */
+  kind: "op" | "ed" | "ins" | "bgm";
   song: string | null;
   /** Pochette Deezer jointe par /api/v2/anisongs ; les OP/ED d'AnimeThemes
       passent par /api/v2/theme-covers. */
@@ -931,10 +933,14 @@ type ThemeRow = {
   youtubeId?: string | null;
 };
 
+/** La pastille des BGM (bande originale) : ni OP (accent), ni ED (bleu), ni
+    SONG (violet), ni TRL (vert). */
+const BGM_COLOR = "#2dd4bf";
+
 /** Une piste qui a une VIDÉO (AnimeThemes, .webm) et pas seulement un mp3
     d'AnisongDB : la seule qu'on puisse poser en fond. */
 const hasVideo = (th: ThemeRow) =>
-  th.kind !== "ins" &&
+  (th.kind === "op" || th.kind === "ed") &&
   [th.videoNc?.url, th.video?.url].some((u) => !!u && !/\.(mp3|ogg|m4a|opus)(\?|$)/i.test(u));
 
 /** Les comptes de génériques déjà reçus, et ceux en route : pour la session. */
@@ -1197,7 +1203,7 @@ export default function BannerStudio({
     /* `null` = panne ou réponse partielle : la liste s'affiche sans elles,
        mais N'EST PAS gardée — sinon une seule panne (ou un serveur en train de
        recompiler) effaçait ces musiques pour sept jours (18/10/2026). */
-    const extra = fetch(`/api/v2/anisongs/${id}?v=6`)
+    const extra = fetch(`/api/v2/anisongs/${id}?v=7`)
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => (Array.isArray(json?.songs) && !json.partial ? (json.songs as ThemeRow[]) : null))
       .catch(() => null);
@@ -2141,7 +2147,7 @@ export default function BannerStudio({
       stableBatches(ids, 100).map((lot) =>
         /* `&v=2` : les comptes incluent les musiques d'AnisongDB (18/10/2026) ;
            sans lui, le navigateur resservait ceux d'avant (une heure). */
-        fetch(`/api/v2/theme-counts?ids=${lot.join(",")}&v=3`)
+        fetch(`/api/v2/theme-counts?ids=${lot.join(",")}&v=4`)
           .then((r) => (r.ok ? r.json() : null))
           .then((d) => {
             const c: Record<number, number> = d?.counts ?? {};
@@ -2810,7 +2816,9 @@ export default function BannerStudio({
                 ? { text: "TRL", op: false, color: "#4ade80" }
                 : p.music.slug === "SONG"
                   ? { text: "SONG", op: false, color: "#c084fc" }
-                  : { text: p.music.slug, op: p.music.slug.startsWith("OP") }
+                  : p.music.slug === "BGM"
+                    ? { text: "BGM", op: false, color: BGM_COLOR }
+                    : { text: p.music.slug, op: p.music.slug.startsWith("OP") }
               : undefined,
             hint: [span(p.music.from, p.music.to), p.music.artist].filter(Boolean).join(" · ") || null,
             icon: MusicalNoteIcon,
@@ -4643,6 +4651,12 @@ export default function BannerStudio({
       /* La frappe cherche un ANIME : elle ne filtre pas les pistes de celui
          qu'on ouvre — « chainsawman » ne figure dans aucun titre de chanson,
          et la liste se viderait. */
+      /* Le morceau porté est-il cette ligne ? Une BGM se reconnaît à sa vidéo
+         (son `url` est vide), le reste à son fichier. */
+      const isMine = (th: ThemeRow, url: string | null) =>
+        th.kind === "bgm"
+          ? !draft.music?.url && !!th.youtubeId && draft.music?.videoId === th.youtubeId
+          : !!draft.music?.url && [url, th.videoNc?.audio, th.video?.audio].includes(draft.music.url);
       const rows: Row[] = montrable
         .map((th) => {
           const url = th.videoNc?.url || th.video?.url || null;
@@ -4659,10 +4673,13 @@ export default function BannerStudio({
                d'un ending, et le studio n'a aucune raison de le dire autrement. */
             /* SONG en violet : ni opening (accent), ni ending (bleu), ni TRL
                (vert). « INS » (insert) ne parlait à personne (18/10/2026). */
+            /* BGM en turquoise (26/11/2026) : la bande originale. */
             chip:
               th.kind === "ins"
                 ? { text: "SONG", op: false, color: "#c084fc" }
-                : { text: th.slug.toUpperCase(), op: th.kind === "op" },
+                : th.kind === "bgm"
+                  ? { text: "BGM", op: false, color: BGM_COLOR }
+                  : { text: th.slug.toUpperCase(), op: th.kind === "op" },
             hint: [artist, episodes ? t("profile.studioMusicEpisodes", { episodes }) : null]
               .filter(Boolean)
               .join(" · "),
@@ -4674,37 +4691,32 @@ export default function BannerStudio({
               th.cover ??
               (th.slug in themeCovers
                 ? (themeCovers[th.slug] ?? (meta?.mediaId === listedAnimeId ? meta : listedAnime)?.cover ?? null)
-                : th.kind === "ins"
+                : th.kind === "ins" || th.kind === "bgm"
                   ? ((meta?.mediaId === listedAnimeId ? meta : listedAnime)?.cover ?? null)
                   : null),
             /* Génériques en rectangle, comme les épisodes de Vidéo
                (21/10/2026) ; Musique garde ses pochettes carrées. */
             square: scope === "music",
             disabled: !url,
-            selected:
-              scope === "music"
-                ? !!draft.music?.url &&
-                  [url, th.videoNc?.audio, th.video?.audio].includes(draft.music.url)
-                : draft.url === url,
+            selected: scope === "music" ? isMine(th, url) : draft.url === url,
             run: url
               ? () =>
                   /* Un preset porté garde la coche : la ligne du morceau,
                      décochée, se reprend au clic au lieu de le retirer. */
-                  !musicPresetOn &&
-                  scope === "music" &&
-                  !!draft.music?.url &&
-                  [url, th.videoNc?.audio, th.video?.audio].includes(draft.music.url)
+                  !musicPresetOn && scope === "music" && isMine(th, url)
                     ? /* Recliquer le morceau coché le retire. */
                       patch({ music: null })
                     : scope === "music"
                     ? (patch({
                         music: {
                           /* L'OGG d'AnimeThemes, pas la vidéo : 2 Mo au lieu
-                             de 47 pour le même son (Cyberpunk OP1). */
-                          url: th.videoNc?.audio || th.video?.audio || url,
+                             de 47 pour le même son (Cyberpunk OP1). Une BGM
+                             n'a que YouTube : `url` vide, comme un lien collé
+                             (pas de bascule TV / complète). */
+                          url: th.kind === "bgm" ? "" : th.videoNc?.audio || th.video?.audio || url,
                           title: label,
                           artist,
-                          slug: th.kind === "ins" ? "SONG" : th.slug.toUpperCase(),
+                          slug: th.kind === "ins" ? "SONG" : th.kind === "bgm" ? "BGM" : th.slug.toUpperCase(),
                           /* La pochette du morceau quand Deezer l'a, sinon
                              l'affiche de l'anime. */
                           cover: th.cover ?? themeCovers[th.slug] ?? (meta?.mediaId === listedAnimeId ? meta : listedAnime)?.cover ?? null,

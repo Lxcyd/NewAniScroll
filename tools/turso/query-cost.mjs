@@ -216,6 +216,22 @@ const CASES = [
     max: 500,
   },
   {
+    name: "BGM d'un anime (anisongs)",
+    db: "cache",
+    source: ["lib/db/animeBgm.ts", "SELECT data FROM anime_bgm WHERE ani_id = ? AND n > 0"],
+    sql: "SELECT data FROM anime_bgm WHERE ani_id = ? AND n > 0",
+    args: [ONE],
+    max: 10,
+  },
+  {
+    name: "BGM de 100 animés (theme-counts)",
+    db: "cache",
+    source: ["lib/db/animeBgm.ts", "SELECT ani_id, n FROM anime_bgm WHERE n > 0 AND ani_id IN ("],
+    sql: `SELECT ani_id, n FROM anime_bgm WHERE n > 0 AND ani_id IN (${ph(100)})`,
+    args: top.slice(0, 100),
+    max: 500,
+  },
+  {
     name: "lecteurs d'un anime (player_map)",
     db: "cache",
     source: ["lib/db/playerMap.ts", "FROM player_map"],

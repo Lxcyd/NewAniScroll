@@ -6,6 +6,37 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-11-26 — BGM : la bande originale dans le menu Musique
+
+Luc : « L no Theme » et les autres pistes celebres de Death Note manquaient au studio, alors que
+MKissa les a. Nos trois sources (AnimeThemes, AnisongDB, AniPlaylist) ne connaissent que les
+morceaux CHANTES. MKissa est de la famille AllAnime (id `RezHft5pjutwWcE3B`, CDN
+`youtube-anime.com`) : un champ `show.musics` dans leur GraphQL (`api.mkissa.net` /
+`api.allanime.day`), mp3 heberges chez eux, le tout derriere un defi Cloudflare interactif. Ecarte.
+
+- **Chaine** (`tools/ost-resolver/bgm.py`) : compositeurs AniList (role `Music` exact, staff 50
+  premiers) → albums Deezer dont l'ARTISTE est un compositeur et dont le nom, titre de l'anime
+  retire, n'a que des mots generiques AVANT « soundtrack » (apres : sous-titre d'album libre,
+  « - chainsaw edge fragments - ») → pistes jouees par un compositeur (ecarte « the WORLD (TV
+  Size) ») → 30 plus ecoutees (`rank` Deezer) → YouTube via Piped : chaine = compositeur, duree a
+  ±2 s de Deezer (meme master : L no Theme 184 s des deux cotes), titre proche ou corroboree par
+  une 2e requete. Seules les pistes sures sont ecrites ; une video en double garde la plus ecoutee.
+- Pieges mesures : JJK S1 prenait les OST de la saison 2 (« Hidden Inventory ») et du jeu
+  (« Phantom Parade ») → regle des mots generiques ; AniList « Yuuki Hayashi » / Deezer « Yuki » →
+  voyelles longues repliees ; « HUNTER×HUNTER (2011) » vs « HUNTER x HUNTER » ; natif
+  « 東京喰種 トーキョーグール » (lecture katakana) ; « サウンドトラックCD » colle.
+- Resultat top 50 AniList : 21 animes, 476 BGM, aucun album faux releve. Rates : compositeur non
+  credite (Frieren, Demon Slayer), collectif ((K)NoW_NAME), OST absente de Deezer (JJK S1) ou de
+  YouTube Music (Tokyo Ghoul : seules des reprises, rejetees). Franchise numerotee melangee
+  (Dr. STONE S1 recoit les volumes 3/5/6) : non distinguable par le titre.
+- Site : `anime_bgm` (une ligne par anime, `lib/db/animeBgm.ts`), ajoutees en fin de liste par
+  /api/v2/anisongs (`kind: "bgm"`, slug `BGM1…`, `youtubeId`), comptees par theme-counts. Studio :
+  pastille BGM turquoise, `music.url = ""` + `videoId` (comme un lien colle : pas de bascule TV /
+  complete). Le bloc « génériques favoris » (ExtraBlocks) les ecarte : son lecteur est un `<audio>`.
+  Caches montes : `as-music-cache-v10`, anisongs `?v=7`, theme-counts `&v=4`.
+- Cron `resolve-anime-bgm.yml` (04:00 UTC, 200 animes, `checkout ref: dev`) : ne tourne que depuis
+  main. Un vide se refait apres 60 jours.
+
 ## 2026-11-17 — Audit des sources du studio : Wallhaven mal range, mappings fanart perdus, musiques en double
 
 Controle chiffre contre les sites eux-memes (API Wallhaven, fanart.tv, AniList, MyAnimeList,

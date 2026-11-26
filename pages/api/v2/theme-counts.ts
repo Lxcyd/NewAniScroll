@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { fetchByMal, malIdsOf, pickSongs, songSlug } from "@/lib/music/anisongdb";
 import { aplSongsOf } from "@/lib/db/aniplaylistSongs";
+import { bgmCountsOf } from "@/lib/db/animeBgm";
 import { sameSong } from "@/lib/music/titleKey";
 
 /**
@@ -108,6 +109,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
       counts[id] += fresh.filter((x) => x.k === "ins").length;
     }
+    /* Les BGM (26/11/2026) : le compte rangé avec la liste, une lecture. */
+    for (const [id, n] of await bgmCountsOf(ids)) counts[id] += n;
     res.setHeader(
       "Cache-Control",
       complete ? "public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800" : "public, max-age=60, s-maxage=60",

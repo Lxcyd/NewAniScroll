@@ -210,6 +210,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Pages, saisons, relations & sources de donnees — [`devlog/site.md`](devlog/site.md)
 
+- 2026-11-26 — **BGM (bande originale) dans le menu Musique du studio** : compositeurs AniList → albums Deezer → YouTube a ±2 s de la duree Deezer, table `anime_bgm`, pastille « BGM » turquoise jouee en YouTube ; MKissa (AllAnime) analyse et ecarte (defi Cloudflare) ; 21/50 du top au 1er passage, cron `resolve-anime-bgm` (a poser sur main)
 - 2026-11-17 — Audit des sources du studio : franchises Wallhaven soudees par les crossovers (259 k lignes retirees), mappings TVDB/TMDB perdus depuis mai, musiques en double, AnimeThemes en panne
 - 2026-10-20 — Studio : un épisode en fond de profil (accordéon des épisodes, menu Lecteur [VOSTFR]/[VF]/[MULTI], flux résolu par chaque visiteur)
 - 2026-10-17 — Case musique du profil : petit carré au survol, égaliseur décoratif ; copie analysée et estimation essayées puis retirées

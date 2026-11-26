@@ -200,3 +200,19 @@ CREATE TABLE IF NOT EXISTS oped_youtube (
 );
 
 CREATE INDEX IF NOT EXISTS idx_oped_youtube_verdict ON oped_youtube(verdict);
+
+-- anime_bgm — la BANDE ORIGINALE d'un anime (BGM), version complete sur YouTube
+-- (26/11/2026). Remplie par tools/ost-resolver/bgm.py (compositeurs AniList ->
+-- albums Deezer -> YouTube a ±2 s de la duree Deezer), importee par
+-- scripts/music/import-anime-bgm.mjs, servie par /api/v2/anisongs. Seules les
+-- pistes sures sont dans `data` ; n = 0 veut dire « regarde, rien de sur »
+-- (refait apres 60 jours).
+CREATE TABLE IF NOT EXISTS anime_bgm (
+  ani_id     INTEGER PRIMARY KEY,           -- AniList id
+  n          INTEGER NOT NULL,              -- pistes servies
+  data       TEXT    NOT NULL,              -- [{t, a, d, r, al, c, y}] par rang Deezer
+  cand       INTEGER NOT NULL DEFAULT 0,    -- pistes candidates (Deezer)
+  albums     TEXT,                          -- albums retenus (JSON, audit)
+  algo       INTEGER NOT NULL DEFAULT 1,
+  checked_at INTEGER NOT NULL
+);
