@@ -1,0 +1,78 @@
+# Les BGM (bande originale) des animes, en version complete sur YouTube ->
+# table `anime_bgm` (servie par /api/v2/anisongs, pastille « BGM » du studio).
+#
+# Chaine et garde-fous : en-tete de tools/ost-resolver/bgm.py. En bref :
+# compositeurs AniList -> albums Deezer de CES compositeurs portant le titre de
+# l'anime -> chaque piste chez la chaine du compositeur sur YouTube (Piped), a
+# ±2 s de la duree Deezer. Seules les pistes sures sont ecrites.
+#
+# Par tranches, les plus populaires d'abord : ~3 s par anime mesurees le
+# 26/11/2026 (50 animes, 476 BGM), mais Piped est une instance benevole.
+# L'etat est la table (scripts/music/import-anime-bgm.mjs --done).
+#
+# Le cron ne part que depuis la branche par defaut : ce fichier doit etre sur
+# main (il fait `checkout ref: dev`, comme anizone-seed).
+#
+# Secrets : TURSO_DATABASE_URL, TURSO_AUTH_TOKEN (base cache).
+
+name: resolve-anime-bgm
+
+on:
+  schedule:
+    # 04:00 UTC : apres resolve-oped-youtube (03:00), meme instance Piped.
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      top:
+        description: "Nombre d'animes a traiter"
+        required: false
+        type: string
+        default: "200"
+
+concurrency:
+  group: resolve-anime-bgm
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: dev
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Installer le strict necessaire
+        # Meme raison que resolve-oped-youtube : pas tout le site (sharp).
+        run: mv package.json /tmp/pkg.json; rm -f package-lock.json; ok=1; for i in 1 2 3; do npm install --no-save @libsql/client@^0.17 && ok=0 && break; sleep 20; done; mv /tmp/pkg.json package.json; exit $ok
+
+      - name: Lire ce qui est deja fait
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: node scripts/music/import-anime-bgm.mjs --done=tools/ost-resolver/bgm-done.json
+
+      - name: Resoudre une tranche
+        working-directory: tools/ost-resolver
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python bgm.py --top "${{ inputs.top || '200' }}" --skip-file bgm-done.json --out bgm-ci.jsonl
+
+      - name: Importer dans Turso
+        if: always()
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          if [ -s tools/ost-resolver/bgm-ci.jsonl ]; then
+            node scripts/music/import-anime-bgm.mjs --in=tools/ost-resolver/bgm-ci.jsonl
+          else
+            echo "Rien de nouveau sur cette tranche."
+          fi
