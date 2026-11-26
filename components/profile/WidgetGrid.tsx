@@ -16,7 +16,11 @@ import {
   type Bounds,
   type GridItem,
 } from "@/lib/profile/grid";
-import WidgetSettings from "./WidgetSettings";
+import { lazyBlock } from "./widgets/lazy";
+/* Le panneau de réglages n'existe qu'en édition : son code (et celui de ses
+   listes déroulantes) se charge à l'entrée en édition, pas avec la page
+   (26/11/2026, passe vitesse). */
+const WidgetSettings = lazyBlock(() => import("./WidgetSettings").then((m) => m.default));
 
 /* `useLayoutEffect` n'existe pas au rendu serveur — React y avertit. Ce module
    est rendu des deux cotes : on prend l'effet de mise en page dans le
@@ -365,6 +369,7 @@ export default function WidgetGrid({
   }, [settings]);
   useEffect(() => {
     if (!editing) setSettings(null);
+    else WidgetSettings.preload().catch(() => {});
   }, [editing]);
 
   /**

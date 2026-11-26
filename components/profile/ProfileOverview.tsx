@@ -7,9 +7,7 @@ import { FAVOURITES_EVENT, loadFavourites, readFavouriteIds } from "@/lib/anilis
 import { notify } from "@/lib/notifications/noticeStore";
 
 import WidgetGrid, { type BlockChrome, type WidgetOption } from "./WidgetGrid";
-import BlockLibrary from "./BlockLibrary";
 import { EmptyBlock } from "./widgets/common";
-import { CharactersBlock } from "./widgets/CharactersBlock";
 import {
   FavoritesBlock,
   YearsBlock,
@@ -19,7 +17,6 @@ import {
   StatusesBlock,
   StudiosBlock,
 } from "./widgets/ListBlocks";
-import { RecentsBlock, ResumeBlock } from "./widgets/DeviceBlocks";
 import {
   customListColor,
   listLabel,
@@ -32,19 +29,27 @@ import type { ProgressEntry } from "@/lib/watch/progress";
 import type { HistoryRow } from "@/lib/profile/history";
 import type { FeedEvent } from "@/lib/profile/activity";
 import { CalendarBlock } from "./widgets/CalendarBlock";
-import { HeatmapBlock } from "./widgets/HeatmapBlock";
+/* Les blocs lourds, à la demande (cf. widgets/lazy.tsx) ; leurs réglages se
+   lisent sans eux (widgets/extraParse.ts). */
 import {
   AffinityBlock,
   AffinityEditor,
-  parseTags,
   BingeBlock,
   BingoBlock,
+  CharactersBlock,
   GoalBlock,
+  HeatmapBlock,
   PinnedBlock,
+  RecentsBlock,
+  ResumeBlock,
   ThemesBlock,
-  parsePins,
-  parseThemes,
-} from "./widgets/ExtraBlocks";
+  lazyBlock,
+  preloadBlocks,
+} from "./widgets/lazy";
+import { parsePins, parseTags, parseThemes } from "./widgets/extraParse";
+/* La bibliothèque de blocs n'est ouverte que par le propriétaire, et rarement :
+   chargée à la demande, préchargée en édition. */
+const BlockLibrary = lazyBlock(() => import("./BlockLibrary").then((m) => m.default));
 import { useLocalDays } from "./widgets/CalendarBlock";
 import { favsOf, rememberMe, tasteOf } from "@/lib/profile/affinity";
 import { sendMyTaste } from "@/lib/friends/client";
@@ -394,11 +399,29 @@ export default function ProfileOverview({
   const source = onAccount ? accountLayout : device.layout;
   const loaded = onAccount || device.loaded;
 
+  /* LE CODE DES BLOCS POSÉS PART PENDANT L'HYDRATATION (26/11/2026, passe
+     vitesse) : au tout premier rendu client, avant même que la disposition ne
+     soit placée (elle l'est dans un effet, plus bas). Les blocs lourds sont
+     chargés à la demande (widgets/lazy.tsx) ; ainsi leur code est là quand la
+     grille révèle leur contenu. En édition, tous : le menu Widgets les montre. */
+  const preloaded = useRef(false);
+  if (!preloaded.current && typeof window !== "undefined") {
+    preloaded.current = true;
+    const first =
+      variant === "stats" ? STATS_LAYOUT : ((isOwner && ownLayout ? ownLayout.items : source) ?? defaultLayout(isOwner));
+    preloadBlocks(first.map((o) => blockType(o.i)));
+  }
+
   const [ownEditing, setOwnEditing] = useState(false);
   const controlled = onEditingChange !== undefined;
   const editing = controlled ? !!editingProp : ownEditing;
   const setEditing = (on: boolean) => (controlled ? onEditingChange(on) : setOwnEditing(on));
   const [library, setLibrary] = useState(false);
+  useEffect(() => {
+    if (!editing && !library) return;
+    preloadBlocks();
+    BlockLibrary.preload().catch(() => {});
+  }, [editing, library]);
   /* La disposition vit ici pendant la session : le stockage n'est écrit qu'aux
      changements, et le relire à chaque déplacement ferait un aller-retour par
      pixel. */

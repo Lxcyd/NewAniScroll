@@ -93,7 +93,6 @@ import {
   type BadgeState,
 } from "@/lib/badges/store";
 import { noteListCounter } from "@/lib/badges/facts";
-import { silenceNextEvaluation } from "@/lib/badges/evaluate";
 import ProfileOverview from "@/components/profile/ProfileOverview";
 import ProfileStage from "@/components/profile/ProfileStage";
 import type {
@@ -283,11 +282,26 @@ function ProfileView({
      d'un profil visité fabriquerait des badges avec les épisodes d'un autre.
      Et en silence, comme une synchro — ce chiffre arrive avec la page, il ne
      récompense aucun geste qu'on vient de faire. */
+  /* L'ÉVALUATEUR EST CHARGÉ À LA DEMANDE (26/11/2026, passe vitesse) : importé
+     ici d'office, il tirait catalogue, dérivations et mesures (~35 Ko minifiés)
+     dans le JS de la page, alors que _app le charge de toute façon au repos.
+     Même ordre qu'avant — le silence d'abord, les compteurs ensuite —, juste
+     après l'arrivée du module (le même morceau que celui de _app). */
   useEffect(() => {
     if (!isOwner) return;
-    silenceNextEvaluation();
-    noteListCounter("listEpisodes", stats.episodes);
-    if (stats.minutes) noteListCounter("listMinutes", stats.minutes);
+    let live = true;
+    import("@/lib/badges/evaluate").then(
+      ({ silenceNextEvaluation }) => {
+        if (!live) return;
+        silenceNextEvaluation();
+        noteListCounter("listEpisodes", stats.episodes);
+        if (stats.minutes) noteListCounter("listMinutes", stats.minutes);
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
   }, [isOwner, stats.episodes, stats.minutes]);
 
   const [banner, setBanner] = useState<HeroBanner>(initialBanner ?? { url: null, animeId: null, title: null });

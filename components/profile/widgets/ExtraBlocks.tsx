@@ -22,6 +22,17 @@ import HoverVolume from "@/components/shared/HoverVolume";
 import EmojiButton from "@/components/watch/party/EmojiButton";
 import { ANIME_EMOJI_MAP } from "@/lib/watch2gether/animeEmojis";
 import { ANIME_STICKER_MAP } from "@/lib/watch2gether/animeStickers";
+import {
+  PIN_NOTE_MAX,
+  THEMES_MAX,
+  parsePins,
+  parseTags,
+  parseThemes,
+  type FavTheme,
+  type Pin,
+} from "./extraParse";
+/* Réexportés : leurs lecteurs historiques importent encore d'ici (cf. extraParse.ts). */
+export { PIN_NOTE_MAX, THEMES_MAX, parsePins, parseTags, parseThemes, type FavTheme, type Pin };
 
 /**
  * LES SEPT DERNIERS BLOCS DU PROFIL (03/11/2026, Luc : « procède comme les
@@ -562,8 +573,6 @@ export function GoalBlock({
 
 /* ── Trois épinglés ────────────────────────────────────────────────────── */
 
-export type Pin = { id: number; note: string };
-export const PIN_NOTE_MAX = 120;
 
 /* ── L'exemple des épinglés ────────────────────────────────────────────────
    LE DÉBUT DU SYNOPSIS (08/11/2026, Luc, après trois essais de phrases
@@ -639,19 +648,6 @@ function useSynopsis(ids: number[], enabled: boolean): Map<number, string> {
   }, [key, tick]);
 }
 
-export function parsePins(raw: string | undefined): Pin[] {
-  try {
-    const p = JSON.parse(raw || "[]");
-    return Array.isArray(p)
-      ? p
-          .filter((x) => Number.isFinite(Number(x?.id)))
-          .slice(0, 3)
-          .map((x) => ({ id: Number(x.id), note: String(x.note ?? "").slice(0, PIN_NOTE_MAX) }))
-      : [];
-  } catch {
-    return [];
-  }
-}
 
 export function PinnedBlock({
   pins,
@@ -889,23 +885,7 @@ function PinEditor({
 
 /* ── Top OP / ED ───────────────────────────────────────────────────────── */
 
-export type FavTheme = { a: number; s: string };
-/** Pas de limite voulue (03/11/2026, Luc) : seulement le plafond de sauvegarde (grid.ts). */
-export const THEMES_MAX = 250;
 
-export function parseThemes(raw: string | undefined): FavTheme[] {
-  try {
-    const p = JSON.parse(raw || "[]");
-    return Array.isArray(p)
-      ? p
-          .filter((x) => Number.isFinite(Number(x?.a)) && typeof x?.s === "string")
-          .slice(0, THEMES_MAX)
-          .map((x) => ({ a: Number(x.a), s: String(x.s).slice(0, 8) }))
-      : [];
-  } catch {
-    return [];
-  }
-}
 
 type ThemeRow = {
   slug: string;
@@ -2024,14 +2004,6 @@ function ThemeEditor({
 /* ── Affinité de goûts ─────────────────────────────────────────────────── */
 
 /** Un tableau JSON de tags rangé dans les réglages du bloc (`affOrder`, `affHidden`). */
-export function parseTags(s: string | undefined): string[] {
-  try {
-    const v = JSON.parse(s ?? "[]");
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
-}
 
 /**
  * LES AMIS D'ANISCROLL (03/11/2026, Luc : « uniquement sur le site ») : les
