@@ -38,8 +38,10 @@ import {
   getAnilistFeed,
   getAnilistSnapshot,
   getData,
+  getProfileDigest,
   putAnilistSnapshot,
   putData,
+  putProfileDigest,
   type DataKind,
   type StoredKind,
 } from "@/lib/auth/userData";
@@ -104,6 +106,8 @@ import type {
 /** Les deux blocs nourris par l'activité de lecture du propriétaire. */
 /* Le binge, l'objectif et le bingo (03/11/2026) lisent la même table. */
 const ACTIVITY_BLOCKS = new Set(["resume", "recents", "calendar", "heatmap", "binge", "goal", "bingo"]);
+/** Les blocs qui lisent le fil d'activité AniList (jours, sessions). */
+const FEED_BLOCKS = new Set(["calendar", "heatmap", "goal", "bingo", "binge", "recents"]);
 
 /** Une disposition stockée, remise en forme — `null` si elle est illisible. */
 function parseLayout(raw: string | null | undefined): GridItem[] | null {
@@ -864,7 +868,11 @@ const LIST_TTL_MS = 60_000;
 /* Redescendu de 12 à 4 : avec Upstash derrière, garder douze listes de
    plusieurs mégaoctets dans la mémoire de la lambda n'achète plus rien. */
 const LIST_CACHE_MAX = 4;
-const listCache = new Map<string, { at: number; data: any }>();
+/* `at` = l'heure de mise en mémoire (TTL de 60 s) ; `dataAt` = celle de la
+   réponse AniList, que la copie soit neuve ou reprise d'Upstash. La ligne
+   « profil prêt » range `dataAt` : c'est ce qui la marque fraîche ou non. */
+const listCache = new Map<string, { at: number; data: any; dataAt: number }>();
+type Collecte = { data: any; at: number };
 
 /** Au-delà, on redemande à AniList — mais on garde l'ancienne s'il refuse. */
 const FRAIS_MS = 5 * 60_000;
@@ -932,11 +940,11 @@ async function partageEcrit(name: string, z: string): Promise<void> {
   }
 }
 
-function memoire(key: string, data: any) {
+function memoire(key: string, data: any, dataAt = Date.now()) {
   // Réinsérée, pas mise à jour sur place : une Map garde l'ordre d'insertion,
   // et c'est lui qui désigne la plus ancienne quand le plafond est atteint.
   listCache.delete(key);
-  listCache.set(key, { at: Date.now(), data });
+  listCache.set(key, { at: Date.now(), data, dataAt });
   if (listCache.size > LIST_CACHE_MAX) {
     const oldest = listCache.keys().next().value;
     if (oldest !== undefined) listCache.delete(oldest);
@@ -948,23 +956,11 @@ function memoire(key: string, data: any) {
  * y compris celle qui finit en arrière-plan. C'est là que la copie durable du
  * compte est rangée (putAnilistSnapshot).
  */
-async function cachedAniList(
-  username: string,
-  onFresh?: (z: string) => Promise<void>,
-): Promise<any | null> {
+/** Une réponse NEUVE d'AniList, rangée en mémoire, dans Upstash et (onFresh)
+ *  dans la copie durable du compte. */
+function fetchFresh(username: string, onFresh?: (z: string) => Promise<void>): Promise<any | null> {
   const key = username.toLowerCase();
-  const hit = listCache.get(key);
-  if (hit && Date.now() - hit.at < LIST_TTL_MS) return hit.data;
-
-  /* `ANILIST_SIMULATE_DOWN=long` : une panne de plus de 24 h, la copie Upstash
-     a expiré. */
-  const partage = process.env.ANILIST_SIMULATE_DOWN === "long" ? null : await partageLu(key);
-  if (partage && Date.now() - partage.at < FRAIS_MS) {
-    memoire(key, partage.data);
-    return partage.data;
-  }
-
-  const frais = fetchAniList(username).catch(() => null).then(async (data) => {
+  return fetchAniList(username).catch(() => null).then(async (data) => {
     if (data) {
       memoire(key, data);
       // Comprimée UNE fois, pour les deux copies (Upstash 24 h, compte durable).
@@ -973,6 +969,44 @@ async function cachedAniList(
     }
     return data;
   });
+}
+
+/**
+ * Une liste de MOINS de FRAIS_MS, et rien d'autre : c'est ce que range le
+ * rafraîchissement de la ligne « profil prêt ». cachedAniList, lui, peut servir
+ * une copie de 23 h (stale-while-revalidate) — la ranger avec l'heure d'écriture
+ * la ferait passer pour fraîche.
+ */
+async function freshAniList(username: string, onFresh?: (z: string) => Promise<void>): Promise<Collecte | null> {
+  const key = username.toLowerCase();
+  const hit = listCache.get(key);
+  if (hit && Date.now() - hit.dataAt < FRAIS_MS) return { data: hit.data, at: hit.dataAt };
+  const partage = await partageLu(key);
+  if (partage && Date.now() - partage.at < FRAIS_MS) {
+    memoire(key, partage.data, partage.at);
+    return partage;
+  }
+  const data = await fetchFresh(username, onFresh);
+  return data ? { data, at: Date.now() } : null;
+}
+
+async function cachedAniList(
+  username: string,
+  onFresh?: (z: string) => Promise<void>,
+): Promise<Collecte | null> {
+  const key = username.toLowerCase();
+  const hit = listCache.get(key);
+  if (hit && Date.now() - hit.at < LIST_TTL_MS) return { data: hit.data, at: hit.dataAt };
+
+  /* `ANILIST_SIMULATE_DOWN=long` : une panne de plus de 24 h, la copie Upstash
+     a expiré. */
+  const partage = process.env.ANILIST_SIMULATE_DOWN === "long" ? null : await partageLu(key);
+  if (partage && Date.now() - partage.at < FRAIS_MS) {
+    memoire(key, partage.data, partage.at);
+    return partage;
+  }
+
+  const frais = fetchFresh(username, onFresh);
 
   /* AniList met 4 à 12 s sur une grosse liste. Avec une copie RÉCENTE en main,
      elle est servie TOUT DE SUITE et la réponse fraîche finit en arrière-plan
@@ -986,18 +1020,18 @@ async function cachedAniList(
      récente, on attend comme avant. */
   if (partage && Date.now() - partage.at < RECENTE_MS) {
     waitUntil(frais);
-    memoire(key, partage.data);
-    return partage.data;
+    memoire(key, partage.data, partage.at);
+    return partage;
   }
 
   const data = await frais;
-  if (data) return data;
+  if (data) return { data, at: Date.now() };
   // AniList a refusé ou traîné. La copie d'hier, si elle existe, plutôt qu'un
   // profil vide — et on la remet en mémoire pour ne pas re-sonder une API en
   // panne à chaque visite.
   if (partage) {
-    memoire(key, partage.data);
-    return partage.data;
+    memoire(key, partage.data, partage.at);
+    return partage;
   }
   return null;
 }
@@ -1082,7 +1116,235 @@ function compacte(e: ProfileEntry): ProfileEntry {
   return out;
 }
 
+/* ────────────────────────────────────────────────────────────────
+   LE PROFIL PRÊT À SERVIR (26/11/2026, Luc : « optimise au maximum la page
+   de profil, sans rien casser »)
+   ────────────────────────────────────────────────────────────────
+
+   Chaque vue d'un profil lié à AniList refaisait le même travail : relire la
+   liste brute dans Upstash (ou attendre AniList 4 à 12 s quand la copie avait
+   expiré), la décompresser, analyser plusieurs Mo de JSON, normaliser les
+   entrées, puis résoudre la bannière automatique (fanarts, TMDB). Le résultat
+   est rangé ici, une ligne Turso par compte (lib/auth/userData.ts) : une vue la
+   lit et sert, et au-delà de FRAIS_MS la ligne est refaite EN ARRIÈRE-PLAN —
+   jamais pendant que le visiteur attend. Plus d'expiration à 24 h : tout profil
+   déjà vu une fois s'ouvre sans attendre AniList.
+
+   Ce qui dépend de QUI REGARDE (bandes-annonces et studio du propriétaire,
+   activité, badges, disposition, épinglage) n'y est pas : calculé à chaque vue,
+   comme avant. */
+
+/** À monter dès que la forme de `Derived` ou de entriesFromAniList change :
+ *  une ligne d'une autre version est ignorée (et refaite). */
+const DIGEST_V = 1;
+
+/** Ce que la page tire d'une MediaListCollection, quelle qu'en soit la source. */
+type Derived = {
+  entries: ProfileEntry[];
+  favIds: number[];
+  characters: ProfileCharacter[];
+  stats: ProfileStats;
+  ownBanner: string | null;
+  user: { name: string | null; avatar: string | null; createdAt: number | null };
+};
+type DigestBody = Omit<Derived, "entries"> & {
+  /** Le compte AniList décrit : un compte relié à un AUTRE AniList ne doit
+   *  jamais recevoir la liste du précédent. */
+  who: string;
+  entries: PackedEntries;
+  /** La bannière automatique. ABSENTE = pas encore résolue (la vue la résout
+   *  alors comme avant) ; `null` = résolue, aucune illustration trouvée. */
+  auto?: HeroBanner | null;
+  /** Reconstruite depuis la copie de panne (anilist_snapshot), pas d'AniList. */
+  snap?: true;
+};
+
+function deriveFromCollection(collection: any): { derived: Derived; known: Map<number, KnownArt> } {
+  const favIds = new Set<number>(
+    (collection.user.favourites?.anime?.nodes || []).map((n: any) => n.id),
+  );
+  const entries = entriesFromAniList(collection.lists, favIds);
+  // The banner and mean score of every entry arrived with the query — keep
+  // them here rather than in the props, so the chain below needs no extra
+  // request and the payload stays the size of the list itself.
+  const known = new Map<number, KnownArt>();
+  for (const list of collection.lists || []) {
+    for (const e of list?.entries || []) {
+      const m = e.media;
+      if (!m?.id || known.has(m.id)) continue;
+      known.set(m.id, {
+        id: m.id,
+        title: m.title?.english || m.title?.romaji || m.title?.native || null,
+        bannerImage: m.bannerImage ?? null,
+        coverImage: m.coverImage?.extraLarge || m.coverImage?.large || null,
+        meanScore: m.meanScore ?? null,
+      });
+    }
+  }
+  /* Les personnages favoris, tels qu'AniList les publie. `media` n'est
+     demandé qu'à un titre : il sert de sous-titre, pas de filmographie. */
+  const characters: ProfileCharacter[] = (collection.user.favourites?.characters?.nodes || [])
+    .filter((n: any) => n?.id && n?.name?.full)
+    .map((n: any) => ({
+      id: n.id,
+      name: n.name.full,
+      image: n.image?.large ?? null,
+      from:
+        n.media?.nodes?.[0]?.title?.english ||
+        n.media?.nodes?.[0]?.title?.romaji ||
+        null,
+    }));
+  const anime = collection.user.statistics?.anime;
+  const stats: ProfileStats = {
+    count: anime?.count ?? entries.length,
+    episodes: anime?.episodesWatched ?? 0,
+    minutes: anime?.minutesWatched ?? null,
+    // AniList's meanScore is /100 whatever the user's own scoring format;
+    // the entries are POINT_10_DECIMAL, so bring it onto the same scale.
+    meanScore: anime?.meanScore ? Math.round(anime.meanScore) / 10 : null,
+  };
+  return {
+    derived: {
+      entries,
+      favIds: [...favIds],
+      characters,
+      stats,
+      ownBanner: collection.user.bannerImage || null,
+      user: {
+        name: collection.user.name || null,
+        avatar: collection.user.avatar?.large || null,
+        createdAt: collection.user.createdAt ? collection.user.createdAt * 1000 : null,
+      },
+    },
+    known,
+  };
+}
+
+/** Ce que la ligne permet de reconstruire de `known` : la note moyenne et le
+ *  titre. Pas d'image — artOf va alors les chercher (getMediaMeta), ce qui ne
+ *  sert que si la bannière automatique n'était pas encore résolue. */
+function knownFromEntries(entries: ProfileEntry[]): Map<number, KnownArt> {
+  const known = new Map<number, KnownArt>();
+  for (const e of entries) {
+    if (known.has(e.mediaId)) continue;
+    known.set(e.mediaId, {
+      id: e.mediaId,
+      title: e.title?.english || e.title?.romaji || null,
+      bannerImage: null,
+      coverImage: null,
+      meanScore: e.rating ?? null,
+    });
+  }
+  return known;
+}
+
+type Resolved = Awaited<ReturnType<typeof resolveFavoriteBanner>>;
+function autoOf(resolved: Resolved): HeroBanner | null {
+  return resolved.banner.url
+    ? {
+        url: resolved.banner.url,
+        animeId: resolved.banner.animeId,
+        title: resolved.banner.title,
+        source: resolved.banner.source,
+        fallback: !!resolved.banner.fallback,
+      }
+    : null;
+}
+
+async function lireDigest(userId: string, anilistName: string): Promise<(DigestBody & { at: number }) | null> {
+  const row = await getProfileDigest(userId);
+  if (!row || row.v !== DIGEST_V) return null;
+  try {
+    const body = JSON.parse(gunzipSync(Buffer.from(row.z, "base64")).toString("utf8")) as DigestBody;
+    if (body?.who !== anilistName.toLowerCase() || !body.entries || !body.stats || !body.user) return null;
+    return { ...body, at: row.at };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Range la ligne. `entries` : copiées par `compacte` AVANT que la vue n'y
+ * accroche les bandes-annonces du propriétaire (sans quoi ses visiteurs les
+ * recevraient). `resolved` absent = la bannière n'a pas été résolue pendant la
+ * vue (épinglée, ou bornée et trop lente) : on la résout ici, après la réponse.
+ */
+async function ecrireDigest(
+  userId: string,
+  anilistName: string,
+  at: number,
+  derived: Derived,
+  entries: ProfileEntry[],
+  known: Map<number, KnownArt>,
+  resolved: Resolved | undefined,
+  snap: boolean,
+): Promise<void> {
+  let done = resolved;
+  if (done === undefined) {
+    const meanScoreOf = (id: number) => known.get(id)?.meanScore ?? null;
+    const r = await borne(resolveFavoriteBanner(bannerCandidates(derived.entries, meanScoreOf), known), 8000, null);
+    if (r) done = r;
+  }
+  const body: DigestBody = {
+    who: anilistName.toLowerCase(),
+    entries: packEntries(entries),
+    favIds: derived.favIds,
+    characters: derived.characters,
+    stats: derived.stats,
+    ownBanner: derived.ownBanner,
+    user: derived.user,
+    ...(done !== undefined ? { auto: autoOf(done) } : {}),
+    ...(snap ? { snap: true as const } : {}),
+  };
+  const z = gzipSync(Buffer.from(JSON.stringify(body), "utf8")).toString("base64");
+  await putProfileDigest(userId, DIGEST_V, at, z);
+}
+
+/* Un rafraîchissement par compte et par minute dans cette lambda : tant
+   qu'AniList ne répond pas, chaque vue d'une ligne périmée n'en relance pas un. */
+const digestTried = new Map<string, number>();
+async function rafraichirDigest(
+  userId: string,
+  anilistName: string,
+  onFresh?: (z: string) => Promise<void>,
+): Promise<void> {
+  const last = digestTried.get(userId);
+  if (last && Date.now() - last < LIST_TTL_MS) return;
+  digestTried.set(userId, Date.now());
+  if (digestTried.size > 200) digestTried.delete(digestTried.keys().next().value as string);
+  const c = await freshAniList(anilistName, onFresh);
+  if (!c?.data?.user) return;
+  const { derived, known } = deriveFromCollection(c.data);
+  await ecrireDigest(userId, anilistName, c.at, derived, derived.entries.map(compacte), known, undefined, false);
+}
+
+/** Le chronomètre du rendu, dans l'en-tête `Server-Timing` (DevTools > Réseau >
+ *  Timing) : chaque étape porte l'heure à laquelle ELLE a fini, depuis le début
+ *  du rendu — les étapes parallèles se lisent donc côte à côte. */
+function chrono(res: any) {
+  const t0 = Date.now();
+  const marks: Array<[string, number]> = [];
+  const mark = (label: string) => void marks.push([label, Date.now() - t0]);
+  return {
+    mark,
+    wrap<T>(label: string, p: Promise<T>): Promise<T> {
+      return p.finally(() => mark(label));
+    },
+    flush() {
+      mark("total");
+      try {
+        if (res?.setHeader && !res.headersSent) {
+          res.setHeader("Server-Timing", marks.map(([l, ms], i) => `${i}-${l};dur=${ms}`).join(", "));
+        }
+      } catch {
+        /* un en-tête de mesure ne doit jamais casser une page */
+      }
+    },
+  };
+}
+
 export async function getServerSideProps(context: any) {
+  const tm = chrono(context.res);
   const segment = String(context.query.user || "");
 
   /* The tag is the identity; the pseudo in front of it is decoration. A
@@ -1091,10 +1353,11 @@ export async function getServerSideProps(context: any) {
   const match = /^(.*)-([0-9A-Za-z]{6})$/.exec(segment);
   // La session ne dépend de rien : lancée ici, elle court pendant findByTag au
   // lieu de l'attendre, puis rejoint le Promise.all plus bas.
-  const sessionPromise = getServerSession(context.req, context.res, authOptions).catch(
-    () => null,
-  ) as Promise<any>;
-  const account = match ? await findByTag(match[2]).catch(() => null) : null;
+  const sessionPromise = tm.wrap(
+    "session",
+    getServerSession(context.req, context.res, authOptions).catch(() => null) as Promise<any>,
+  );
+  const account = match ? await tm.wrap("tag", findByTag(match[2]).catch(() => null)) : null;
   const anilistName = account ? account.anilistName : segment;
 
   /* ── UNE SEULE LECTURE DE user_data, ET SEULEMENT CE QU'ON AFFICHERA ──
@@ -1145,34 +1408,76 @@ export async function getServerSideProps(context: any) {
   /* La copie durable, rangée à chaque réponse NEUVE d'AniList — et seulement
      si elle a changé (putAnilistSnapshot ne réécrit pas un contenu identique). */
   const rangeCopie = account ? (z: string) => putAnilistSnapshot(account.id, z) : undefined;
-  const [session, collectionLive, viewed, stored] = await Promise.all([
+  /* LE FIL AniList PART AVEC LE RESTE quand on sait déjà que la grille le
+     montre (disposition rangée sur la ligne `users`, ou celle par défaut) : il
+     attendait la fin du Promise.all, un aller-retour de plus devant chaque vue.
+     Il n'est SERVI que si la grille finale le montre (garde-fou plus bas). */
+  const wantsFeed = (items: readonly GridItem[]) => items.some((o) => FEED_BLOCKS.has(blockType(o.i)));
+  const feedEarly =
+    account && account.anilistId && wantsFeed(layoutInColumn ?? DEFAULT_LAYOUT)
+      ? tm.wrap("feed", getAnilistFeed(account.id).catch(() => null))
+      : null;
+  /* La ligne « profil prêt » d'abord ; AniList (ou Upstash) seulement si elle
+     manque. Un aller-retour Turso de plus devant le chemin froid seulement —
+     celui qui attendait déjà AniList. */
+  const digestP =
+    account && anilistName
+      ? tm.wrap("digest", lireDigest(account.id, anilistName).catch(() => null))
+      : null;
+  const collectionP: Promise<Collecte | null> | null = anilistName
+    ? (digestP ?? Promise.resolve(null)).then((d) =>
+        d ? null : tm.wrap("anilist", cachedAniList(anilistName, rangeCopie)),
+      )
+    : null;
+  const [session, digest, collected, viewed, stored] = await Promise.all([
     sessionPromise,
-    anilistName ? cachedAniList(anilistName, rangeCopie) : null,
-    settingsKey ? getUser(settingsKey, false).catch(() => null) : null,
+    digestP,
+    collectionP,
+    settingsKey ? tm.wrap("prisma", getUser(settingsKey, false).catch(() => null)) : null,
     account && kinds.length
-      ? getData(account.id, kinds).catch(() => [] as StoredKind[])
+      ? tm.wrap("userdata", getData(account.id, kinds).catch(() => [] as StoredKind[]))
       : ([] as StoredKind[]),
   ]);
   /* AniList muet, et plus de copie Upstash (panne de plus de 24 h, ou quota
      épuisé) : la copie durable du compte. C'est la liste TELLE QU'ANILIST LA
      RENDAIT — stats, favoris et personnages compris —, donc le profil reste
      identique, figé à la dernière réponse. */
-  let collection = collectionLive;
-  let staleSince: number | null = null;
-  if (account && anilistName && !collection?.user) {
-    const copie = await getAnilistSnapshot(account.id).catch(() => null);
+  let collection = collected?.data ?? null;
+  let collectionAt = collected?.at ?? 0;
+  let staleSince: number | null = digest?.snap ? digest.at : null;
+  if (account && anilistName && !digest && !collection?.user) {
+    const copie = await tm.wrap("snapshot", getAnilistSnapshot(account.id).catch(() => null));
     if (copie) {
       try {
         collection = JSON.parse(gunzipSync(Buffer.from(copie.z, "base64")).toString("utf8"));
         staleSince = copie.at;
+        collectionAt = copie.at;
       } catch {
         /* copie illisible : on retombe sur la sauvegarde de la liste */
       }
     }
   }
-  if (account && anilistName && !collection?.user) {
+  if (account && anilistName && !digest && !collection?.user) {
     stored.push(...(await getData(account.id, ["list", "favourites"]).catch(() => [])));
   }
+
+  /* Ce que la page tire de la liste AniList : de la ligne prête, ou calculé ici
+     (et alors rangé pour les vues suivantes, après la réponse). */
+  let derived: Derived | null = null;
+  let known = new Map<number, KnownArt>();
+  if (digest) {
+    derived = { ...digest, entries: unpackEntries(digest.entries) };
+    known = knownFromEntries(derived.entries);
+    /* Périmée : servie quand même, refaite pour la vue suivante. */
+    if (Date.now() - digest.at >= FRAIS_MS) {
+      waitUntil(rafraichirDigest(account!.id, anilistName!, rangeCopie));
+    }
+  } else if (collection?.user) {
+    ({ derived, known } = deriveFromCollection(collection));
+  }
+  /* Copiées MAINTENANT pour la ligne : les bandes-annonces du propriétaire s'y
+     accrochent plus bas, sur les objets d'origine. */
+  const pourDigest = !digest && derived && account && anilistName ? derived.entries.map(compacte) : null;
   const payloadOf = (kind: DataKind) => stored.find((d) => d.kind === kind)?.payload;
 
   const isOwner = account
@@ -1180,11 +1485,15 @@ export async function getServerSideProps(context: any) {
     : !!session?.user?.name &&
       String(session.user.name).toLowerCase() === String(anilistName).toLowerCase();
 
-  if (!account && !collection?.user) return { notFound: true };
+  if (!account && !derived) {
+    tm.flush();
+    return { notFound: true };
+  }
 
   /* Visibility. The setting lives in the legacy Prisma profile, keyed by the
      name the account signs in with (read above, alongside the list). */
   if (viewed?.setting?.private === true && !isOwner) {
+    tm.flush();
     return {
       props: {
         isPrivate: true,
@@ -1194,16 +1503,14 @@ export async function getServerSideProps(context: any) {
   }
 
   /* ── The list ───────────────────────────────────────────────── */
-  const known = new Map<number, KnownArt>();
   let entries: ProfileEntry[];
   let stats: ProfileStats;
   let characters: ProfileCharacter[] = [];
 
-  if (collection?.user) {
-    const favIds = new Set<number>(
-      (collection.user.favourites?.anime?.nodes || []).map((n: any) => n.id),
-    );
-    entries = entriesFromAniList(collection.lists, favIds);
+  if (derived) {
+    entries = derived.entries;
+    characters = derived.characters;
+    stats = derived.stats;
     /* LES FAVORIS SONT RECOPIÉS DANS LE COMPTE, et ce n'est pas du confort.
        Ils n'existent que chez AniList : la sauvegarde AniScroll de la liste,
        elle, n'a jamais porté la notion. Le jour où AniList ne répond plus — 403
@@ -1215,48 +1522,9 @@ export async function getServerSideProps(context: any) {
        Seulement pour le propriétaire, seulement quand la liste est non vide (un
        zéro pendant une réponse partielle d'AniList effacerait la copie), et
        jamais en bloquant le rendu. */
-    if (isOwner && account && favIds.size && staleSince == null) {
-      putData(account.id, "favourites", [...favIds]).catch(() => {});
+    if (isOwner && account && derived.favIds.length && staleSince == null) {
+      putData(account.id, "favourites", derived.favIds).catch(() => {});
     }
-    // The banner and mean score of every entry arrived with the query — keep
-    // them here rather than in the props, so the chain below needs no extra
-    // request and the payload stays the size of the list itself.
-    for (const list of collection.lists || []) {
-      for (const e of list?.entries || []) {
-        const m = e.media;
-        if (!m?.id || known.has(m.id)) continue;
-        known.set(m.id, {
-          id: m.id,
-          title: m.title?.english || m.title?.romaji || m.title?.native || null,
-          bannerImage: m.bannerImage ?? null,
-          coverImage: m.coverImage?.extraLarge || m.coverImage?.large || null,
-          meanScore: m.meanScore ?? null,
-        });
-      }
-    }
-    /* Les personnages favoris, tels qu'AniList les publie. `media` n'est
-       demandé qu'à un titre : il sert de sous-titre, pas de filmographie. */
-    characters = (collection.user.favourites?.characters?.nodes || [])
-      .filter((n: any) => n?.id && n?.name?.full)
-      .map((n: any) => ({
-        id: n.id,
-        name: n.name.full,
-        image: n.image?.large ?? null,
-        from:
-          n.media?.nodes?.[0]?.title?.english ||
-          n.media?.nodes?.[0]?.title?.romaji ||
-          null,
-      }));
-
-    const anime = collection.user.statistics?.anime;
-    stats = {
-      count: anime?.count ?? entries.length,
-      episodes: anime?.episodesWatched ?? 0,
-      minutes: anime?.minutesWatched ?? null,
-      // AniList's meanScore is /100 whatever the user's own scoring format;
-      // the entries are POINT_10_DECIMAL, so bring it onto the same scale.
-      meanScore: anime?.meanScore ? Math.round(anime.meanScore) / 10 : null,
-    };
   } else {
     // AniScroll-only account: its list is the cloud backup of the local one.
     entries = entriesFromLocalList(localListFromCloudPayload(payloadOf("list")));
@@ -1295,14 +1563,34 @@ export async function getServerSideProps(context: any) {
   /* BORNÉS : deux compléments, pas le profil. Une base lente ou muette ne doit
      pas tenir la page entière en otage — la bannière retombe alors sur celle
      d'AniList (cf. `ownBanner`), le studio sur les bandes-annonces de la liste. */
+  /* La bannière automatique déjà résolue dans la ligne prête n'est pas
+     recalculée : c'était un aller-retour fanarts/TMDB à chaque vue. */
+  const autoRanged = digest && "auto" in digest ? (digest.auto ?? null) : undefined;
   const [found, resolved] = await Promise.all([
     isOwner
-      ? borne(trailersFor(entries.filter((e) => !e.trailer).map((e) => e.mediaId)), 1500, null)
+      ? tm.wrap("trailers", borne(trailersFor(entries.filter((e) => !e.trailer).map((e) => e.mediaId)), 1500, null))
       : null,
-    pinnedBanner
+    pinnedBanner || autoRanged !== undefined
       ? null
-      : borne(resolveFavoriteBanner(bannerCandidates(entries, meanScoreOf), known), 2500, null),
+      : tm.wrap("banner", borne(resolveFavoriteBanner(bannerCandidates(entries, meanScoreOf), known), 2500, null)),
   ]);
+  /* Rangée APRÈS la réponse (waitUntil) : la vue n'attend pas son écriture.
+     Depuis une liste reprise d'Upstash, `collectionAt` est l'heure de cette
+     copie — la ligne naît alors périmée et sera refaite à la vue suivante. */
+  if (pourDigest && derived && account && anilistName) {
+    waitUntil(
+      ecrireDigest(
+        account.id,
+        anilistName,
+        collectionAt || Date.now(),
+        derived,
+        pourDigest,
+        known,
+        resolved ?? undefined,
+        staleSince != null,
+      ),
+    );
+  }
   if (found?.size) {
     for (const e of entries) {
       const id = found.get(e.mediaId);
@@ -1351,8 +1639,8 @@ export async function getServerSideProps(context: any) {
      les garde-fous lisent donc celle-là. */
   const shown: readonly GridItem[] = profileLayout ?? DEFAULT_LAYOUT;
   const feed =
-    account && account.anilistId && shown.some((o) => ["calendar", "heatmap", "goal", "bingo", "binge", "recents"].includes(blockType(o.i)))
-      ? await getAnilistFeed(account.id).catch(() => null)
+    account && account.anilistId && wantsFeed(shown)
+      ? await (feedEarly ?? tm.wrap("feed", getAnilistFeed(account.id).catch(() => null)))
       : null;
   const read = layoutWantsActivity(profileLayout)
     ? activityFromCloud({ recent: payloadOf("recent"), progress: payloadOf("progress"), feed: feed?.e }, HISTORY_ROWS)
@@ -1403,22 +1691,15 @@ export async function getServerSideProps(context: any) {
      is no list to draw one from — an anime the viewer actually rated says more
      about them than the picture they set once — and the safety net when the
      favourite anime turns out to have no wide artwork anywhere. */
-  const ownBanner: string | null = collection?.user?.bannerImage || null;
+  const ownBanner: string | null = derived?.ownBanner || null;
 
+  const auto = autoRanged !== undefined ? autoRanged : resolved ? autoOf(resolved) : null;
   const banner: HeroBanner = pinnedBanner
     ? /* Servi tel qu'il a été rangé : le type de fond, la couleur, la musique
          et le flou font partie de l'habillage, et les jeter ici est ce qui
          ferait porter une vidéo comme une image fixe. */
       pinnedBanner
-    : resolved?.banner.url
-      ? {
-          url: resolved.banner.url,
-          animeId: resolved.banner.animeId,
-          title: resolved.banner.title,
-          source: resolved.banner.source,
-          fallback: !!resolved.banner.fallback,
-        }
-      : { url: ownBanner, animeId: null, title: null, source: "anilist" };
+    : auto ?? { url: ownBanner, animeId: null, title: null, source: "anilist" };
 
   /* What the picker may offer. Only the owner ever opens it, so it is only
      computed — and only shipped — for them. */
@@ -1442,14 +1723,13 @@ export async function getServerSideProps(context: any) {
     : [];
 
   const identity: ProfileIdentity = {
-    name:
-      collection?.user?.name || account?.username || anilistName || segment,
+    name: derived?.user.name || account?.username || anilistName || segment,
     tag: account?.tag ?? null,
     avatar: account
-      ? pickAvatar(account) || collection?.user?.avatar?.large || null
-      : collection?.user?.avatar?.large || null,
-    anilistName: collection?.user?.name ?? null,
-    createdAt: account?.createdAt ?? (collection?.user?.createdAt ? collection.user.createdAt * 1000 : null),
+      ? pickAvatar(account) || derived?.user.avatar || null
+      : derived?.user.avatar || null,
+    anilistName: derived?.user.name ?? null,
+    createdAt: account?.createdAt ?? derived?.user.createdAt ?? null,
   };
 
   /* La collection, telle qu'elle est sauvegardee. On la parse ici plutot que
@@ -1462,6 +1742,7 @@ export async function getServerSideProps(context: any) {
     ]) ?? null,
   );
 
+  tm.flush();
   return {
     props: {
       identity,

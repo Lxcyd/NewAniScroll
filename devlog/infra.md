@@ -6,6 +6,38 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-11-26 — Profil, passe vitesse serveur : la ligne « profil prêt » (plan : docs/PERF-PLAN.md, P3)
+
+**Demande (Luc) :** profil rapide, propre, sans rien casser ni retirer d'animation ; grosses listes trop lentes ;
+« peut-être changer la façon dont on sauvegarde en JSON sur une ligne ».
+
+**Le JSON d'une ligne n'était pas le problème.** Turso facture les LIGNES lues : une ligne de 1 Mo = 1 ligne, une
+ligne par anime = ×700 par vue de profil (plafond 500 M/mois partagé). Et pour un compte AniList la liste n'est
+même pas lue dans Turso. Le problème : chaque vue RECALCULAIT tout (GET Upstash de la liste brute gzip, analyse
+de plusieurs Mo, normalisation, bannière auto via fanarts/TMDB), et attendait AniList 4-12 s dès que la copie
+Upstash (24 h) avait expiré.
+
+**Fait :**
+- `profile_digest` (user_data, hors DATA_KINDS, comme anilist_snapshot) : entrées compactées + stats +
+  personnages + bannière auto + identité AniList, gzip. Une vue = 1 ligne lue. Périmée au-delà de FRAIS_MS (5 min)
+  → servie quand même, refaite en `waitUntil` (garde 1/min/compte/lambda). `at` = heure des DONNÉES (une copie
+  Upstash de 23 h donne une ligne née périmée). `who` = nom AniList décrit : un compte relié à un autre AniList
+  ne reçoit jamais l'ancienne liste. `DIGEST_V` à monter si Derived/entriesFromAniList change (sinon la ligne se
+  corrige seule au rafraîchissement suivant, 5 min).
+- Les bandes-annonces du propriétaire ne fuient pas dans la ligne (copie `compacte` AVANT leur accrochage).
+- `getAnilistFeed` part avec le Promise.all quand la disposition est connue ; servi seulement si la grille finale
+  le montre (garde-fou de confidentialité inchangé).
+- `Server-Timing` sur le profil : chaque étape porte l'heure où ELLE a fini (étapes parallèles côte à côte).
+
+**Vérifié (local, mêmes bases) :** props `/_next/data` octet pour octet identiques chemin froid / ligne fraîche,
+sur Lucyd (~700 titres, ligne 142 Ko) et dechu ; ligne vieillie de 10 min → servie identique puis refaite (rev+1,
+`at` = heure de la copie fraîche). Serveur local : dechu 496 → 186 ms.
+
+**Trouvé :** en local, au premier rendu **Prisma (`getUser`, réglage « privé ») = 2,0 s**, la plus longue étape —
+AniList via la copie finissait à 0,9 s. À relire sur dev dans Server-Timing. S'il domine aussi chez Vercel :
+recopier `setting.private` sur la ligne `users` (migration sensible : une erreur rend public un profil privé,
+écrit par pages/en/settings.tsx → /api/user/profile).
+
 ## 2026-11-25 — Passe vitesse 2 : ce qui part AVANT l'image principale (plan : docs/PERF-PLAN.md)
 
 **Demande (Luc) :** « les pages mettent trop de temps a charger », grosse opti sans rien casser, plan solide.

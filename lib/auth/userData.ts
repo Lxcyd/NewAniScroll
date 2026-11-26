@@ -280,6 +280,58 @@ export async function putAnilistFeed(userId: string, feed: AnilistFeed): Promise
   });
 }
 
+/* ── LE PROFIL PRÊT À SERVIR (26/11/2026, passe vitesse du profil) ───────────
+ *
+ * Ce que la page de profil tire de la liste AniList (entrées normalisées et
+ * compactées, stats, personnages, bannière automatique), rangé UNE fois au lieu
+ * d'être recalculé à chaque vue : une vue lit cette ligne et la décompresse,
+ * sans Upstash, sans analyser plusieurs Mo de liste brute, sans résoudre la
+ * bannière. Rafraîchie en arrière-plan au-delà de 5 min (pages/en/profile/
+ * [user].tsx). Hors de DATA_KINDS comme la copie AniList : la synchro des
+ * appareils ne la voit jamais. Une ligne, quelle que soit sa taille : c'est le
+ * nombre de lignes que Turso facture, pas les octets.
+ */
+const DIGEST_KIND = "profile_digest";
+/** Au-delà, on ne range pas : une liste pareille se recalcule, comme avant. */
+const DIGEST_MAX_BYTES = 900 * 1024;
+
+export async function getProfileDigest(
+  userId: string,
+): Promise<{ v: number; at: number; z: string } | null> {
+  const client = await db();
+  if (!client) return null;
+  const res = await client.execute({
+    sql: `SELECT payload FROM user_data WHERE user_id = ? AND kind = ?`,
+    args: [userId, DIGEST_KIND],
+  });
+  const raw = res.rows[0]?.payload;
+  if (raw == null) return null;
+  try {
+    const p = JSON.parse(String(raw));
+    return typeof p?.z === "string" && typeof p?.at === "number" && typeof p?.v === "number" ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+/** `at` = l'heure des DONNÉES (réponse AniList), pas celle de l'écriture. */
+export async function putProfileDigest(userId: string, v: number, at: number, z: string): Promise<void> {
+  const client = await db();
+  if (!client) return;
+  const payload = JSON.stringify({ v, at, z });
+  if (payload.length > DIGEST_MAX_BYTES) return;
+  await client.execute({
+    sql: `INSERT INTO user_data (user_id, kind, payload, rev, updated_at)
+          VALUES (?, ?, ?, 1, ?)
+          ON CONFLICT(user_id, kind) DO UPDATE
+            SET payload = excluded.payload,
+                rev = user_data.rev + 1,
+                updated_at = excluded.updated_at
+          WHERE user_data.payload IS NOT excluded.payload`,
+    args: [userId, DIGEST_KIND, payload, Date.now()],
+  });
+}
+
 export async function getAnilistSnapshot(
   userId: string,
 ): Promise<{ at: number; z: string } | null> {

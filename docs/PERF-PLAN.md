@@ -135,6 +135,13 @@ les moyennes ne disaient rien. Versé : `tools/browser-check/avant-lcp.mjs`.
 - Polices : n'embarquer que les graisses réellement utilisées au premier écran.
 
 ### P3 — Profil (TBT mobile 2 s, données jamais en cache)
+- **Serveur, fait le 26/11** (devlog/infra.md) : ligne « profil prêt » (`profile_digest`), fil AniList en
+  parallèle, `Server-Timing`. Reste : Prisma `getUser` (2 s à froid en local) si dev le confirme.
+- **À suivre, dans l'ordre** : (a) `allTags`/`studios`/`airStatus`/`source`/`country` hors de la page, chargés
+  par l'onglet Liste (seul le filtre les lit) ; (b) profil jamais vu : coquille tout de suite + squelette ;
+  (c) une frontière `<Suspense>` par widget (hydratation découpée, HTML identique) ; (d) code des widgets par
+  type de bloc, éditeur/musique seulement chez qui s'en sert ; (e) `studioAnimes` et l'évaluation des badges
+  au repos ; (f) relevé avant-lcp.mjs du profil mobile.
 - La lecture des données ne coûte que ~2 ms : **c'est le rendu** qui bloque. Profiler
   l'hydratation (React Profiler / trace Performance) : sections hors écran à monter à
   l'approche, comme l'arbre ; onglets non ouverts en `dynamic`.
