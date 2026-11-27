@@ -160,6 +160,10 @@ async function handleDelete(request, pathname, env, ctx) {
   const usage = (await readUsage(kv, who.uid)).filter((x) => x.id !== m[1]);
   await kv.put(`upu:${who.uid}`, JSON.stringify(usage));
   ctx.waitUntil(caches.default.delete(new Request(new URL(pathname, request.url).toString())));
+  /* Et le cache DEVANT le Worker (Workers Caching, `[cache]` de wrangler.toml),
+     ou ce fichier est garde un an : sans purge, un fichier retire resterait
+     servi. Pas de purge « par URL » : un chemin exact en `pathPrefixes`. */
+  if (ctx.cache?.purge) ctx.waitUntil(ctx.cache.purge({ pathPrefixes: [pathname] }).catch(() => {}));
   return json({ ok: true, used: used(usage), max: USER_MAX });
 }
 

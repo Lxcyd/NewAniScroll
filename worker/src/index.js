@@ -132,23 +132,9 @@ async function handle(request, env, ctx) {
   // intentionally don't concat server-side here.
   const isDownload = reqUrl.searchParams.get("dl") === "1";
   const downloadFilename = reqUrl.searchParams.get("filename") || null;
-  // Pre-warm depth budget (see the m3u8 warm-up below). A normal player request
-  // arrives with no `warm` param (depth 0); it warms its child PLAYLISTS at
-  // depth 1, then stops. We deliberately warm ONLY the manifest tree (master →
-  // variant playlists — small text files, a few KB each) and NOT the segments:
-  // a segment is a multi-MB binary, and an earlier 2-level version that warmed
-  // the opening segments re-downloaded ~12 × multi-MB in parallel, starving the
-  // Worker's I/O budget and turning a 0.5 s cold segment into a 25-78 s stall on
-  // less-popular titles. Warming just the playlists kills the manifest-resolution
-  // spike (the part that visibly delayed Play/seek) at near-zero cost; the deep
-  // hls.js buffer covers the segments themselves.
+  // `warm` : marque des anciens appels de prechauffage (avant le 27/11/2026).
+  // Une requete qui la porte ne rechauffe rien a son tour.
   const warmDepth = Math.max(0, parseInt(reqUrl.searchParams.get("warm") || "0", 10) || 0);
-  // Depth 2 so a MASTER → VARIANT → SEGMENTS chain warms all the way to the
-  // segments: master (depth 0) warms the variant (depth 1), which in turn warms
-  // its sampled segments (depth 2). A media playlist served directly (no master)
-  // warms its segments at depth 1. Kept from exploding by warming only ONE
-  // variant (see below), so the worst case is 1 variant + 10 sampled segments.
-  const WARM_MAX_DEPTH = 2;
 
   if (!url) {
     return new Response(JSON.stringify({ error: "Missing url parameter" }), {
@@ -448,7 +434,7 @@ async function handle(request, env, ctx) {
     // paying that spike on the user's first Play / seek.
     const resourceUrls = [];
     const estMegaplay = /megaplay\.buzz/i.test(effectiveReferer || "");
-    const miroir = estMegaplay ? await cdnMegaplay() : null;
+    const miroir = estMegaplay ? await cdnMegaplaySansAttente(ctx) : null;
     /* Qualite la plus BASSE en tete, pour megaplay. Leur CDN bride chaque
        connexion a ~1 Mb/s (100-200 Ko/s mesures le 29/09/2026, en direct
        comme par ce Worker) et leur master liste la 1080p (1,5 Mb/s) en
@@ -483,69 +469,48 @@ async function handle(request, env, ctx) {
       return rewrite(abs) + suivants.map((n) => `&nx=${encodeURIComponent(n)}`).join("");
     });
 
-    // Pre-warm resources through this same Worker URL so they land under the
-    // normal cache key (respondAndCache path) — the player's subsequent request
-    // then matches the edge cache. Fire-and-forget via waitUntil so it never
-    // delays the manifest response.
-    if (ctx && warmDepth < WARM_MAX_DEPTH && resourceUrls.length > 0) {
-      const childDepth = warmDepth + 1;
-      // MASTER playlist → children are variant .m3u8s. Warm only ONE (a cheap
-      // text fetch) — that variant then warms its own sampled segments one depth
-      // down. Warming every variant would multiply the segment warm by 4 and
-      // blow the subrequest budget; hls.js plays one variant at a time anyway.
-      // Pick the LAST variant: HLS masters list variants low→high bitrate, and
-      // the player defaults to forceMaxQuality (top level), so the last is the
-      // one most likely actually played — warming it makes its segments the hot
-      // ones. (If ABR is on and picks a lower rung, only the sparse segment warm
-      // is "wasted"; the manifest warm still helps.)
-      const allPlaylists = resourceUrls.filter((u) => /\.m3u8(\?|$)/i.test(u));
-      // Megaplay : son master est trie par debit croissant et le lecteur part
-      // du plus bas — c'est donc la PREMIERE variante qui sera jouee.
-      const choisie = estMegaplay ? allPlaylists[0] : allPlaylists[allPlaylists.length - 1];
-      const playlists = allPlaylists.length > 0 ? [choisie] : [];
-      // MEDIA playlist → children are the actual .ts/.m4s segments. THIS is what
-      // makes a far seek instant: without it, clicking anywhere past the opening
-      // hls.js buffer hits a cold segment (~3 s origin fetch). We warm a SPARSE
-      // sample spread across the whole timeline — one segment every Nth — so any
-      // point on the scrubber lands on (or right next to) an already-cached
-      // segment. Sparse + sequential + capped keeps this within the Worker's
-      // subrequest budget and never bursts alongside the player's real fetches
-      // (the mistake an earlier version made by warming the opening N segments in
-      // parallel, which starved I/O). Skipped entirely for master playlists.
-      // In a MEDIA playlist every non-#tag line IS a segment, whatever its
-      // extension — MegaCloud disguises segments as .jpg/.html/.js/.png/.txt to
-      // dodge filters, so matching a fixed extension list MISSED most of them
-      // (only ~1/3 got warmed). "Everything that isn't a child .m3u8" is the
-      // robust rule: resourceUrls here are already just the playlist's resource
-      // lines, and if there were child playlists we'd be in the master branch.
-      const segments = playlists.length === 0
-        ? resourceUrls.filter((u) => !/\.m3u8(\?|$)/i.test(u))
-        : [];
-      // 20 samples across the timeline. For a ~340-segment (24-min) episode
-      // that's a warm point every ~1 min of video, so a far seek lands within a
-      // few seconds of a hot segment. Still cheap: 20 sequential background
-      // fetches per media playlist, one variant deep.
-      const WARM_SEGMENT_SAMPLES = 20;
-      const sampledSegments = [];
+    /* PRECHAUFFAGE des segments (refait le 27/11/2026). L'ancienne version
+       s'appelait elle-meme (`fetch(rewrite(abs) + "&warm=")`) : Cloudflare
+       coupe l'auto-appel d'un Worker sur son propre domaine — la raison meme
+       pour laquelle `lireEnAvance` tire l'amont en direct —, donc ni la
+       variante ni les 20 segments « chauffes » n'arrivaient jamais en cache.
+       Et pour megaplay, c'etait en plus la mauvaise variante : la plus basse,
+       quand hls.js part de la plus haute (lib/watch/hlsBandwidth.ts).
+
+       Desormais :
+         - un MASTER ne chauffe rien. La playlist de variante pese 1 a 3 Ko et
+           le lecteur la demande dans la foulee ; c'est cette demande-la qui
+           dit quelle variante il joue VRAIMENT, sans rien deviner ;
+         - une playlist de SEGMENTS (celle que le lecteur joue) chauffe un
+           echantillon de segments repartis sur toute la duree — un saut
+           lointain tombe a cote d'un segment deja en cache —, tires de
+           l'amont EN PARALLELE (le CDN megaplay bride chaque connexion, et
+           `waitUntil` ne vit que 30 s apres la reponse) et ranges sous la cle
+           exacte que le lecteur demandera. Aucune requete facturee : ce sont
+           des sous-requetes. */
+    if (ctx && !isDownload && warmDepth === 0 && !/#EXT-X-STREAM-INF/.test(body) && resourceUrls.length > 0) {
+      /* PAS les premiers segments : le lecteur les demande lui-meme a cet
+         instant, et la lecture anticipee (`nx`) prend les suivants. Les
+         chauffer en plus les mettait en concurrence avec lui — une version
+         d'aout qui chauffait les douze premiers en parallele faisait d'un
+         segment froid de 0,5 s une attente de 25 a 78 s. Pour la meme
+         raison, on laisse 2 s au premier segment avant de commencer. */
+      const segments = resourceUrls
+        .filter((u) => !/\.m3u8(\?|$)/i.test(u))
+        .slice(PRECHAUFFE_SAUTE);
+      const echantillon = [];
       if (segments.length > 0) {
-        // Even stride across the timeline; always include the first so playback
-        // start is warm too. De-dupe when the list is shorter than the sample.
-        const stride = Math.max(1, Math.ceil(segments.length / WARM_SEGMENT_SAMPLES));
-        for (let i = 0; i < segments.length; i += stride) sampledSegments.push(segments[i]);
+        const pas = Math.max(1, Math.ceil(segments.length / PRECHAUFFE_ECHANTILLONS));
+        for (let i = 0; i < segments.length && echantillon.length < PRECHAUFFE_ECHANTILLONS; i += pas) {
+          echantillon.push(segments[i]);
+        }
       }
-      const toWarm = [...playlists, ...sampledSegments];
-      if (toWarm.length > 0) {
-        const warm = async () => {
-          // Sequential, not parallel: a warm fetch must never burst alongside
-          // the player's foreground requests. Carry warm=<childDepth> so the
-          // cache key (which strips `warm`) matches the player's plain lookup.
-          // Segments are leaves (warmDepth reaches WARM_MAX_DEPTH), so warming
-          // them issues no further recursion.
-          for (const abs of toWarm) {
-            await fetch(`${rewrite(abs)}&warm=${childDepth}`).catch(() => {});
-          }
-        };
-        ctx.waitUntil(warm());
+      if (echantillon.length) {
+        ctx.waitUntil(
+          new Promise((r) => setTimeout(r, 2000)).then(() =>
+            lireEnAvance(echantillon, effectiveReferer, proxyBase, echantillon.length),
+          ),
+        );
       }
     }
 
@@ -666,12 +631,31 @@ async function cdnMegaplay(frais = false) {
 
 const LECTURE_AVANCE = 3;
 
+/* Segments chauffes par playlist de segments : 6, tous en parallele — six
+   est le nombre de connexions qu'une invocation garde ouvertes a la fois (les
+   suivantes attendent leur tour). Un segment megaplay froid arrive a
+   ~100-200 Ko/s par connexion (29/09/2026) : au-dela, les derniers ne
+   finiraient pas dans les 30 s de `waitUntil`. Sur un episode de 24 min, un
+   point chaud toutes les ~4 min de video. */
+const PRECHAUFFE_ECHANTILLONS = 6;
+/* Les ~30 premieres secondes (a 4 s le segment) : celles du lecteur. */
+const PRECHAUFFE_SAUTE = 8;
+
+/** La liste des CDN morts sans BLOQUER une playlist : la derniere connue tout
+ *  de suite (meme vieille de plus de 5 min), rafraichie en arriere-plan. On
+ *  n'attend que si l'isolat n'en a encore aucune. */
+async function cdnMegaplaySansAttente(ctx) {
+  const age = cdnMemo ? Date.now() - cdnMemo.at : Infinity;
+  if (cdnMemo && age >= 5 * 60 * 1000 && ctx) ctx.waitUntil(cdnMegaplay().catch(() => {}));
+  return cdnMemo || cdnMegaplay();
+}
+
 /** Met en cache, en parallele, les segments qui suivent — en les tirant
  *  NOUS-MEMES de l'amont. (Un `fetch` vers notre propre domaine ne repasse pas
  *  par le Worker : Cloudflare coupe l'auto-appel, la premiere version ne
  *  mettait donc rien en cache.) La cle est celle que le lecteur demandera :
  *  `?url=…&referer=…`, sans `nx`. Deja en cache : rien a faire. */
-async function lireEnAvance(cibles, referer, base) {
+async function lireEnAvance(cibles, referer, base, combien = LECTURE_AVANCE) {
   const cache = caches.default;
   const ref = referer ? decodeURIComponent(referer) : "https://megaplay.buzz/";
   const entetes = {
@@ -681,7 +665,7 @@ async function lireEnAvance(cibles, referer, base) {
     Accept: "*/*",
   };
   await Promise.all(
-    cibles.slice(0, LECTURE_AVANCE).map(async (cible) => {
+    cibles.slice(0, combien).map(async (cible) => {
       if (/\.m3u8(\?|$)/i.test(cible)) return;
       const q = new URLSearchParams({ url: cible });
       if (referer) q.set("referer", referer);
@@ -952,20 +936,40 @@ async function honoreRange(request, res) {
   return new Response(new Blob(vues), { status: 206, headers });
 }
 
+/* LE CACHE DEVANT LE WORKER (Workers Caching, `[cache]` de wrangler.toml)
+   garde par defaut une reponse SANS Cache-Control : 2 h pour un 200, 3 min
+   pour un 404 ou un 410 (doc Cloudflare, 27/11/2026). Un 410 passager — un
+   jeton megaplay expire — serait alors resservi a tout le monde. Toute
+   reponse qui n'a pas dit ce qu'elle veut part donc en `no-store` ; celles
+   qui veulent etre gardees (segments, playlists, /w/frame, /w/u…) le disent
+   deja. */
+function sansCacheParDefaut(res) {
+  if (!res || res.headers.has("Cache-Control")) return res;
+  try {
+    res.headers.set("Cache-Control", "no-store");
+    return res;
+  } catch {
+    // En-tetes immuables (reponse issue de cache.match ou de fetch) : copie.
+    const copie = new Response(res.body, res);
+    copie.headers.set("Cache-Control", "no-store");
+    return copie;
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     try {
       // Offloaded-from-Vercel endpoints (/w/status, /w/broadcast, /w/track) are
       // routed first; everything else is the HLS/scrape proxy.
       const edge = await handleEdgeEndpoint(request, env, ctx);
-      if (edge) return edge;
-      return await honoreRange(request, await handle(request, env, ctx));
+      if (edge) return sansCacheParDefaut(edge);
+      return sansCacheParDefaut(await honoreRange(request, await handle(request, env, ctx)));
     } catch (err) {
       return new Response(
         JSON.stringify({ error: "Proxy failed", detail: String(err) }),
         {
           status: 500,
-          headers: corsHeaders({ "Content-Type": "application/json" }),
+          headers: corsHeaders({ "Content-Type": "application/json", "Cache-Control": "no-store" }),
         },
       );
     }

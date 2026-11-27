@@ -35,3 +35,28 @@ id = "2ae59b75a28947848063dbac5b433e23"
 # by the Worker itself — listed here for documentation):
 #   CF_ACCOUNT_ID, CF_KV_NAMESPACE_ID, CF_KV_API_TOKEN  (env on Vercel)
 
+
+# ── WORKER DE TEST (27/11/2026) ──────────────────────────────────────────────
+# proxy.aniscroll.com sert la prod ET la dev : on n'y essaie plus rien. Le
+# projet Vercel dev pointe NEXT_PUBLIC_PROXY_BASE sur proxy-dev.aniscroll.com.
+#   npx wrangler deploy --env dev
+# Meme KV que la prod (le site dev y lit deja broadcast/diag). Domaine
+# personnalise obligatoire, comme pour la prod (caches.default).
+#
+# WORKERS CACHING (`cache`), seulement ici tant que les mesures n'ont pas
+# tranche : un cache DEVANT le Worker, hierarchise entre datacenters, qui
+# regroupe les demandes simultanees d'un meme segment et sert les Range lui-
+# meme ; un HIT ne fait pas tourner le Worker (zero CPU) et compte comme une
+# requete, comme aujourd'hui. `cross_version_cache` : sans lui, chaque
+# deploiement repartirait d'un cache vide (la version fait partie de la cle).
+[env.dev]
+name = "aniscroll-proxy-dev"
+routes = [{ pattern = "proxy-dev.aniscroll.com", custom_domain = true }]
+
+[env.dev.cache]
+enabled = true
+cross_version_cache = true
+
+[[env.dev.kv_namespaces]]
+binding = "W2G_CACHE"
+id = "2ae59b75a28947848063dbac5b433e23"
