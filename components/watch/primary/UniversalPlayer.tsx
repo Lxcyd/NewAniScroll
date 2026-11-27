@@ -2284,6 +2284,19 @@ export default function UniversalPlayer({
           (hls as any).once("hlsFragBuffered", () => {
             try {
               (hls as any).config.startPosition = -1;
+              /* PROGRESSIF POUR LA PREMIERE IMAGE SEULEMENT, sur les CDN directs
+                 rapides (vmpx d'ansembed, vmbox de voir-anime : 5-7 Mo/s).
+                 Mesure du 27/11/2026, voiranime-vidmoly, 12 passages sans
+                 progressif contre 6 avec : saut +5 min 1,4 s au lieu de 2,2 s,
+                 -2 min 0,16 s au lieu de 0,22 s, et AUCUN saut rate (1 sur 6
+                 avec : audio indecodable apres un saut arriere, MediaSource
+                 recree en boucle, bascule de serveur). Le decoupage ne sert qu'a
+                 montrer la premiere image avant la fin du premier segment ;
+                 ensuite, les segments entiers. Megaplay le garde : son CDN lent
+                 (~100 Ko/s par connexion) en profite aussi apres un saut. */
+              if (/^(voiranime-vidmoly|animesama-ansembed)/.test(serverId || "")) {
+                (hls as any).config.progressive = false;
+              }
             } catch {}
           });
         } catch {}
@@ -4338,6 +4351,27 @@ export default function UniversalPlayer({
         code: detail.response?.code || detail.response?.status,
         url: String(detail.frag?.url || detail.url || "").slice(0, 120),
       });
+      /* LE MODE PROGRESSIF SE RETIRE A LA PREMIERE ERREUR DE TAMPON (27/11/2026).
+         Trace d'un saut -2 min sur voiranime-vidmoly (1 sur 6) : l'audio ajoute
+         apres le saut ne se decode pas (« audio SourceBuffer error. MediaSource
+         readyState: ended »), hls.js recree le MediaSource, retombe dessus en
+         reculant de segment en segment (11, 9, 7, 6…), et apres 4 reprises le
+         lecteur bascule de serveur — image jamais revue. Le decoupage au fil de
+         l'eau des segments TS est le suspect : on le coupe pour CETTE lecture
+         (hls.js relit `config.progressive` a chaque segment) et la reprise
+         ci-dessous recharge des segments entiers. Le gain de premiere image est
+         deja acquis a ce stade. */
+      const hlsTampon = hlsRef.current as any;
+      if (
+        hlsTampon?.config?.progressive &&
+        detail.type === "mediaError" &&
+        /bufferAppendingError|mediaSourceRequiresReset|bufferAppendNoProgress|fragParsingError/.test(
+          String(detail.details),
+        )
+      ) {
+        hlsTampon.config.progressive = false;
+        diag("progressif-coupe", { details: detail.details });
+      }
       /* Non fatal : hls.js s'en occupe, on ne touche a rien. Mais deux de ces
          hoquets sur le chemin de la premiere image disent deja que ce CDN ne
          suit pas — on prepare le suivant sans rien interrompre. */
