@@ -2284,17 +2284,17 @@ export default function UniversalPlayer({
           (hls as any).once("hlsFragBuffered", () => {
             try {
               (hls as any).config.startPosition = -1;
-              /* PROGRESSIF POUR LA PREMIERE IMAGE SEULEMENT, sur les CDN directs
-                 rapides (vmpx d'ansembed, vmbox de voir-anime : 5-7 Mo/s).
-                 Mesure du 27/11/2026, voiranime-vidmoly, 12 passages sans
-                 progressif contre 6 avec : saut +5 min 1,4 s au lieu de 2,2 s,
-                 -2 min 0,16 s au lieu de 0,22 s, et AUCUN saut rate (1 sur 6
-                 avec : audio indecodable apres un saut arriere, MediaSource
-                 recree en boucle, bascule de serveur). Le decoupage ne sert qu'a
-                 montrer la premiere image avant la fin du premier segment ;
-                 ensuite, les segments entiers. Megaplay le garde : son CDN lent
-                 (~100 Ko/s par connexion) en profite aussi apres un saut. */
-              if (/^(voiranime-vidmoly|animesama-ansembed)/.test(serverId || "")) {
+              /* PROGRESSIF POUR LA PREMIERE IMAGE SEULEMENT, sur voiranime-vidmoly
+                 (CDN vmbox, 5-7 Mo/s). Mesure du 27/11/2026 : sans progressif
+                 apres le 1er segment, 0 saut rate sur 15 (1 sur 6 avant : audio
+                 indecodable apres un saut arriere, MediaSource recree en boucle,
+                 bascule de serveur), saut +5 min 1,4 s au lieu de 2,2 s, et la
+                 premiere image garde son gain (0,55 s). ansembed le GARDE : le
+                 saut arriere y reste plus rapide en progressif (0,5-0,7 s contre
+                 0,9-1 s, 3 passages chacun) et n'a jamais echoue en 15 passages ;
+                 le repli sur erreur de tampon (cf. le gestionnaire « hls-error »)
+                 le couvre. Megaplay aussi : son CDN lent en profite apres un saut. */
+              if (/^voiranime-vidmoly/.test(serverId || "")) {
                 (hls as any).config.progressive = false;
               }
             } catch {}

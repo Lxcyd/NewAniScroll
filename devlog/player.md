@@ -43,8 +43,13 @@ la page, froide apres chaque deploiement).
   - megaplay sans le Worker : 403 sans referer `megaplay.buzz` ;
   - Video.js 10 : Vidstack pese 105 Ko gz au plus, gain ≤ ~50 Ko, meme hls.js dessous ;
   - P2P, prerender (Speed Brain), Rocket Loader (retarderait EARLY_SOURCE_SCRIPT).
-- **Reste OUVERT** : sur voiranime-vidmoly, 1 saut −2 min sur 3 sans image (avant comme apres) : le
-  lecteur annule seg-11, 9, 7, 2 puis bascule sur anizone (`seiryuu`), image a 0p. Pas une regression.
+- **Saut arriere sans image sur voiranime-vidmoly (1 sur 6), CORRIGE** : trace par le nouvel outil
+  `saut-trace.mjs` (chaque ecriture de currentTime avec sa pile, evenements video, `hls-error`) →
+  « audio SourceBuffer error. MediaSource readyState: ended » apres le saut, MediaSource recree en
+  boucle en reculant (seg 11, 9, 7, 6…), 4 reprises puis bascule de serveur. Cause : le mode
+  progressif. Sans lui apres le 1er segment : 0 rate sur 15, saut +5 min 1,4 s au lieu de 2,2 s,
+  1re image intacte (0,55 s). ansembed garde le progressif (saut arriere plus rapide, 0 echec en 15).
+  Filet pour tous : a la 1re erreur de tampon, `hls.config.progressive = false` pour la session.
 - Les 26 000 « 504 » de proxy.aniscroll.com du tableau admin sont des operations de **cache interne**
   du Worker (`requestSource = edgeWorkerCacheAPI`), invisibles des spectateurs (pic de 20 032 le
   27/11 a 12 h UTC) ; a revoir apres Workers Caching en prod.
