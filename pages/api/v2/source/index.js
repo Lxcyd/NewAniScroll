@@ -624,6 +624,13 @@ async function getFrembedStream(serverKey, aniId, episode) {
   // is a static fact that answers null twice, a hiccup usually doesn't.
   // `lookupFribbEntry` dit desormais lequel des deux : la seconde lecture n'est
   // faite que sur une ERREUR, plus pour chaque anime sans correspondance.
+  /* La saison, lancee EN MEME TEMPS que la correspondance (27/11/2026) : deux
+     lectures Turso independantes, qui se suivaient. Un film ou un titre sans
+     correspondance n'attend pas ce resultat ; le `catch` muet garde alors son
+     rejet hors des « unhandled rejections », et l'appel attendu plus bas
+     relit la meme promesse, erreur comprise. */
+  const saisonP = detectSeasonNumber(aniId);
+  saisonP.catch(() => {});
   const first = await lookupFribbEntry(Number(aniId));
   const fribb = first.ok ? first.entry : await getFribbEntry(Number(aniId));
 
@@ -655,7 +662,7 @@ async function getFrembedStream(serverKey, aniId, episode) {
   }
 
   // A film has no coordinates to detect, to walk, or to remap: one id, one file.
-  const seasonNum = asMovie ? null : await detectSeasonNumber(aniId);
+  const seasonNum = asMovie ? null : await saisonP;
   let payload = await fetchFrembedPayload(tmdbId, seasonNum, episode);
   if (!payload) return null;
 

@@ -255,6 +255,16 @@ export async function getServerSideProps(context) {
     "CDN-Cache-Control",
     "public, s-maxage=1800, stale-while-revalidate=86400",
   );
+  /* Les connexions du lecteur, annoncees dans l'EN-TETE (27/11/2026) : le
+     navigateur les ouvre avant meme d'avoir lu le HTML, et Cloudflare (Early
+     Hints, a activer dans le tableau de bord) les renvoie en 103 pendant que
+     la page se genere. Meme liste que les <link rel="preconnect"> du <Head>. */
+  context.res.setHeader(
+    "Link",
+    [PROXY_BASE, "https://ansembed.net", "https://vidmoly.to"]
+      .map((o) => `<${o}>; rel=preconnect; crossorigin`)
+      .join(", "),
+  );
 
   const [aniId, provider] = query?.info;
   // The visible `?id=` is now cosmetic only (`{server}-{episode}`, no AniList
@@ -3235,9 +3245,9 @@ export default function Watch({
             for older browsers that ignore preconnect. */}
         {/* ansembed.net : l'embed du lecteur PAR DEFAUT, que le navigateur lit
             lui-meme (clientVidmoly) — le premier aller-retour hors de chez nous
-            sur le chemin de la premiere image. sendvid est retire. */}
+            sur le chemin de la premiere image. sendvid est retire, sibnet
+            mort (lib/lecteurs.json) : plus de connexion ouverte pour lui. */}
         <link rel="preconnect" href="https://ansembed.net" crossOrigin="anonymous" />
-        <link rel="preconnect" href="https://video.sibnet.ru" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://vidmoly.to" crossOrigin="anonymous" />
         {/* Warm the video proxy Worker unconditionally: the env var is only a
             build-time override, and when it's unset the player still hardcodes
@@ -3246,7 +3256,6 @@ export default function Watch({
         <link rel="preconnect" href={PROXY_BASE} crossOrigin="anonymous" />
         <link rel="dns-prefetch" href={PROXY_BASE} />
         <link rel="dns-prefetch" href="https://ansembed.net" />
-        <link rel="dns-prefetch" href="https://video.sibnet.ru" />
         <link rel="dns-prefetch" href="https://vidmoly.to" />
         {/* hls.js ne vient plus de jsDelivr mais du bundle, precharge avec le
             chunk du lecteur (preloadPlayerCode, en tete de ce module). */}

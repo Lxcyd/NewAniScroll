@@ -65,23 +65,42 @@ type PopupImage = { alt: string; src: string };
 /* La page d'abord (25/11/2026, passe vitesse) : la popup s'ouvre a la premiere
    visite, pendant que la page se charge, et sa premiere video (2,7 Mo) passait
    avant l'image principale — mesure sur mobile en 4G lente, la moitie des
-   octets de la page. Rien n'est demande avant `load` puis un moment de repos. */
+   octets de la page. Rien n'est demande avant `load` puis un moment de repos.
+   Et sur la page de LECTURE, pas avant la premiere image du lecteur (27/11/2026) :
+   `load` y tombe pendant que le premier segment arrive, et les 2,7 Mo de la
+   video lui prenaient sa bande passante (banc player-timeline, profil neuf :
+   apercu.mp4 en meme temps que seg-1, sur les quatre serveurs). Plafond 10 s :
+   un lecteur en panne ne garde pas la popup vide indefiniment. */
 function usePageChargee(): boolean {
   const [pret, setPret] = useState(false);
   useEffect(() => {
     let fini = false;
     let idle: number | undefined;
+    let guet: number | undefined;
     const w = window as any;
-    const ok = () => {
+    const repos = () => {
       if (fini) return;
       if (typeof w.requestIdleCallback === "function") idle = w.requestIdleCallback(() => !fini && setPret(true), { timeout: 2000 });
       else idle = window.setTimeout(() => !fini && setPret(true), 300);
+    };
+    const ok = () => {
+      if (fini) return;
+      if (!/\/anime\/watch\//.test(location.pathname)) return repos();
+      const debut = Date.now();
+      const attendre = () => {
+        if (fini) return;
+        const v = document.querySelector("[data-media-player] video") as HTMLVideoElement | null;
+        if ((v && v.readyState >= 2) || Date.now() - debut > 10_000) return repos();
+        guet = window.setTimeout(attendre, 400);
+      };
+      attendre();
     };
     if (document.readyState === "complete") ok();
     else window.addEventListener("load", ok, { once: true });
     return () => {
       fini = true;
       window.removeEventListener("load", ok);
+      if (guet != null) window.clearTimeout(guet);
       if (idle != null) {
         if (typeof w.cancelIdleCallback === "function") w.cancelIdleCallback(idle);
         window.clearTimeout(idle);

@@ -76,7 +76,8 @@ import { recordWatchToday } from "@/lib/stats/streak";
 import { bandwidthKey, FREMBED_BW_KEY, plancherQualite, saveBandwidth, startEstimate } from "@/lib/watch/hlsBandwidth";
 import { rememberAnimeHost } from "@/lib/prefs/animeHostMemory";
 import { VIDMOLY_HOST_RE } from "@/lib/players/vidmolyDomains";
-import { getLoaderMemoire, loadHlsLibrary } from "@/lib/watch/playerCode";
+import { getLoaderMemoire, getLoaderParallele, loadHlsLibrary } from "@/lib/watch/playerCode";
+import { reglerParallele } from "@/lib/watch/hlsParallel";
 import { useDataSaver } from "@/lib/prefs/dataSaver";
 import { usePlayerPrefs, setPlayerPrefs, getPlayerPrefs } from "@/lib/prefs/playerPrefs";
 import { getSyncPrefs } from "@/lib/prefs/syncPrefs";
@@ -289,9 +290,14 @@ const HLS_PROGRESSIVE = false;
 /* ALLUME pour megaplay et vidmoly (decision de Luc, 30/10) : segments MPEG-TS,
    les seuls que le mode progressif decode avant la fin. Gain mesure sur un
    megaplay au CDN lent (276 Ko/s) : premiere image a 4,2 s au lieu de 15,4 s.
-   frembed (un seul bloc fMP4 par segment) n'y gagnerait rien : reste eteint. */
+   frembed (un seul bloc fMP4 par segment) n'y gagnerait rien : reste eteint.
+   ET ansembed depuis le 27/11/2026 (le serveur par DEFAUT, memes segments TS
+   de ~10 Mo en 1080p sur le reseau vmpx) : premiere image a 1,63 s contre
+   3,90 s (medianes de 3 passages, player-timeline, Frieren ep1 sur dev), et
+   bien plus reguliere (1,57-1,68 s contre 3,3-8,2 s). Le segment n'a plus a
+   etre entier pour etre decode. */
 const PROGRESSIF_HOTES = (serverId?: string | null) =>
-  serverId === "megaplay" || /^voiranime-vidmoly/.test(serverId || "");
+  serverId === "megaplay" || /^(voiranime-vidmoly|animesama-ansembed)/.test(serverId || "");
 function progressifActif(serverId?: string | null): boolean {
   try {
     const v = localStorage.getItem("aniscroll:hlsProgressive");
@@ -2025,6 +2031,9 @@ export default function UniversalPlayer({
   // reel pour un flux direct, le Worker sinon). Meme passage de main par ref :
   // onProviderChange ne voit pas `bestStream`.
   const bwKeyRef = useRef<string>("proxied");
+  /* L'adresse du flux DIRECT courant (vide s'il passe par le Worker) : seuls
+     les CDN directs prennent le chargeur a connexions paralleles. */
+  const directUrlRef = useRef<string>("");
   /* La position donnee a hls.js comme `startPosition` (0 = aucune, ou moteur
      autre qu'hls.js). Quand elle vaut la cible, c'est hls.js qui place la tete
      de lecture et `resume` ne doit PAS sauter a son tour — cf. `resume`. */
@@ -2116,6 +2125,8 @@ export default function UniversalPlayer({
          pas encore la — on s'en passe, le lecteur fait simplement ses requetes
          comme avant. */
       const loaderMemoire = getLoaderMemoire();
+      const parallele =
+        directUrlRef.current && reglerParallele(serverId) > 1 ? getLoaderParallele() : null;
       // Partir bas, monter tout de suite — cf. lib/watch/hlsBandwidth.ts.
       const depart = startEstimate(bwKeyRef.current);
       /* Charger LA OU l'on va lire, pas depuis 0:00 (cf. `cibleDepart`). */
@@ -2131,6 +2142,10 @@ export default function UniversalPlayer({
         /* `pLoader` et non `loader` : il ne sert que des playlists, et un
            `loader` maison interdit la lecture progressive (cf. HLS_PROGRESSIVE). */
         ...(loaderMemoire ? { pLoader: loaderMemoire } : null),
+        /* Segments en plusieurs connexions, seulement sur un CDN DIRECT que
+           la carte des bridages a retenu (lib/watch/hlsParallel). `fLoader`
+           et non `loader` : le mode progressif reste permis. */
+        ...(parallele ? { fLoader: parallele } : null),
         ...(position > 0 ? { startPosition: position } : null),
         /* Plus de depart en 480p, meme sur Megaplay (~1 Mb/s par connexion) ou
            Vidmoly de voir-anime (segments de 20 s, ~9 Mo en 1080p) : Luc a
@@ -2320,8 +2335,9 @@ export default function UniversalPlayer({
       /* Megaplay : certains maitres melangent deux encodages dont les PTS ne
          partent pas du meme point — `index-f1-v1-a1` (1080p) a 0,1 s,
          `index-new-*` (720p/480p) a 1,4 s. hls.js fixe son horloge sur le
-         premier niveau charge (le plus bas, cf. `startLevel: 0`) et ne recale
-         pas les autres : une fois monte en 1080p, tout s'affichait 1,3 s trop
+         premier niveau charge et ne recale pas les autres (le depart se faisait
+         alors au plus bas ; il se fait desormais au plus haut, cf.
+         lib/watch/hlsBandwidth, mais le melange de familles reste) : une fois monte en 1080p, tout s'affichait 1,3 s trop
          tot, et chaque changement de qualite sautait 1,3 s. Mesure sur
          Railgun S ep1 (30/09/2026) : carton « 次回予告 » a 23:29 au lieu de
          23:30.2. On ne garde que la famille `new`, celle du depart. Maitre a
@@ -2362,10 +2378,10 @@ export default function UniversalPlayer({
         plancher();
       }
       // Force Maximum Quality: pin hls.js to the top level (a fixed level
-      // disables ABR auto-switching). Not from the manifest on: the first
-      // segment still comes from the low start level (cf. hlsBandwidth, first
-      // image in seconds instead of 10-25 s on megaplay/vidmoly), and the pin
-      // lands right after it is buffered — `nextLevel`, so what is already
+      // disables ABR auto-switching). Not from the manifest on: the start level
+      // is already the top one (cf. hlsBandwidth, quality first since
+      // 01/11/2026), and the pin lands right after the first fragment is
+      // buffered — `nextLevel`, so what is already
       // buffered plays out instead of being flushed. When off, hls.js stays on
       // auto (`currentLevel = -1`).
       if (hls && getPlayerPrefs().forceMaxQuality) {
@@ -6601,6 +6617,7 @@ export default function UniversalPlayer({
   // streams need it — proxied ones carry their Referer via the Worker query.
   directPlaybackRef.current = bestStream!.directUrl === true;
   bwKeyRef.current = bandwidthKey(bestStream!.url, directPlaybackRef.current);
+  directUrlRef.current = directPlaybackRef.current ? bestStream!.url : "";
   audioLangRef.current = bestStream!.audioLang || null;
   subtitlePrefRef.current = bestStream!.subtitlePref || null;
   const isM3U8 =
