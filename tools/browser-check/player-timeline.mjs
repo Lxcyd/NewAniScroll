@@ -134,7 +134,9 @@ const etat = `(() => {
   for (let i = 0; i < v.buffered.length; i++) {
     if (v.buffered.start(i) <= v.currentTime + 0.5 && v.buffered.end(i) > v.currentTime) avance = v.buffered.end(i) - v.currentTime;
   }
-  return { t: Math.round(v.currentTime * 10) / 10, pause: v.paused, h: v.videoHeight, avance: Math.round(avance), attentes: window.__tl.attentes.slice() };
+  const q = v.getVideoPlaybackQuality?.();
+  return { t: Math.round(v.currentTime * 10) / 10, pause: v.paused, h: v.videoHeight, avance: Math.round(avance), attentes: window.__tl.attentes.slice(),
+    perdues: q ? q.droppedVideoFrames : null, images: q ? q.totalVideoFrames : null };
 })()`;
 if (image != null) {
   await evalue(`(document.querySelector("[data-media-player] video") || document.querySelector("video:not([aria-label])"))?.play().catch(() => {})`);
@@ -148,6 +150,7 @@ if (image != null) {
   const e = await evalue(etat);
   const att_ = e?.attentes || [];
   console.log(`  attentes en lecture : ${att_.length} (${att_.reduce((a, b) => a + b, 0)} ms)`);
+  if (e?.images != null) console.log(`  images perdues : ${e.perdues} / ${e.images}`);
 
   if (process.env.SAUTS !== "0") {
     for (const [nom, delta] of [["+5 min", 300], ["-2 min", -120]]) {

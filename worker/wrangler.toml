@@ -13,6 +13,18 @@ compatibility_date = "2025-10-01"
 # NEXT_PUBLIC_PROXY_BASE (Vercel) must point at https://proxy.aniscroll.com.
 routes = [{ pattern = "proxy.aniscroll.com", custom_domain = true }]
 
+# WORKERS CACHING en prod (27/11/2026), apres mesure sur le Worker de test :
+# des le 2e passage, 34 a 43 segments megaplay sur ~100 servis par ce cache
+# sans faire tourner le Worker (zero CPU), le reste par caches.default. Il est
+# HIERARCHISE entre datacenters et regroupe les demandes simultanees d'un meme
+# segment, ce que caches.default ne fait pas. Un hit compte toujours comme une
+# requete (quota 100k/jour inchange). Retour arriere : enabled = false, puis
+# `npx wrangler deploy`. Toute reponse sans Cache-Control part en no-store
+# (cf. sansCacheParDefaut), sinon un 410 passager serait garde 3 min.
+[cache]
+enabled = true
+cross_version_cache = true
+
 # Observability is on by default — opt out only if you want to save log volume.
 [observability]
 enabled = true

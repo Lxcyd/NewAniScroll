@@ -76,8 +76,7 @@ import { recordWatchToday } from "@/lib/stats/streak";
 import { bandwidthKey, FREMBED_BW_KEY, plancherQualite, saveBandwidth, startEstimate } from "@/lib/watch/hlsBandwidth";
 import { rememberAnimeHost } from "@/lib/prefs/animeHostMemory";
 import { VIDMOLY_HOST_RE } from "@/lib/players/vidmolyDomains";
-import { getLoaderMemoire, getLoaderParallele, loadHlsLibrary } from "@/lib/watch/playerCode";
-import { reglerParallele } from "@/lib/watch/hlsParallel";
+import { getLoaderMemoire, loadHlsLibrary } from "@/lib/watch/playerCode";
 import { useDataSaver } from "@/lib/prefs/dataSaver";
 import { usePlayerPrefs, setPlayerPrefs, getPlayerPrefs } from "@/lib/prefs/playerPrefs";
 import { getSyncPrefs } from "@/lib/prefs/syncPrefs";
@@ -2031,9 +2030,6 @@ export default function UniversalPlayer({
   // reel pour un flux direct, le Worker sinon). Meme passage de main par ref :
   // onProviderChange ne voit pas `bestStream`.
   const bwKeyRef = useRef<string>("proxied");
-  /* L'adresse du flux DIRECT courant (vide s'il passe par le Worker) : seuls
-     les CDN directs prennent le chargeur a connexions paralleles. */
-  const directUrlRef = useRef<string>("");
   /* La position donnee a hls.js comme `startPosition` (0 = aucune, ou moteur
      autre qu'hls.js). Quand elle vaut la cible, c'est hls.js qui place la tete
      de lecture et `resume` ne doit PAS sauter a son tour — cf. `resume`. */
@@ -2125,8 +2121,6 @@ export default function UniversalPlayer({
          pas encore la — on s'en passe, le lecteur fait simplement ses requetes
          comme avant. */
       const loaderMemoire = getLoaderMemoire();
-      const parallele =
-        directUrlRef.current && reglerParallele(serverId) > 1 ? getLoaderParallele() : null;
       // Partir bas, monter tout de suite — cf. lib/watch/hlsBandwidth.ts.
       const depart = startEstimate(bwKeyRef.current);
       /* Charger LA OU l'on va lire, pas depuis 0:00 (cf. `cibleDepart`). */
@@ -2142,10 +2136,6 @@ export default function UniversalPlayer({
         /* `pLoader` et non `loader` : il ne sert que des playlists, et un
            `loader` maison interdit la lecture progressive (cf. HLS_PROGRESSIVE). */
         ...(loaderMemoire ? { pLoader: loaderMemoire } : null),
-        /* Segments en plusieurs connexions, seulement sur un CDN DIRECT que
-           la carte des bridages a retenu (lib/watch/hlsParallel). `fLoader`
-           et non `loader` : le mode progressif reste permis. */
-        ...(parallele ? { fLoader: parallele } : null),
         ...(position > 0 ? { startPosition: position } : null),
         /* Plus de depart en 480p, meme sur Megaplay (~1 Mb/s par connexion) ou
            Vidmoly de voir-anime (segments de 20 s, ~9 Mo en 1080p) : Luc a
@@ -6617,7 +6607,6 @@ export default function UniversalPlayer({
   // streams need it — proxied ones carry their Referer via the Worker query.
   directPlaybackRef.current = bestStream!.directUrl === true;
   bwKeyRef.current = bandwidthKey(bestStream!.url, directPlaybackRef.current);
-  directUrlRef.current = directPlaybackRef.current ? bestStream!.url : "";
   audioLangRef.current = bestStream!.audioLang || null;
   subtitlePrefRef.current = bestStream!.subtitlePref || null;
   const isM3U8 =

@@ -124,6 +124,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Lecteur video & lecteurs distants — [`devlog/player.md`](devlog/player.md)
 
+- 2026-11-27 — **Vitesse des lecteurs** : progressif sur ansembed (clic → image 2,34 → 0,61 s), hls.js 1.7.4, prechauffage du Worker repare (il s appelait lui-meme), Workers Caching sur `proxy-dev`, Early Hints ; chargeur Range parallele mesure et rejete → [player](devlog/player.md)
 - 2026-11-25 — **Anizone refuse Vercel et le Worker (403 par IP)** : page, master et .ass lus une fois depuis une IP acceptee par `tools/anizone/seed.mjs`, ranges dans `anizone_ep` / `anizone_sub` (base cache, sous-titres fr+en) ; le site lit la table, chip tu si l episode n y est pas → [player](devlog/player.md)
 - 2026-11-25 — **Anizone, lu en HLS NATIF** : 3 chips (VF si son fr, VO si sous-titres fr, MULTI) sur un master multi-audio ; leur CDN n'autorise que l'origine anizone.to et refuse le Worker → `<video>` natif sans `crossorigin` (no-cors), master d'une piste son remonte en `blob:`, menu « Langue audio » ; `streamType: "on-demand"` obligatoire (sinon la mise en page Vidstack ne rend rien) ; sous-titres .ass par un relais cache ; correspondance par recherche Livewire → `anizone_map` ; absent sur Firefox
 

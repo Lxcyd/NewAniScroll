@@ -6,6 +6,49 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-11-27 — Chantier vitesse des lecteurs : progressif ansembed, prechauffage Worker repare, Workers Caching
+
+Demande de Luc : lecteurs « le plus rapides possible sans les casser », qualite inchangee (depart au
+plus haut, plancher 720p, reconfirme deux fois). Banc `player-timeline.mjs` sur dev, Frieren ep1,
+**medianes de 3 passages** espaces, avant/apres. « clic → image » = du <video> a la 1re image (sans
+la page, froide apres chaque deploiement).
+
+| Serveur | clic → image | saut +5 min | saut −2 min |
+|---|---|---|---|
+| ansembed (defaut) | 2,34 → **0,61 s** | 1,68 → **1,12 s** | 1,30 → **0,62 s** |
+| voiranime-vidmoly | 0,56 → 0,66 s | 2,54 → 2,21 s | 1,35 → **0,31 s** |
+| frembed | 1,17 → 1,20 s | 0,73 → 0,71 s | 0,86 → **0,55 s** |
+
+- **Le banc mesurait le mauvais <video>** : sur un profil neuf, la popup des nouveautes (apercu.mp4)
+  monte un <video> avant le lecteur → « EN PAUSE », sauts sans image. Il vise `[data-media-player] video`.
+- **Mode progressif sur ansembed** (memes segments TS ~10 Mo que vidmoly-va) : le gros du gain.
+- **hls.js 1.7.4** (#8058 morceaux progressifs, #8125 stopLoad, #8115 fragment de depart annule).
+- **La video de la popup des nouveautes (2,7 Mo) attend la 1re image** : elle partait avec seg-1.
+- **Preconnect en en-tete `Link`** sur la page de lecture + **Early Hints active** (Speed → Settings) ;
+  plus de connexion vers sibnet (mort).
+- **Prechauffage du Worker : il ne marchait pas.** `fetch(rewrite(abs)+"&warm=")` vers son propre
+  domaine n'entre pas dans le Worker (Cloudflare) : rien en cache, et des 522 `edgeWorkerFetch` vers
+  une origine inexistante. Il tire maintenant 6 segments (hors les 8 premiers, 2 s apres) depuis
+  l'amont sous la cle du lecteur — verifie `HIT`. Le master ne chauffe plus (il chauffait la variante
+  BASSE quand hls.js joue la haute). `cdnMegaplay` ne bloque plus une playlist.
+- **Workers Caching** (cache DEVANT le Worker, gratuit) sur le Worker de test `proxy-dev.aniscroll.com`
+  (`--env dev`, NEXT_PUBLIC_PROXY_BASE du projet dev) : des le 2e passage 34-43 segments megaplay sur
+  ~100 servis sans executer le Worker. Toute reponse sans Cache-Control → `no-store` (sinon 410 garde
+  3 min), suppression d'un import → `ctx.cache.purge`. Prepare en prod dans wrangler.toml.
+- **Rejete apres mesure** :
+  - chargeur de segments en Range paralleles (`fLoader`) : carte `debit-connexions.mjs` → vmpx
+    (ansembed) PAS bride par connexion (le cumul baisse), frembed +58 % a 4, vmbox +30 % a 2 ; mais en
+    lecteur, 88 erreurs sur frembed et saut +5 min a 6,5 s sur vidmoly. Retire. Piege : ces CDN
+    rendent 206 sans exposer `Content-Range` (CORS) ;
+  - megaplay sans le Worker : 403 sans referer `megaplay.buzz` ;
+  - Video.js 10 : Vidstack pese 105 Ko gz au plus, gain ≤ ~50 Ko, meme hls.js dessous ;
+  - P2P, prerender (Speed Brain), Rocket Loader (retarderait EARLY_SOURCE_SCRIPT).
+- **Reste OUVERT** : sur voiranime-vidmoly, 1 saut −2 min sur 3 sans image (avant comme apres) : le
+  lecteur annule seg-11, 9, 7, 2 puis bascule sur anizone (`seiryuu`), image a 0p. Pas une regression.
+- Les 26 000 « 504 » de proxy.aniscroll.com du tableau admin sont des operations de **cache interne**
+  du Worker (`requestSource = edgeWorkerCacheAPI`), invisibles des spectateurs (pic de 20 032 le
+  27/11 a 12 h UTC) ; a revoir apres Workers Caching en prod.
+
 ## 2026-11-25 — Anizone sur dev : 403 aux IP de Vercel, servi depuis Turso
 
 Sur dev.aniscroll.com, Frieren ep 1 retombait sur Frembed (« Anizone n'a pas repondu »), alors que

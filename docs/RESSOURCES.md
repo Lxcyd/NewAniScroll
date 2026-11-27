@@ -303,7 +303,10 @@ jamais par l'iframe.
 | Outil | Usage |
 | --- | --- |
 | [hls.js](https://github.com/video-dev/hls.js) | Lecture HLS navigateur (horloge = 1er segment charge, cf. memoire « horloge lecteur ») |
-| [Vidstack](https://vidstack.io) | Notre lecteur |
+| [Vidstack](https://vidstack.io) | Notre lecteur (1.9.8). Deprecie au profit de Video.js 10, correctifs de securite jusqu'en 01/2028 ; la 1.10 detecte `ManagedMediaSource` (hls.js sur iPhone), pas la 1.9.8 (27/11/2026) |
+| [Video.js 10](https://videojs.org) | Successeur de Vidstack (fusion Vidstack/Media Chrome/Plyr), stable depuis 10.0.0 (01/10/2026), `@videojs/react` 10.7.0, React 18 OK, guide `migrate-from-vidstack`. `HlsJsVideo` prend toute la config hls.js (`source.engine.hlsJs`). WebVTT seul (pas d'ASS). 🧪 analyse le 27/11/2026 : gain borne a ~50 Ko gz face a Vidstack (105 Ko gz au plus), meme hls.js dessous |
+| [p2p-media-loader](https://github.com/Novage/p2p-media-loader) | Partage de segments HLS entre spectateurs (WebRTC, trackers WebTorrent publics), gratuit | ❌ ecarte le 27/11/2026 : peu de spectateurs simultanes par episode, URL a jeton par IP, IP exposees aux pairs |
+| [anime4k-webgpu](https://www.npmjs.com/package/anime4k-webgpu) | Anime4K en WebGPU sur un `<video>` → canvas | 🧪 piste « nettete » pour la 720p (27/11/2026), non branchee |
 | [Artplayer](https://artplayer.org) | Lecteur de flixcloud, plugins chapitres |
 | [Shaka Player](https://github.com/shaka-project/shaka-player) | DASH + HLS, DRM |
 | [JASSUB](https://github.com/ThaUnknown/jassub) / [SubtitlesOctopus](https://github.com/libass/JavascriptSubtitlesOctopus) | Rendu ASS (libass en WASM) — sous-titres de fansub avec styles |
@@ -319,7 +322,9 @@ jamais par l'iframe.
 | Service | Role | Chez nous |
 | --- | --- | --- |
 | Vercel (Hobby, 2 comptes) | Site prod + dev | ✅ — quotas : voir CLAUDE.md |
-| Cloudflare Workers / KV / DNS | Proxy video `proxy.aniscroll.com`, cache edge | ✅ |
+| Cloudflare Workers / KV / DNS | Proxy video `proxy.aniscroll.com`, cache edge | ✅ — Worker de test `proxy-dev.aniscroll.com` (`--env dev`) depuis le 27/11/2026 |
+| [Workers Caching](https://developers.cloudflare.com/workers/cache/) | Cache DEVANT un Worker (`[cache] enabled` dans wrangler.toml), gratuit : hierarchise entre datacenters, regroupe les requetes simultanees, sert les Range, zero CPU sur un hit (compte comme une requete). Cle = chemin + query (ordre compris), pas l'hote ; defauts SANS Cache-Control : 200 → 2 h, 404/410 → 3 min ; purge `ctx.cache.purge({pathPrefixes})` | 🧪 sur le Worker de test (27/11/2026). `caches.default`, lui, n'est ni hierarchise ni regroupe : un seul datacenter |
+| [Early Hints (103)](https://developers.cloudflare.com/cache/about/early-hints/) | Cloudflare renvoie en 103 les en-tetes `Link: rel=preconnect/preload` de la page, gratuit | 🧪 en-tete `Link` pose sur la page de lecture (27/11/2026) ; a activer dans le tableau de bord (Speed → Optimization) |
 | Cloudflare R2 | Stockage objets sans frais de sortie (images, cadres, archives) | ❌ exige une carte bancaire même en gratuit (24/10/2026) — remplacé par Cloudflare Pages pour les fonds |
 | Cloudflare Pages | Hébergement statique gratuit sans carte, bande passante illimitée, 25 Mio/fichier | ✅ projet `aniscroll-fonds` → `fonds.aniscroll.com` : les fonds animés du studio (24/10/2026) [lib/profile/fonds.ts, scripts/fonds/deploy-pages.mjs] |
 | [anilay.com/store](https://anilay.com/store) | Boutique de fonds vidéo de profil (webm + affiches) ; API publique `api.anilay.com/api/v1/store/items?category=profile` (243 articles) | 🧪 46 boucles reprises dans les fonds animés (23/10/2026) — ⚖️ extraits d'anime et fan-arts |

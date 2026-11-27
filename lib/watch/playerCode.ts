@@ -15,7 +15,6 @@
    ne coute rien. */
 
 import { fabriqueLoader } from "./hlsPreload";
-import { fabriqueFragLoaderParallele } from "./hlsParallel";
 
 export const loadHlsLibrary = () => import("hls.js");
 
@@ -31,22 +30,12 @@ export function getLoaderMemoire(): any {
   return loaderMemoire;
 }
 
-/* Le chargeur de SEGMENTS a connexions paralleles (lib/watch/hlsParallel),
-   prepare de la meme facon. */
-let loaderParallele: any = null;
-
-export function getLoaderParallele(): any {
-  return loaderParallele;
-}
-
 export function preloadPlayerCode(): void {
   if (typeof window === "undefined") return;
   void import("@/components/watch/primary/UniversalPlayer").catch(() => {});
   void loadHlsLibrary()
     .then((m) => {
-      const Hls = (m as any).default || m;
-      if (!loaderMemoire) loaderMemoire = fabriqueLoader(Hls);
-      if (!loaderParallele) loaderParallele = fabriqueFragLoaderParallele(Hls);
+      if (!loaderMemoire) loaderMemoire = fabriqueLoader((m as any).default || m);
     })
     .catch(() => {});
 }
