@@ -72,6 +72,10 @@ if (SEED) {
     await evalue(`localStorage.setItem(${JSON.stringify(k)}, ${JSON.stringify(typeof v === "string" ? v : JSON.stringify(v))})`);
   }
 }
+/* LE <video> DU LECTEUR, pas le premier de la page : sur un profil neuf, la
+   popup des nouveautes (components/shared/changelogs.tsx) monte un <video>
+   avant lui, et le banc mesurait celui-la (27/11/2026 : « EN PAUSE », sauts
+   sans image). */
 /* Temoin pose avant tout script de la page : il guette le <video>, note la
    premiere image presentee et cumule les attentes (`waiting` → `playing`). */
 await send("Page.addScriptToEvaluateOnNewDocument", { source: `(() => {
@@ -80,13 +84,13 @@ await send("Page.addScriptToEvaluateOnNewDocument", { source: `(() => {
   /* La tete de lecture et le compteur affiche, toutes les 100 ms : combien de
      temps la barre reste a 0:00 quand on ouvre a un minutage. */
   setInterval(() => {
-    const v = document.querySelector("video");
+    const v = (document.querySelector("[data-media-player] video") || document.querySelector("video:not([aria-label])"));
     if (!v || t.tete.length > 400) return;
     const c = document.querySelector('.vds-time[data-type="current"]');
     t.tete.push([Math.round(performance.now()), Math.round(v.currentTime * 10) / 10, c ? c.textContent.trim() : null]);
   }, 100);
   setInterval(() => {
-    const v = document.querySelector("video");
+    const v = (document.querySelector("[data-media-player] video") || document.querySelector("video:not([aria-label])"));
     if (!v || v === vu) return;
     vu = v;
     if (!t.video) t.video = performance.now();
@@ -124,7 +128,7 @@ else {
 }
 
 const etat = `(() => {
-  const v = document.querySelector("video");
+  const v = (document.querySelector("[data-media-player] video") || document.querySelector("video:not([aria-label])"));
   if (!v) return null;
   let avance = 0;
   for (let i = 0; i < v.buffered.length; i++) {
@@ -133,7 +137,7 @@ const etat = `(() => {
   return { t: Math.round(v.currentTime * 10) / 10, pause: v.paused, h: v.videoHeight, avance: Math.round(avance), attentes: window.__tl.attentes.slice() };
 })()`;
 if (image != null) {
-  await evalue(`document.querySelector("video")?.play().catch(() => {})`);
+  await evalue(`(document.querySelector("[data-media-player] video") || document.querySelector("video:not([aria-label])"))?.play().catch(() => {})`);
   let ecoule = 0;
   for (const palier of [5, 15, Number(duree)]) {
     await dors((palier - ecoule) * 1000);
@@ -148,7 +152,7 @@ if (image != null) {
   if (process.env.SAUTS !== "0") {
     for (const [nom, delta] of [["+5 min", 300], ["-2 min", -120]]) {
       const r = await evalue(`(async () => {
-        const v = document.querySelector("video");
+        const v = (document.querySelector("[data-media-player] video") || document.querySelector("video:not([aria-label])"));
         if (!v || !(v.duration > 0)) return null;
         const cible = Math.max(0, Math.min(v.duration - 30, v.currentTime + ${delta}));
         const t0 = performance.now();
@@ -193,18 +197,26 @@ for (const e of ev) {
 }
 const interne = (u) => (u.includes("/?url=") ? decodeURIComponent((u.split("url=")[1] || "").split("&")[0]) : u);
 const court = (u) => { try { const x = new URL(interne(u)); return x.hostname + x.pathname.split("/").slice(-1)[0].slice(0, 40); } catch { return u.slice(0, 60); } };
+/* Un hit de caches.default porte AUSSI Cf-Cache-Status: HIT, mais le Worker y
+   pose X-Aniscroll-Cache: HIT ; un hit du cache de DEVANT garde l'en-tete
+   stocke (MISS/WARM). */
+const avantHit = (r) => r.viaWorker && r.entetes?.["cf-cache-status"] === "HIT" && r.entetes?.["x-aniscroll-cache"] !== "HIT";
 const ligne = (r) => {
   const a = ((r.debut - t0) * 1000).toFixed(0).padStart(6);
   const d = r.fin ? `${((r.fin - r.debut) * 1000).toFixed(0)} ms` : "en vol";
   const ko = r.octets ? ` · ${(r.octets / 1024).toFixed(0)} Ko` : "";
   const debit = r.octets > 50000 && r.fin ? ` · ${(r.octets / 1024 / (r.fin - r.debut)).toFixed(0)} Ko/s` : "";
-  const cache = r.entetes?.["x-aniscroll-cache"] || r.entetes?.["x-vercel-cache"] || "";
+  /* Un HIT du cache DEVANT le Worker (Workers Caching, Worker de test) ne fait
+     pas tourner le Worker : l'en-tete X-Aniscroll-Cache garde alors la valeur
+     stockee (« MISS »). Cf-Cache-Status dit la verite. */
+  const avant = avantHit(r) ? "AVANT-HIT" : "";
+  const cache = avant || r.entetes?.["x-aniscroll-cache"] || r.entetes?.["x-vercel-cache"] || "";
   // Le detail du rendu serveur, quand la route le publie (page de lecture).
   const st = r.entetes?.["server-timing"] ? `  {${r.entetes["server-timing"].replace(/;dur=/g, " ")}}` : "";
   return `  ${a} ms  ${String(r.echec || r.statut || "?").padEnd(4)} ${d}${ko}${debit}${cache ? ` · ${cache}` : ""}  ${r.viaWorker ? "[W] " : ""}${court(r.url)}${st}`;
 };
 const tout = [...req.values()].filter((r) => t0 != null && r.debut >= t0).sort((a, b) => a.debut - b.debut);
-for (const r of tout) r.viaWorker = /proxy\.aniscroll\.com\/\?url=/.test(r.url);
+for (const r of tout) r.viaWorker = /proxy(-dev)?\.aniscroll\.com\/\?url=/.test(r.url);
 const video = tout.filter((r) => ["XHR", "Fetch", "Media"].includes(r.type) &&
   (r.viaWorker || /\.m3u8|\/seg-|\.ts(\?|$)|\.m4s|\.mp4/i.test(r.url)) && !/aniscroll\.com\/api\//.test(r.url));
 const playlists = video.filter((r) => /\.m3u8/i.test(interne(r.url)));
@@ -228,7 +240,7 @@ const finis = segments.filter((r) => r.fin && r.octets > 50000);
 if (finis.length) {
   const debits = finis.map((r) => r.octets / 1024 / (r.fin - r.debut)).sort((a, b) => a - b);
   const caches = {};
-  for (const r of finis) { const c = r.entetes?.["x-aniscroll-cache"] || "direct"; caches[c] = (caches[c] || 0) + 1; }
+  for (const r of finis) { const c = (avantHit(r) ? "AVANT-HIT" : r.entetes?.["x-aniscroll-cache"]) || "direct"; caches[c] = (caches[c] || 0) + 1; }
   console.log(`  debit par segment : mediane ${debits[Math.floor(debits.length / 2)].toFixed(0)} Ko/s, mini ${debits[0].toFixed(0)}, maxi ${debits[debits.length - 1].toFixed(0)} · ${JSON.stringify(caches)}`);
 }
 const vus = new Map();
